@@ -140,6 +140,7 @@ fun GalleryDetailScreen(
                             "ID ${gallery.id}",
                             gallery.language,
                             gallery.pageCount.takeIf { it > 0 }?.let { "${it}페이지" },
+                            formatGalleryPublishedDate(gallery.publishedDate)?.let { "업로드 $it" },
                         ).joinToString(" · "),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -157,16 +158,25 @@ fun GalleryDetailScreen(
                             }
                         }
                     }
+                    val queuedDownload = state.downloadQueue.firstOrNull {
+                        it.galleryId == gallery.id
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = { onOpenReader(0) }, modifier = Modifier.weight(1f)) {
                             Text("전체화면으로 읽기")
                         }
                         OutlinedButton(
                             onClick = { onDownload(gallery) },
-                            enabled = gallery.id !in state.downloadingGalleryIds,
+                            enabled = gallery.id !in state.downloadingGalleryIds && queuedDownload == null,
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text(if (gallery.id in state.downloadingGalleryIds) "요청 중…" else "다운로드하기")
+                            Text(
+                                when {
+                                    gallery.id in state.downloadingGalleryIds -> "요청 중…"
+                                    queuedDownload != null -> "다운로드 큐에 있음"
+                                    else -> "다운로드하기"
+                                },
+                            )
                         }
                     }
                     Text("갤러리 전체 썸네일", style = MaterialTheme.typography.titleMedium)

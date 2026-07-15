@@ -12,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 @Composable
 fun DownloadNotificationBanner(
@@ -31,6 +33,10 @@ fun DownloadNotificationBanner(
     onDismiss: () -> Unit,
     onOpen: () -> Unit,
 ) {
+    LaunchedEffect(notification.galleryId) {
+        delay(NOTIFICATION_AUTO_DISMISS_MS)
+        onDismiss()
+    }
     var dragX by remember(notification.galleryId) { mutableFloatStateOf(0f) }
     var dragY by remember(notification.galleryId) { mutableFloatStateOf(0f) }
 
@@ -72,9 +78,9 @@ fun DownloadNotificationBanner(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(notification.galleryTitle, style = MaterialTheme.typography.titleSmall)
-                Text("다운로드 완료", style = MaterialTheme.typography.bodyMedium)
+                Text("데스크톱 다운로드 큐에 추가됨", style = MaterialTheme.typography.bodyMedium)
             }
-            TextButton(onClick = onOpen) { Text("열기") }
+            TextButton(onClick = onOpen) { Text("확인") }
         }
     }
 }

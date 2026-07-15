@@ -19,6 +19,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -106,16 +110,19 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
             }
         }
 
-        viewModel.uiState.downloadNotification?.let { notification ->
+        val errorMessage = viewModel.uiState.message?.takeIf { viewModel.uiState.isError }
+        if (errorMessage != null) {
+            AppErrorBanner(errorMessage, viewModel::dismissMessage)
+        } else if (viewModel.uiState.connectionNotification != null) {
+            AppSuccessBanner(
+                message = viewModel.uiState.connectionNotification.orEmpty(),
+                onDismiss = viewModel::dismissConnectionNotification,
+            )
+        } else viewModel.uiState.downloadNotification?.let { notification ->
             DownloadNotificationBanner(
                 notification = notification,
                 onDismiss = viewModel::dismissDownloadNotification,
-                onOpen = {
-                    viewModel.dismissDownloadNotification()
-                    navController.navigate("gallery/${notification.galleryId}") {
-                        launchSingleTop = true
-                    }
-                },
+                onOpen = viewModel::dismissDownloadNotification,
             )
         }
     }
@@ -134,9 +141,9 @@ private fun MainShell(
     val navigate: (MainDestination) -> Unit = { destination ->
         if (destination != selected) {
             navController.navigate(destination.route) {
-                popUpTo(MainDestination.Browser.route) { saveState = true }
+                popUpTo(MainDestination.Browser.route) { saveState = false }
                 launchSingleTop = true
-                restoreState = true
+                restoreState = false
             }
         }
     }
@@ -195,6 +202,13 @@ private fun MainTabHost(
     contentPadding: PaddingValues,
     onGalleryClick: (Long) -> Unit,
 ) {
+    var connectionSettingsRequested by rememberSaveable { mutableStateOf(false) }
+    val openConnectionSettings: () -> Unit = {
+        connectionSettingsRequested = true
+        navController.navigate(MainDestination.Settings.route) {
+            launchSingleTop = true
+        }
+    }
     NavHost(
         navController = navController,
         startDestination = MainDestination.Browser.route,
@@ -218,20 +232,28 @@ private fun MainTabHost(
                 onRefresh = viewModel::refresh,
                 onLoadNextPage = viewModel::loadNextPage,
                 onGalleryClick = onGalleryClick,
+                onConnect = openConnectionSettings,
             )
         }
         composable(MainDestination.Library.route) {
             PlaceholderScreen(
                 title = "갤러리",
-                description = "SMB 라이브러리와 즐겨찾기가 이 화면에 추가됩니다.",
+                description = "기기 내부 라이브러리와 선택적 PC·SMB 연동이 이 화면에 추가됩니다.",
                 padding = contentPadding,
             )
         }
         composable(MainDestination.Downloads.route) {
-            PlaceholderScreen(
-                title = "다운로드",
-                description = "데스크톱 다운로드 큐가 이 화면에 추가됩니다.",
-                padding = contentPadding,
+            DownloadsScreen(
+                state = viewModel.uiState,
+                contentPadding = contentPadding,
+                onRefresh = viewModel::refreshDownloads,
+                onPause = viewModel::pauseDownload,
+                onResume = viewModel::resumeDownload,
+                onRetry = viewModel::retryDownload,
+                onRemove = viewModel::removeDownload,
+                onClearCompleted = viewModel::clearCompletedDownloads,
+                onConnect = openConnectionSettings,
+                onLeave = viewModel::resetDownloadConnectionAttempt,
             )
         }
         composable(MainDestination.Settings.route) {
@@ -246,6 +268,12 @@ private fun MainTabHost(
                 onPair = viewModel::pair,
                 onSelectProfile = viewModel::selectProfile,
                 onRemoveProfile = viewModel::removeProfile,
+                onAddLibraryLocation = viewModel::addLibraryLocation,
+                onRemoveLibraryLocation = viewModel::removeLibraryLocation,
+                onSetDownloadLocation = viewModel::setDownloadLocation,
+                onClearDownloadLocation = viewModel::clearDownloadLocation,
+                openConnectionRequested = connectionSettingsRequested,
+                onConnectionRequestHandled = { connectionSettingsRequested = false },
             )
         }
     }

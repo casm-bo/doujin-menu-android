@@ -8,8 +8,10 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.doujinmenu.android.model.DesktopProfile
+import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.SearchFavorite
+import com.doujinmenu.android.model.StorageLocation
 import com.doujinmenu.android.network.CompanionClient
 import com.doujinmenu.android.network.EndpointNormalizer
 import com.doujinmenu.android.network.FilterSuggestion
@@ -41,6 +43,8 @@ data class MainUiState(
     val isLoadingFilterSuggestions: Boolean = false,
     val knownFilterTokens: Set<String> = emptySet(),
     val viewedGalleryIds: Set<Long> = emptySet(),
+    val libraryLocations: List<StorageLocation> = emptyList(),
+    val downloadLocation: StorageLocation? = null,
     val submittedSearchQuery: String = "",
     val submittedSearchQueries: List<String> = emptyList(),
     val galleries: List<GallerySummary> = emptyList(),
@@ -55,7 +59,13 @@ data class MainUiState(
     val isReaderLoading: Boolean = false,
     val readerError: String? = null,
     val downloadingGalleryIds: Set<Long> = emptySet(),
+    val downloadQueue: List<DownloadQueueItem> = emptyList(),
+    val isDownloadQueueLoading: Boolean = false,
+    val downloadQueueError: String? = null,
+    val isDownloadConnectionUnavailable: Boolean = false,
+    val activeDownloadActionIds: Set<Long> = emptySet(),
     val downloadNotification: DownloadNotification? = null,
+    val connectionNotification: String? = null,
     val isBusy: Boolean = false,
     val message: String? = null,
     val isError: Boolean = false,
@@ -73,6 +83,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val browserPreferenceStore = BrowserPreferenceStore(application)
     private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
     private var suggestionJob: Job? = null
+    private var notifyOnDownloadReconnect = false
 
     var uiState by mutableStateOf(MainUiState())
         private set
@@ -86,6 +97,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             preferredLanguages = browserPreferenceStore.loadPreferredLanguages(),
             knownFilterTokens = browserPreferenceStore.loadKnownFilterTokens(),
             viewedGalleryIds = browserPreferenceStore.loadViewedGalleryIds(),
+            libraryLocations = browserPreferenceStore.loadLibraryLocations(),
+            downloadLocation = browserPreferenceStore.loadDownloadLocation(),
         )
     }
 
@@ -175,9 +188,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runOperation {
                 val baseUrl = EndpointNormalizer.normalize(uiState.host, uiState.port)
                 val status = client.getStatus(baseUrl)
+                notifyOnDownloadReconnect = false
                 uiState = uiState.copy(
                     message = "연결 성공: ${status.service} API v${status.version}" +
                         if (status.pairingAvailable) " · 페어링 가능" else " · 페어링 코드 없음",
+                    connectionNotification = "PC와 연결되었습니다.",
                     isError = false,
                 )
             }
@@ -196,6 +211,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 require(status.pairingAvailable) { "데스크톱에서 새 페어링 코드를 먼저 생성하세요." }
 
                 val result = client.pair(baseUrl, code, deviceName)
+                notifyOnDownloadReconnect = false
                 val profile = DesktopProfile(
                     id = result.deviceId,
                     name = result.deviceName,
@@ -208,6 +224,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     profiles = profiles,
                     selectedProfileId = profile.id,
                     pairingCode = "",
+                    isDownloadConnectionUnavailable = false,
+                    connectionNotification = "${profile.name}와 연결되었습니다.",
                     message = "${profile.name} 페어링 완료 · 토큰을 Keystore로 보호해 저장했습니다.",
                     isError = false,
                 )
@@ -225,6 +243,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             galleries = emptyList(),
             currentPage = 0,
             hasNextPage = false,
+            downloadQueue = emptyList(),
+            downloadQueueError = null,
+            isDownloadConnectionUnavailable = false,
         )
     }
 
@@ -239,6 +260,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             galleries = emptyList(),
             currentPage = 0,
             hasNextPage = false,
+            downloadQueue = emptyList(),
+            downloadQueueError = null,
+            isDownloadConnectionUnavailable = false,
             message = "저장된 데스크톱을 삭제했습니다.",
             isError = false,
         )
@@ -319,17 +343,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isError = false,
             )
             try {
-                val status = client.requestDownload(profile, gallery.id)
-                if (status.equals("completed", ignoreCase = true)) {
-                    uiState = uiState.copy(
-                        downloadNotification = DownloadNotification(gallery.id, gallery.title),
-                    )
-                } else {
-                    uiState = uiState.copy(
-                        message = "${gallery.title} 다운로드를 데스크톱 큐에 추가했습니다.",
-                        isError = false,
-                    )
-                }
+                val item = client.requestDownload(profile, gallery.id)
+                uiState = uiState.copy(
+                    downloadQueue = (uiState.downloadQueue + item).distinctBy { it.id },
+                    downloadNotification = DownloadNotification(gallery.id, gallery.title),
+                )
             } catch (error: Exception) {
                 val unsupported = error.message?.contains("Not found", ignoreCase = true) == true
                 uiState = uiState.copy(
@@ -351,6 +369,140 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissDownloadNotification() {
         uiState = uiState.copy(downloadNotification = null)
     }
+
+    fun dismissConnectionNotification() {
+        uiState = uiState.copy(connectionNotification = null)
+    }
+
+    fun dismissMessage() {
+        uiState = uiState.copy(message = null, isError = false)
+    }
+
+    fun addLibraryLocation(uri: String, displayName: String) {
+        val location = StorageLocation(uri, displayName)
+        val locations = (uiState.libraryLocations + location).distinctBy { it.uri }
+        browserPreferenceStore.saveLibraryLocations(locations)
+        uiState = uiState.copy(libraryLocations = locations)
+    }
+
+    fun removeLibraryLocation(uri: String) {
+        val locations = uiState.libraryLocations.filterNot { it.uri == uri }
+        browserPreferenceStore.saveLibraryLocations(locations)
+        uiState = uiState.copy(libraryLocations = locations)
+    }
+
+    fun setDownloadLocation(uri: String, displayName: String) {
+        val location = StorageLocation(uri, displayName)
+        browserPreferenceStore.saveDownloadLocation(location)
+        uiState = uiState.copy(downloadLocation = location)
+    }
+
+    fun clearDownloadLocation() {
+        browserPreferenceStore.saveDownloadLocation(null)
+        uiState = uiState.copy(downloadLocation = null)
+    }
+
+    fun resetDownloadConnectionAttempt() {
+        if (uiState.isDownloadConnectionUnavailable) {
+            notifyOnDownloadReconnect = true
+        }
+        uiState = uiState.copy(isDownloadConnectionUnavailable = false)
+    }
+
+    fun refreshDownloads(silent: Boolean = false) {
+        if (uiState.isDownloadQueueLoading || uiState.isDownloadConnectionUnavailable) return
+        val profile = selectedProfile() ?: run {
+            if (!silent) {
+                uiState = uiState.copy(downloadQueueError = "연결된 데스크톱이 없습니다.")
+            }
+            return
+        }
+        viewModelScope.launch {
+            uiState = uiState.copy(
+                isDownloadQueueLoading = true,
+                downloadQueueError = if (silent) uiState.downloadQueueError else null,
+            )
+            try {
+                val downloads = client.getDownloads(profile)
+                uiState = uiState.copy(
+                    downloadQueue = downloads,
+                    downloadQueueError = null,
+                    isDownloadConnectionUnavailable = false,
+                    connectionNotification = if (notifyOnDownloadReconnect) {
+                        "PC와 다시 연결되었습니다."
+                    } else {
+                        uiState.connectionNotification
+                    },
+                )
+                notifyOnDownloadReconnect = false
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    downloadQueueError = null,
+                    isDownloadConnectionUnavailable = true,
+                )
+            } finally {
+                uiState = uiState.copy(isDownloadQueueLoading = false)
+            }
+        }
+    }
+
+    fun pauseDownload(queueId: Long) = runDownloadAction(queueId) { profile ->
+        client.pauseDownload(profile, queueId)
+    }
+
+    fun resumeDownload(queueId: Long) = runDownloadAction(queueId) { profile ->
+        client.resumeDownload(profile, queueId)
+    }
+
+    fun retryDownload(queueId: Long) = runDownloadAction(queueId) { profile ->
+        client.retryDownload(profile, queueId)
+    }
+
+    fun removeDownload(queueId: Long) = runDownloadAction(queueId) { profile ->
+        client.removeDownload(profile, queueId)
+    }
+
+    fun clearCompletedDownloads() = runDownloadAction(null) { profile ->
+        client.clearCompletedDownloads(profile)
+    }
+
+    private fun runDownloadAction(
+        queueId: Long?,
+        action: suspend (DesktopProfile) -> Unit,
+    ) {
+        if (queueId != null && queueId in uiState.activeDownloadActionIds) return
+        val profile = selectedProfile() ?: run {
+            uiState = uiState.copy(downloadQueueError = "연결된 데스크톱이 없습니다.")
+            return
+        }
+        viewModelScope.launch {
+            if (queueId != null) {
+                uiState = uiState.copy(
+                    activeDownloadActionIds = uiState.activeDownloadActionIds + queueId,
+                )
+            }
+            try {
+                action(profile)
+                uiState = uiState.copy(
+                    downloadQueue = client.getDownloads(profile),
+                    downloadQueueError = null,
+                )
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    downloadQueueError = error.message ?: "다운로드 작업에 실패했습니다.",
+                )
+            } finally {
+                if (queueId != null) {
+                    uiState = uiState.copy(
+                        activeDownloadActionIds = uiState.activeDownloadActionIds - queueId,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun selectedProfile(): DesktopProfile? =
+        uiState.profiles.firstOrNull { it.id == uiState.selectedProfileId }
 
     private suspend fun loadPage(reset: Boolean, preserveResults: Boolean = false) {
         val profile = uiState.profiles.firstOrNull { it.id == uiState.selectedProfileId }
@@ -398,9 +550,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 knownFilterTokens = knownFilters,
                 currentPage = page,
                 hasNextPage = searchResults.any { it.hasNextPage },
-                message = "${page}페이지 로드 · 총 ${merged.size}개" +
-                    if (failedCount > 0) " · 상세 정보 실패 ${failedCount}개" else "",
-                isError = false,
+                message = if (failedCount > 0) {
+                    "상세 정보를 불러오지 못한 갤러리가 ${failedCount}개 있습니다."
+                } else {
+                    null
+                },
+                isError = failedCount > 0,
             )
         } catch (error: Exception) {
             uiState = uiState.copy(
@@ -492,10 +647,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (':' !in rawToken) {
-            val suggestions = FILTER_TYPES
-                .filter { it.startsWith(rawToken.lowercase()) }
+            val partial = rawToken.lowercase()
+            val typeHints = FILTER_TYPES
+                .filter { it.startsWith(partial) }
                 .map { FilterSuggestion("$it:", "$it 필터") }
-            uiState = uiState.copy(filterSuggestions = suggestions, isLoadingFilterSuggestions = false)
+            val local = localUntypedFilterSuggestions(partial)
+            val cacheKey = "untyped:$partial"
+            suggestionCache[cacheKey]?.let { cached ->
+                uiState = uiState.copy(
+                    filterSuggestions = mergeUntypedSuggestions(typeHints, local, cached, partial),
+                    isLoadingFilterSuggestions = false,
+                )
+                return
+            }
+
+            uiState = uiState.copy(
+                filterSuggestions = mergeUntypedSuggestions(typeHints, local, emptyList(), partial),
+                isLoadingFilterSuggestions = true,
+            )
+            suggestionJob = viewModelScope.launch {
+                delay(SUGGESTION_DEBOUNCE_MS)
+                val remote = coroutineScope {
+                    UNTYPED_SUGGESTION_TYPES.map { type ->
+                        async {
+                            runCatching { suggestionClient.getSuggestions(type, partial) }
+                                .getOrDefault(emptyList())
+                        }
+                    }.awaitAll().flatten()
+                }
+                suggestionCache[cacheKey] = remote
+                val knownFilters = rememberKnownFilterTokens(remote.mapTo(linkedSetOf()) { it.token })
+                if (uiState.searchQuery.substringAfterLast(' ').removePrefix("-") == rawToken) {
+                    uiState = uiState.copy(
+                        filterSuggestions = mergeUntypedSuggestions(typeHints, local, remote, partial),
+                        isLoadingFilterSuggestions = false,
+                        knownFilterTokens = knownFilters,
+                    )
+                } else if (knownFilters != uiState.knownFilterTokens) {
+                    uiState = uiState.copy(knownFilterTokens = knownFilters)
+                }
+            }
             return
         }
         val type = rawToken.substringBefore(':').lowercase()
@@ -547,6 +738,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .map { FilterSuggestion(it, it.substringAfter(':').replace('_', ' ')) }
             .toList()
     }
+
+    private fun localUntypedFilterSuggestions(partial: String): List<FilterSuggestion> {
+        val favoriteTokens = uiState.searchFavorites.asSequence().flatMap { favorite ->
+            favorite.query.split(Regex("\\s+")).asSequence()
+        }
+        return (uiState.knownFilterTokens.asSequence() + favoriteTokens)
+            .map { it.removePrefix("-") }
+            .filter { token -> token.substringAfter(':', "").startsWith(partial) }
+            .distinct()
+            .take(MAX_FILTER_SUGGESTIONS)
+            .map { token ->
+                FilterSuggestion(token, token.substringAfter(':').replace('_', ' '))
+            }
+            .toList()
+    }
+
+    private fun mergeUntypedSuggestions(
+        typeHints: List<FilterSuggestion>,
+        local: List<FilterSuggestion>,
+        remote: List<FilterSuggestion>,
+        partial: String,
+    ): List<FilterSuggestion> = (typeHints + local + remote)
+        .filter { suggestion ->
+            suggestion.token.substringBefore(':').startsWith(partial) ||
+                suggestion.token.substringAfter(':', "").startsWith(partial)
+        }
+        .distinctBy { it.token }
+        .take(MAX_FILTER_SUGGESTIONS)
 
     private fun mergeSuggestions(
         local: List<FilterSuggestion>,
@@ -622,5 +841,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val FILTER_TYPES = listOf(
             "artist", "group", "type", "language", "series", "character", "male", "female", "tag",
         )
+        val UNTYPED_SUGGESTION_TYPES = listOf("tag", "language", "type")
     }
 }

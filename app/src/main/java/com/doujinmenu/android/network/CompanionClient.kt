@@ -2,6 +2,8 @@ package com.doujinmenu.android.network
 
 import com.doujinmenu.android.model.CompanionStatus
 import com.doujinmenu.android.model.DesktopProfile
+import com.doujinmenu.android.model.DownloadQueueItem
+import com.doujinmenu.android.model.DownloadStatus
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.GalleryTag
 import com.doujinmenu.android.model.PairingResult
@@ -10,6 +12,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 
 class CompanionClient {
@@ -100,6 +103,7 @@ class CompanionClient {
                 pageCount = data.optJSONArray("files")?.length() ?: 0,
                 language = languageName?.optString("local")?.takeIf { it.isNotBlank() }
                     ?: languageName?.optString("english")?.takeIf { it.isNotBlank() },
+                publishedDate = data.nullableString("publishedDate"),
             )
         }
 
@@ -117,7 +121,7 @@ class CompanionClient {
             pages.toStringList()
         }
 
-    suspend fun requestDownload(profile: DesktopProfile, galleryId: Long): String =
+    suspend fun requestDownload(profile: DesktopProfile, galleryId: Long): DownloadQueueItem =
         withContext(Dispatchers.IO) {
             val data = request(
                 url = "${profile.baseUrl}/v1/downloads",
@@ -125,8 +129,55 @@ class CompanionClient {
                 token = profile.token,
                 body = JSONObject().put("galleryId", galleryId),
             ).requireSuccess()
-            data.optString("status", "queued")
+            data.toDownloadQueueItem()
         }
+
+    suspend fun getDownloads(profile: DesktopProfile): List<DownloadQueueItem> =
+        withContext(Dispatchers.IO) {
+            request(
+                url = "${profile.baseUrl}/v1/downloads",
+                token = profile.token,
+            ).requireDataArray().toDownloadQueueItems()
+        }
+
+    suspend fun pauseDownload(profile: DesktopProfile, queueId: Long) =
+        downloadAction(profile, queueId, "pause")
+
+    suspend fun resumeDownload(profile: DesktopProfile, queueId: Long) =
+        downloadAction(profile, queueId, "resume")
+
+    suspend fun retryDownload(profile: DesktopProfile, queueId: Long) =
+        downloadAction(profile, queueId, "retry")
+
+    suspend fun removeDownload(profile: DesktopProfile, queueId: Long) =
+        withContext(Dispatchers.IO) {
+            request(
+                url = "${profile.baseUrl}/v1/downloads/$queueId",
+                method = "DELETE",
+                token = profile.token,
+            ).requireSuccess()
+        }
+
+    suspend fun clearCompletedDownloads(profile: DesktopProfile) =
+        withContext(Dispatchers.IO) {
+            request(
+                url = "${profile.baseUrl}/v1/downloads/completed",
+                method = "DELETE",
+                token = profile.token,
+            ).requireSuccess()
+        }
+
+    private suspend fun downloadAction(
+        profile: DesktopProfile,
+        queueId: Long,
+        action: String,
+    ) = withContext(Dispatchers.IO) {
+        request(
+            url = "${profile.baseUrl}/v1/downloads/$queueId/$action",
+            method = "POST",
+            token = profile.token,
+        ).requireSuccess()
+    }
 
     private fun request(
         url: String,
@@ -174,6 +225,14 @@ class CompanionClient {
             ?: throw CompanionApiException("응답에 data 객체가 없습니다.")
     }
 
+    private fun JSONObject.requireDataArray(): JSONArray {
+        if (!optBoolean("success", false)) {
+            throw CompanionApiException(errorMessage("요청에 실패했습니다."))
+        }
+        return optJSONArray("data")
+            ?: throw CompanionApiException("응답에 data 배열이 없습니다.")
+    }
+
     private fun JSONObject.errorMessage(fallback: String): String {
         val errorObject = optJSONObject("error")
         return errorObject?.optString("message")?.takeIf { it.isNotBlank() }
@@ -186,6 +245,39 @@ class CompanionClient {
         const val CONNECT_TIMEOUT_MS = 5_000
         const val READ_TIMEOUT_MS = 15_000
     }
+}
+
+private fun JSONArray.toDownloadQueueItems(): List<DownloadQueueItem> = buildList {
+    repeat(length()) { index ->
+        optJSONObject(index)?.let { add(it.toDownloadQueueItem()) }
+    }
+}
+
+private fun JSONObject.toDownloadQueueItem(): DownloadQueueItem = DownloadQueueItem(
+    id = getLong("id"),
+    galleryId = getLong("gallery_id"),
+    galleryTitle = optString("gallery_title", "Gallery #${optLong("gallery_id")}"),
+    galleryArtist = nullableString("gallery_artist"),
+    thumbnailUrl = nullableString("thumbnail_url"),
+    status = when (optString("status").lowercase()) {
+        "pending" -> DownloadStatus.PENDING
+        "downloading" -> DownloadStatus.DOWNLOADING
+        "completed" -> DownloadStatus.COMPLETED
+        "failed" -> DownloadStatus.FAILED
+        "paused" -> DownloadStatus.PAUSED
+        else -> DownloadStatus.UNKNOWN
+    },
+    progress = optInt("progress", 0).coerceIn(0, 100),
+    totalFiles = optInt("total_files", 0),
+    downloadedFiles = optInt("downloaded_files", 0),
+    downloadSpeed = optLong("download_speed", 0L),
+    errorMessage = nullableString("error_message"),
+    addedAt = optString("added_at"),
+)
+
+private fun JSONObject.nullableString(key: String): String? {
+    if (!has(key) || isNull(key)) return null
+    return optString(key).trim().takeIf { it.isNotEmpty() && !it.equals("null", true) }
 }
 
 private fun org.json.JSONArray?.toStringList(): List<String> = buildList {

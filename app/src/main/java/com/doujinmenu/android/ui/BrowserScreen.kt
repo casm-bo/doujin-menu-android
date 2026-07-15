@@ -25,6 +25,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -32,14 +33,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -68,9 +76,32 @@ fun BrowserScreen(
     onRefresh: () -> Unit,
     onLoadNextPage: () -> Unit,
     onGalleryClick: (Long) -> Unit,
+    onConnect: () -> Unit,
 ) {
     val selected = state.profiles.firstOrNull { it.id == state.selectedProfileId }
+    if (selected == null) {
+        ConnectionRequiredScreen(contentPadding, onConnect)
+        return
+    }
     var expandedPanel by rememberSaveable { mutableStateOf<String?>(null) }
+    var queryFieldValue by remember {
+        mutableStateOf(
+            TextFieldValue(
+                text = state.searchQuery,
+                selection = TextRange(state.searchQuery.length),
+            ),
+        )
+    }
+    val queryFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(state.searchQuery) {
+        if (queryFieldValue.text != state.searchQuery) {
+            queryFieldValue = TextFieldValue(
+                text = state.searchQuery,
+                selection = TextRange(state.searchQuery.length),
+            )
+        }
+    }
 
     PullToRefreshBox(
         isRefreshing = state.isRefreshing,
@@ -86,14 +117,17 @@ fun BrowserScreen(
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        selected?.let { "연결 대상: ${it.name}" } ?: "설정에서 데스크톱을 연결하세요.",
+                        "연결 대상: ${selected.name}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = state.searchQuery,
-                        onValueChange = onQueryChange,
-                        modifier = Modifier.fillMaxWidth(),
+                        value = queryFieldValue,
+                        onValueChange = { value ->
+                            queryFieldValue = value
+                            onQueryChange(value.text)
+                        },
+                        modifier = Modifier.fillMaxWidth().focusRequester(queryFocusRequester),
                         label = { Text("검색 조건") },
                         placeholder = { Text("tag:full_color artist:sample_artist") },
                         trailingIcon = {
@@ -102,13 +136,16 @@ fun BrowserScreen(
                             }
                         },
                         singleLine = true,
-                        enabled = !state.isLoadingPage && selected != null,
+                        enabled = !state.isLoadingPage,
                     )
                     if (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions) {
                         Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
                             state.filterSuggestions.forEach { suggestion ->
                                 TextButton(
-                                    onClick = { onSelectSuggestion(suggestion) },
+                                    onClick = {
+                                        onSelectSuggestion(suggestion)
+                                        queryFocusRequester.requestFocus()
+                                    },
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
                                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -147,7 +184,7 @@ fun BrowserScreen(
                         Spacer(Modifier.weight(1f))
                         Button(
                             onClick = onSearch,
-                            enabled = !state.isLoadingPage && selected != null &&
+                            enabled = !state.isLoadingPage &&
                                 (state.searchQuery.isNotBlank() || state.preferredLanguages.isNotEmpty()),
                         ) { Text("검색") }
                     }
@@ -216,7 +253,7 @@ fun BrowserScreen(
             }
         }
 
-        state.message?.let { message ->
+        state.message?.takeUnless { state.isError }?.let { message ->
             item { MessageCard(message, state.isError) }
         }
 
@@ -286,7 +323,29 @@ private fun GalleryCard(gallery: GallerySummary, viewed: Boolean, onClick: () ->
                         contentDescription = "${gallery.title} 썸네일",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
+                        colorFilter = if (viewed) {
+                            ColorFilter.colorMatrix(
+                                ColorMatrix().apply { setToSaturation(0.15f) },
+                            )
+                        } else {
+                            null
+                        },
                     )
+                }
+                if (viewed) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
+                        shape = RoundedCornerShape(5.dp),
+                        color = MaterialTheme.colorScheme.inverseSurface,
+                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    ) {
+                        Text(
+                            "읽음",
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.width(14.dp))
@@ -294,14 +353,6 @@ private fun GalleryCard(gallery: GallerySummary, viewed: Boolean, onClick: () ->
                 modifier = Modifier.weight(1f).height(144.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                if (viewed) {
-                    Text(
-                        "봤음",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
                 Text(
                     gallery.title,
                     style = MaterialTheme.typography.titleSmall,
@@ -320,6 +371,7 @@ private fun GalleryCard(gallery: GallerySummary, viewed: Boolean, onClick: () ->
                     listOfNotNull(
                         gallery.language,
                         gallery.pageCount.takeIf { it > 0 }?.let { "${it}페이지" },
+                        formatGalleryPublishedDate(gallery.publishedDate)?.let { "업로드 $it" },
                     ).joinToString(" · ").ifEmpty { "ID ${gallery.id}" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

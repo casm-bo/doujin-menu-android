@@ -2,6 +2,7 @@ package com.doujinmenu.android.security
 
 import android.content.Context
 import com.doujinmenu.android.model.SearchFavorite
+import com.doujinmenu.android.model.StorageLocation
 import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
@@ -70,11 +71,59 @@ class BrowserPreferenceStore(context: Context) {
         ).apply()
     }
 
+    fun loadLibraryLocations(): List<StorageLocation> =
+        loadStorageLocations(KEY_LIBRARY_LOCATIONS)
+
+    fun saveLibraryLocations(locations: List<StorageLocation>) {
+        saveStorageLocations(KEY_LIBRARY_LOCATIONS, locations)
+    }
+
+    fun loadDownloadLocation(): StorageLocation? =
+        loadStorageLocations(KEY_DOWNLOAD_LOCATION).firstOrNull()
+
+    fun saveDownloadLocation(location: StorageLocation?) {
+        saveStorageLocations(KEY_DOWNLOAD_LOCATION, listOfNotNull(location))
+    }
+
+    private fun loadStorageLocations(key: String): List<StorageLocation> {
+        val raw = preferences.getString(key, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                repeat(array.length()) { index ->
+                    val item = array.optJSONObject(index) ?: return@repeat
+                    val uri = item.optString("uri").trim()
+                    if (uri.isEmpty()) return@repeat
+                    add(
+                        StorageLocation(
+                            uri = uri,
+                            displayName = item.optString("displayName").ifBlank { uri },
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun saveStorageLocations(key: String, locations: List<StorageLocation>) {
+        val array = JSONArray()
+        locations.forEach { location ->
+            array.put(
+                JSONObject()
+                    .put("uri", location.uri)
+                    .put("displayName", location.displayName),
+            )
+        }
+        preferences.edit().putString(key, array.toString()).apply()
+    }
+
     private companion object {
         const val FILE_NAME = "browser_preferences"
         const val KEY_FAVORITES = "search_favorites"
         const val KEY_LANGUAGES = "preferred_languages"
         const val KEY_KNOWN_FILTERS = "known_filter_tokens"
         const val KEY_VIEWED_GALLERIES = "viewed_gallery_ids"
+        const val KEY_LIBRARY_LOCATIONS = "library_locations"
+        const val KEY_DOWNLOAD_LOCATION = "download_location"
     }
 }

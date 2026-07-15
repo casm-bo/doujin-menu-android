@@ -40,5 +40,30 @@ data class GallerySummary(
     val thumbnailUrl: String?,
     val pageCount: Int,
     val language: String?,
+    val publishedDate: String? = null,
     val loadError: String? = null,
+)
+
+enum class DownloadStatus {
+    PENDING,
+    DOWNLOADING,
+    COMPLETED,
+    FAILED,
+    PAUSED,
+    UNKNOWN,
+}
+
+data class DownloadQueueItem(
+    val id: Long,
+    val galleryId: Long,
+    val galleryTitle: String,
+    val galleryArtist: String?,
+    val thumbnailUrl: String?,
+    val status: DownloadStatus,
+    val progress: Int,
+    val totalFiles: Int,
+    val downloadedFiles: Int,
+    val downloadSpeed: Long,
+    val errorMessage: String?,
+    val addedAt: String,
 )
