@@ -66,6 +66,44 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         viewModel.selectGallery(it)
                         navController.navigate("gallery/$it")
                     },
+                    onLibraryBookClick = { bookId ->
+                        viewModel.openLibraryBook(bookId)
+                        navController.navigate("library-detail")
+                    },
+                )
+            }
+            composable("library-detail") {
+                LibraryDetailScreen(
+                    book = viewModel.uiState.activeLibraryBook,
+                    isLoading = viewModel.uiState.isLibraryBookLoading,
+                    error = viewModel.uiState.libraryScanError,
+                    onBack = navController::popBackStack,
+                    onOpenReader = { page -> navController.navigate("library-reader?startPage=$page") },
+                    onSearchFacet = { facet ->
+                        viewModel.searchFromFacet(facet)
+                        navController.navigate("main")
+                    },
+                )
+            }
+            composable(
+                route = "library-reader?startPage={startPage}",
+                arguments = listOf(navArgument("startPage") {
+                    type = NavType.IntType
+                    defaultValue = -1
+                }),
+            ) { entry ->
+                val book = viewModel.uiState.activeLibraryBook
+                val requestedPage = entry.arguments?.getInt("startPage") ?: -1
+                LocalReaderScreen(
+                    book = book,
+                    initialPage = if (requestedPage >= 0) requestedPage
+                        else book?.let { viewModel.uiState.libraryProgress[it.id] } ?: 0,
+                    favorite = book?.id in viewModel.uiState.libraryFavoriteIds,
+                    preferences = viewModel.uiState.viewerPreferences,
+                    onBack = navController::popBackStack,
+                    onToggleFavorite = { book?.let { viewModel.toggleLibraryFavorite(it.id) } },
+                    onProgress = { page -> book?.let { viewModel.updateLibraryProgress(it.id, page) } },
+                    onPreferencesChange = viewModel::updateViewerPreferences,
                 )
             }
             composable("gallery/{galleryId}") { entry ->
@@ -133,6 +171,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
 private fun MainShell(
     viewModel: MainViewModel,
     onGalleryClick: (Long) -> Unit,
+    onLibraryBookClick: (String) -> Unit,
 ) {
     val navController = rememberNavController()
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
@@ -154,6 +193,7 @@ private fun MainShell(
             viewModel = viewModel,
             contentPadding = padding,
             onGalleryClick = onGalleryClick,
+            onLibraryBookClick = onLibraryBookClick,
         )
     }
 
@@ -201,6 +241,7 @@ private fun MainTabHost(
     viewModel: MainViewModel,
     contentPadding: PaddingValues,
     onGalleryClick: (Long) -> Unit,
+    onLibraryBookClick: (String) -> Unit,
 ) {
     var connectionSettingsRequested by rememberSaveable { mutableStateOf(false) }
     val openConnectionSettings: () -> Unit = {
@@ -236,10 +277,18 @@ private fun MainTabHost(
             )
         }
         composable(MainDestination.Library.route) {
-            PlaceholderScreen(
-                title = "갤러리",
-                description = "기기 내부 라이브러리와 선택적 PC·SMB 연동이 이 화면에 추가됩니다.",
-                padding = contentPadding,
+            LibraryScreen(
+                state = viewModel.uiState,
+                contentPadding = contentPadding,
+                onQueryChange = viewModel::setLibraryQuery,
+                onToggleFavoritesFilter = viewModel::toggleLibraryFavoritesFilter,
+                onReadFilterChange = viewModel::setLibraryReadFilter,
+                onSortChange = viewModel::setLibrarySort,
+                onLocationChange = viewModel::selectLibraryLocation,
+                onRefresh = viewModel::refreshLibrary,
+                onOpenBook = onLibraryBookClick,
+                onToggleFavorite = viewModel::toggleLibraryFavorite,
+                onToggleRead = viewModel::toggleLibraryRead,
             )
         }
         composable(MainDestination.Downloads.route) {

@@ -155,7 +155,7 @@ private fun ZoomableReaderImage(model: Any, contentDescription: String) {
 }
 
 @Composable
-private fun HideSystemBars() {
+internal fun HideSystemBars() {
     val view = LocalView.current
     val activity = LocalContext.current.findActivity()
     DisposableEffect(activity, view) {

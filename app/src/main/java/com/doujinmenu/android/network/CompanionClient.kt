@@ -6,6 +6,9 @@ import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.DownloadStatus
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.GalleryTag
+import com.doujinmenu.android.model.LibraryBook
+import com.doujinmenu.android.model.LibraryMetadata
+import com.doujinmenu.android.model.LibraryPage
 import com.doujinmenu.android.model.PairingResult
 import com.doujinmenu.android.model.SearchResult
 import java.net.HttpURLConnection
@@ -119,6 +122,64 @@ class CompanionClient {
             val pages = root.optJSONArray("data")
                 ?: throw CompanionApiException("응답에 페이지 배열이 없습니다.")
             pages.toStringList()
+        }
+
+    suspend fun getLibraryBooks(profile: DesktopProfile): List<LibraryBook> =
+        withContext(Dispatchers.IO) {
+            val books = request(
+                url = "${profile.baseUrl}/v1/library/books",
+                token = profile.token,
+            ).requireDataArray()
+            buildList {
+                repeat(books.length()) { index ->
+                    val item = books.optJSONObject(index) ?: return@repeat
+                    val id = item.optLong("id")
+                    val pageCount = item.optInt("pageCount", item.optInt("page_count", 0))
+                    val sourcePath = item.nullableString("libraryPath")
+                        ?: item.nullableString("library_path")
+                        ?: "데스크톱 라이브러리"
+                    val coverUrl = absoluteUrl(profile.baseUrl, item.nullableString("coverUrl"))
+                        ?: "${profile.baseUrl}/v1/library/books/$id/cover"
+                    add(
+                        LibraryBook(
+                            id = "desktop:${profile.id}:$id",
+                            title = item.optString("title", "Gallery #$id"),
+                            locationUri = "desktop:${profile.id}:$sourcePath",
+                            locationName = sourcePath.substringAfterLast('\\').substringAfterLast('/'),
+                            folderUri = item.nullableString("path").orEmpty(),
+                            pages = List(pageCount) { page ->
+                                LibraryPage(uri = if (page == 0) coverUrl else "", name = "${page + 1}")
+                            },
+                            modifiedAt = item.optLong("modifiedAt", 0L),
+                            metadata = LibraryMetadata(
+                                hitomiId = item.nullableString("hitomiId") ?: item.nullableString("hitomi_id"),
+                                artists = item.optJSONArray("artists").metadataNames(),
+                                groups = item.optJSONArray("groups").metadataNames(),
+                                galleryType = item.nullableString("type"),
+                                series = item.optJSONArray("series").metadataNames(),
+                                characters = item.optJSONArray("characters").metadataNames(),
+                                tags = item.optJSONArray("tags").metadataNames(),
+                                language = item.nullableString("language")
+                                    ?: item.nullableString("language_name_local")
+                                    ?: item.nullableString("language_name_english"),
+                            ),
+                            isCloud = true,
+                            remoteBookId = id,
+                            coverUriOverride = coverUrl,
+                            cloudToken = profile.token,
+                        ),
+                    )
+                }
+            }
+        }
+
+    suspend fun getLibraryBookPages(profile: DesktopProfile, bookId: Long): List<String> =
+        withContext(Dispatchers.IO) {
+            val pages = request(
+                url = "${profile.baseUrl}/v1/library/books/$bookId/pages",
+                token = profile.token,
+            ).requireDataArray()
+            pages.toStringList().map { absoluteUrl(profile.baseUrl, it) ?: it }
         }
 
     suspend fun requestDownload(profile: DesktopProfile, galleryId: Long): DownloadQueueItem =
@@ -244,6 +305,20 @@ class CompanionClient {
     private companion object {
         const val CONNECT_TIMEOUT_MS = 5_000
         const val READ_TIMEOUT_MS = 15_000
+    }
+}
+
+private fun absoluteUrl(baseUrl: String, value: String?): String? {
+    if (value.isNullOrBlank()) return null
+    return if (value.startsWith("http://") || value.startsWith("https://")) value
+    else baseUrl.trimEnd('/') + "/" + value.trimStart('/')
+}
+
+private fun JSONArray?.metadataNames(): List<String> = buildList {
+    val source = this@metadataNames ?: return@buildList
+    repeat(source.length()) { index ->
+        val name = source.optJSONObject(index)?.optString("name") ?: source.optString(index)
+        name.takeIf(String::isNotBlank)?.let(::add)
     }
 }
 

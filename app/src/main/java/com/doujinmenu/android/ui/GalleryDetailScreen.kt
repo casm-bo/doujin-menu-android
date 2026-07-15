@@ -179,7 +179,7 @@ fun GalleryDetailScreen(
                             )
                         }
                     }
-                    Text("갤러리 전체 썸네일", style = MaterialTheme.typography.titleMedium)
+                    Text("갤러리 미리보기", style = MaterialTheme.typography.titleMedium)
                     when {
                         state.isReaderLoading && state.readerGalleryId == gallery.id -> {
                             Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {

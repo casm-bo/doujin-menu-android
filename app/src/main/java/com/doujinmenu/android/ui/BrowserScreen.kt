@@ -41,8 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -323,13 +321,6 @@ private fun GalleryCard(gallery: GallerySummary, viewed: Boolean, onClick: () ->
                         contentDescription = "${gallery.title} 썸네일",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
-                        colorFilter = if (viewed) {
-                            ColorFilter.colorMatrix(
-                                ColorMatrix().apply { setToSaturation(0.15f) },
-                            )
-                        } else {
-                            null
-                        },
                     )
                 }
                 if (viewed) {

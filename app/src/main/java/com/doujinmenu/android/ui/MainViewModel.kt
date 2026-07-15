@@ -7,16 +7,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.doujinmenu.android.data.LibraryScanner
+import com.doujinmenu.android.data.LibraryArchiveExtractor
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.GallerySummary
+import com.doujinmenu.android.model.LibraryBook
+import com.doujinmenu.android.model.LibraryPage
+import com.doujinmenu.android.model.LibraryReadFilter
+import com.doujinmenu.android.model.LibrarySort
 import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.model.StorageLocation
+import com.doujinmenu.android.model.ViewerPreferences
 import com.doujinmenu.android.network.CompanionClient
 import com.doujinmenu.android.network.EndpointNormalizer
 import com.doujinmenu.android.network.FilterSuggestion
 import com.doujinmenu.android.network.HitomiSuggestionClient
 import com.doujinmenu.android.security.BrowserPreferenceStore
+import com.doujinmenu.android.security.LibraryPreferenceStore
 import com.doujinmenu.android.security.SecureProfileStore
 import java.util.UUID
 import kotlinx.coroutines.async
@@ -32,7 +40,7 @@ data class MainUiState(
     val host: String = "",
     val port: String = EndpointNormalizer.DEFAULT_PORT.toString(),
     val pairingCode: String = "",
-    val deviceName: String = Build.MODEL.ifBlank { "Android device" },
+    val deviceName: String = Build.MODEL.orEmpty().ifBlank { "Android device" },
     val profiles: List<DesktopProfile> = emptyList(),
     val selectedProfileId: String? = null,
     val searchQuery: String = "",
@@ -44,6 +52,21 @@ data class MainUiState(
     val knownFilterTokens: Set<String> = emptySet(),
     val viewedGalleryIds: Set<Long> = emptySet(),
     val libraryLocations: List<StorageLocation> = emptyList(),
+    val desktopLibraryLocations: List<StorageLocation> = emptyList(),
+    val libraryBooks: List<LibraryBook> = emptyList(),
+    val activeLibraryBook: LibraryBook? = null,
+    val libraryFavoriteIds: Set<String> = emptySet(),
+    val libraryReadIds: Set<String> = emptySet(),
+    val libraryProgress: Map<String, Int> = emptyMap(),
+    val libraryQuery: String = "",
+    val libraryFavoritesOnly: Boolean = false,
+    val libraryReadFilter: LibraryReadFilter = LibraryReadFilter.ALL,
+    val librarySort: LibrarySort = LibrarySort.TITLE_ASC,
+    val selectedLibraryLocationUri: String? = null,
+    val isLibraryScanning: Boolean = false,
+    val libraryScanError: String? = null,
+    val isLibraryBookLoading: Boolean = false,
+    val viewerPreferences: ViewerPreferences = ViewerPreferences(),
     val downloadLocation: StorageLocation? = null,
     val submittedSearchQuery: String = "",
     val submittedSearchQueries: List<String> = emptyList(),
@@ -81,6 +104,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val suggestionClient = HitomiSuggestionClient()
     private val profileStore = SecureProfileStore(application)
     private val browserPreferenceStore = BrowserPreferenceStore(application)
+    private val libraryPreferenceStore = LibraryPreferenceStore(application)
+    private val libraryScanner = LibraryScanner(application)
+    private val libraryArchiveExtractor = LibraryArchiveExtractor(application)
     private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
     private var suggestionJob: Job? = null
     private var notifyOnDownloadReconnect = false
@@ -98,8 +124,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             knownFilterTokens = browserPreferenceStore.loadKnownFilterTokens(),
             viewedGalleryIds = browserPreferenceStore.loadViewedGalleryIds(),
             libraryLocations = browserPreferenceStore.loadLibraryLocations(),
+            libraryFavoriteIds = libraryPreferenceStore.loadFavoriteIds(),
+            libraryReadIds = libraryPreferenceStore.loadReadIds(),
+            libraryProgress = libraryPreferenceStore.loadProgress(),
+            viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
         )
+        refreshLibrary()
     }
 
     fun setHost(value: String) = update { copy(host = value) }
@@ -229,6 +260,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     message = "${profile.name} 페어링 완료 · 토큰을 Keystore로 보호해 저장했습니다.",
                     isError = false,
                 )
+                refreshLibrary()
             }
         }
     }
@@ -247,6 +279,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             downloadQueueError = null,
             isDownloadConnectionUnavailable = false,
         )
+        refreshLibrary()
     }
 
     fun removeProfile(id: String) {
@@ -383,12 +416,137 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val locations = (uiState.libraryLocations + location).distinctBy { it.uri }
         browserPreferenceStore.saveLibraryLocations(locations)
         uiState = uiState.copy(libraryLocations = locations)
+        refreshLibrary()
     }
 
     fun removeLibraryLocation(uri: String) {
         val locations = uiState.libraryLocations.filterNot { it.uri == uri }
         browserPreferenceStore.saveLibraryLocations(locations)
-        uiState = uiState.copy(libraryLocations = locations)
+        uiState = uiState.copy(
+            libraryLocations = locations,
+            selectedLibraryLocationUri = uiState.selectedLibraryLocationUri
+                ?.takeIf { selected -> locations.any { it.uri == selected } },
+        )
+        refreshLibrary()
+    }
+
+    fun refreshLibrary() {
+        if (uiState.isLibraryScanning) return
+        val scannedLocations = uiState.libraryLocations
+        val profile = selectedProfile()
+        viewModelScope.launch {
+            uiState = uiState.copy(isLibraryScanning = true, libraryScanError = null)
+            val result = libraryScanner.scan(scannedLocations)
+            val cloudBooks = profile?.let {
+                runCatching { client.getLibraryBooks(it) }.getOrDefault(emptyList())
+            }.orEmpty()
+            val allBooks = result.books + cloudBooks
+            uiState = uiState.copy(
+                libraryBooks = allBooks,
+                desktopLibraryLocations = cloudBooks.distinctBy(LibraryBook::locationUri).map { book ->
+                    StorageLocation(book.locationUri, book.locationName, isCloud = true)
+                },
+                activeLibraryBook = uiState.activeLibraryBook?.let { active ->
+                    allBooks.firstOrNull { it.id == active.id }
+                },
+                isLibraryScanning = false,
+                libraryScanError = result.errors.takeIf { it.isNotEmpty() }?.joinToString("\n"),
+            )
+            if (uiState.libraryLocations != scannedLocations) refreshLibrary()
+        }
+    }
+
+    fun setLibraryQuery(value: String) = update { copy(libraryQuery = value) }
+    fun toggleLibraryFavoritesFilter() = update {
+        copy(libraryFavoritesOnly = !libraryFavoritesOnly)
+    }
+    fun setLibraryReadFilter(value: LibraryReadFilter) = update { copy(libraryReadFilter = value) }
+    fun setLibrarySort(value: LibrarySort) = update { copy(librarySort = value) }
+    fun selectLibraryLocation(uri: String?) = update { copy(selectedLibraryLocationUri = uri) }
+
+    fun openLibraryBook(bookId: String) {
+        val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
+        val readIds = uiState.libraryReadIds + bookId
+        libraryPreferenceStore.saveReadIds(readIds)
+        uiState = uiState.copy(
+            activeLibraryBook = book,
+            libraryReadIds = readIds,
+            isLibraryBookLoading = book.isCloud || book.pages.any { it.uri.isBlank() },
+            libraryScanError = null,
+        )
+        if (book.isCloud) {
+            val profile = selectedProfile() ?: return
+            val remoteId = book.remoteBookId ?: return
+            viewModelScope.launch {
+                runCatching { client.getLibraryBookPages(profile, remoteId) }
+                    .onSuccess { urls ->
+                        val prepared = book.copy(
+                            pages = urls.mapIndexed { index, url -> LibraryPage(url, "${index + 1}") },
+                            coverUriOverride = urls.firstOrNull() ?: book.coverUri,
+                        )
+                        uiState = uiState.copy(
+                            activeLibraryBook = prepared,
+                            libraryBooks = uiState.libraryBooks.map {
+                                if (it.id == prepared.id) prepared else it
+                            },
+                            isLibraryBookLoading = false,
+                        )
+                    }
+                    .onFailure { error ->
+                        uiState = uiState.copy(
+                            isLibraryBookLoading = false,
+                            libraryScanError = error.message ?: "데스크톱 페이지를 불러올 수 없습니다.",
+                        )
+                    }
+            }
+        } else if (book.pages.any { it.uri.isBlank() }) {
+            viewModelScope.launch {
+                runCatching { libraryArchiveExtractor.materialize(book) }
+                    .onSuccess { prepared ->
+                        uiState = uiState.copy(
+                            activeLibraryBook = prepared,
+                            libraryBooks = uiState.libraryBooks.map {
+                                if (it.id == prepared.id) prepared else it
+                            },
+                            isLibraryBookLoading = false,
+                        )
+                    }
+                    .onFailure { error ->
+                        uiState = uiState.copy(
+                            isLibraryBookLoading = false,
+                            libraryScanError = error.message ?: "압축파일을 열 수 없습니다.",
+                        )
+                    }
+            }
+        }
+    }
+
+    fun toggleLibraryFavorite(bookId: String) {
+        val ids = uiState.libraryFavoriteIds.toMutableSet().apply {
+            if (!add(bookId)) remove(bookId)
+        }
+        libraryPreferenceStore.saveFavoriteIds(ids)
+        uiState = uiState.copy(libraryFavoriteIds = ids)
+    }
+
+    fun toggleLibraryRead(bookId: String) {
+        val ids = uiState.libraryReadIds.toMutableSet().apply {
+            if (!add(bookId)) remove(bookId)
+        }
+        libraryPreferenceStore.saveReadIds(ids)
+        uiState = uiState.copy(libraryReadIds = ids)
+    }
+
+    fun updateLibraryProgress(bookId: String, page: Int) {
+        if (uiState.libraryProgress[bookId] == page) return
+        val progress = uiState.libraryProgress + (bookId to page.coerceAtLeast(0))
+        libraryPreferenceStore.saveProgress(progress)
+        uiState = uiState.copy(libraryProgress = progress)
+    }
+
+    fun updateViewerPreferences(value: ViewerPreferences) {
+        libraryPreferenceStore.saveViewerPreferences(value)
+        uiState = uiState.copy(viewerPreferences = value)
     }
 
     fun setDownloadLocation(uri: String, displayName: String) {
