@@ -1,0 +1,626 @@
+package com.doujinmenu.android.ui
+
+import android.app.Application
+import android.os.Build
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.doujinmenu.android.model.DesktopProfile
+import com.doujinmenu.android.model.GallerySummary
+import com.doujinmenu.android.model.SearchFavorite
+import com.doujinmenu.android.network.CompanionClient
+import com.doujinmenu.android.network.EndpointNormalizer
+import com.doujinmenu.android.network.FilterSuggestion
+import com.doujinmenu.android.network.HitomiSuggestionClient
+import com.doujinmenu.android.security.BrowserPreferenceStore
+import com.doujinmenu.android.security.SecureProfileStore
+import java.util.UUID
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+
+data class MainUiState(
+    val host: String = "",
+    val port: String = EndpointNormalizer.DEFAULT_PORT.toString(),
+    val pairingCode: String = "",
+    val deviceName: String = Build.MODEL.ifBlank { "Android device" },
+    val profiles: List<DesktopProfile> = emptyList(),
+    val selectedProfileId: String? = null,
+    val searchQuery: String = "",
+    val favoriteName: String = "",
+    val searchFavorites: List<SearchFavorite> = emptyList(),
+    val preferredLanguages: Set<String> = emptySet(),
+    val filterSuggestions: List<FilterSuggestion> = emptyList(),
+    val isLoadingFilterSuggestions: Boolean = false,
+    val knownFilterTokens: Set<String> = emptySet(),
+    val viewedGalleryIds: Set<Long> = emptySet(),
+    val submittedSearchQuery: String = "",
+    val submittedSearchQueries: List<String> = emptyList(),
+    val galleries: List<GallerySummary> = emptyList(),
+    val activeGallery: GallerySummary? = null,
+    val galleryCache: Map<Long, GallerySummary> = emptyMap(),
+    val currentPage: Int = 0,
+    val hasNextPage: Boolean = false,
+    val isLoadingPage: Boolean = false,
+    val isRefreshing: Boolean = false,
+    val readerGalleryId: Long? = null,
+    val readerPages: List<String> = emptyList(),
+    val isReaderLoading: Boolean = false,
+    val readerError: String? = null,
+    val downloadingGalleryIds: Set<Long> = emptySet(),
+    val downloadNotification: DownloadNotification? = null,
+    val isBusy: Boolean = false,
+    val message: String? = null,
+    val isError: Boolean = false,
+)
+
+data class DownloadNotification(
+    val galleryId: Long,
+    val galleryTitle: String,
+)
+
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val client = CompanionClient()
+    private val suggestionClient = HitomiSuggestionClient()
+    private val profileStore = SecureProfileStore(application)
+    private val browserPreferenceStore = BrowserPreferenceStore(application)
+    private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
+    private var suggestionJob: Job? = null
+
+    var uiState by mutableStateOf(MainUiState())
+        private set
+
+    init {
+        val profiles = profileStore.load()
+        uiState = uiState.copy(
+            profiles = profiles,
+            selectedProfileId = profiles.firstOrNull()?.id,
+            searchFavorites = browserPreferenceStore.loadFavorites(),
+            preferredLanguages = browserPreferenceStore.loadPreferredLanguages(),
+            knownFilterTokens = browserPreferenceStore.loadKnownFilterTokens(),
+            viewedGalleryIds = browserPreferenceStore.loadViewedGalleryIds(),
+        )
+    }
+
+    fun setHost(value: String) = update { copy(host = value) }
+    fun setPort(value: String) = update { copy(port = value.filter(Char::isDigit).take(5)) }
+    fun setPairingCode(value: String) = update {
+        copy(pairingCode = value.filter(Char::isDigit).take(PAIRING_CODE_LENGTH))
+    }
+    fun setDeviceName(value: String) = update { copy(deviceName = value) }
+    fun setSearchQuery(value: String) {
+        update { copy(searchQuery = value) }
+        refreshFilterSuggestions(value)
+    }
+
+    fun selectFilterSuggestion(suggestion: FilterSuggestion) {
+        val query = uiState.searchQuery
+        val tokenStart = query.indexOfLast { it.isWhitespace() }.let { if (it < 0) 0 else it + 1 }
+        val negative = query.substring(tokenStart).startsWith("-")
+        val replacement = (if (negative) "-" else "") + suggestion.token
+        uiState = uiState.copy(
+            searchQuery = query.substring(0, tokenStart) + replacement + " ",
+            filterSuggestions = emptyList(),
+            isLoadingFilterSuggestions = false,
+        )
+    }
+    fun setFavoriteName(value: String) = update { copy(favoriteName = value) }
+
+    fun saveSearchFavorite() {
+        val query = uiState.searchQuery.trim()
+        if (query.isEmpty()) {
+            uiState = uiState.copy(message = "저장할 검색 조건을 입력하세요.", isError = true)
+            return
+        }
+        val favorite = SearchFavorite(
+            id = UUID.randomUUID().toString(),
+            name = uiState.favoriteName.trim().ifBlank { query },
+            query = query,
+        )
+        val favorites = uiState.searchFavorites + favorite
+        browserPreferenceStore.saveFavorites(favorites)
+        uiState = uiState.copy(
+            favoriteName = "",
+            searchFavorites = favorites,
+            message = "검색 조건을 즐겨찾기에 저장했습니다.",
+            isError = false,
+        )
+    }
+
+    fun removeSearchFavorite(id: String) {
+        val favorites = uiState.searchFavorites.filterNot { it.id == id }
+        browserPreferenceStore.saveFavorites(favorites)
+        uiState = uiState.copy(searchFavorites = favorites)
+    }
+
+    fun searchFavorite(favorite: SearchFavorite) {
+        uiState = uiState.copy(searchQuery = favorite.query)
+        search()
+    }
+
+    fun togglePreferredLanguage(language: String) {
+        val normalized = language.trim().lowercase()
+        if (normalized.isEmpty()) return
+        val languages = uiState.preferredLanguages.toMutableSet().apply {
+            if (!add(normalized)) remove(normalized)
+        }
+        browserPreferenceStore.savePreferredLanguages(languages)
+        uiState = uiState.copy(preferredLanguages = languages)
+    }
+
+    fun searchFromFacet(facet: String) {
+        val normalizedFacet = normalizeFilterFacet(facet)
+        val filters = uiState.submittedSearchQuery
+            .split(Regex("\\s+"))
+            .filter { token ->
+                val normalized = token.removePrefix("-").lowercase()
+                normalized.startsWith("language:") ||
+                    normalized.startsWith("tag:") ||
+                    normalized.startsWith("type:")
+            }
+        val query = (listOf(normalizedFacet) + filters).distinct().joinToString(" ")
+        uiState = uiState.copy(searchQuery = query)
+        search()
+    }
+
+    fun testConnection() {
+        viewModelScope.launch {
+            runOperation {
+                val baseUrl = EndpointNormalizer.normalize(uiState.host, uiState.port)
+                val status = client.getStatus(baseUrl)
+                uiState = uiState.copy(
+                    message = "연결 성공: ${status.service} API v${status.version}" +
+                        if (status.pairingAvailable) " · 페어링 가능" else " · 페어링 코드 없음",
+                    isError = false,
+                )
+            }
+        }
+    }
+
+    fun pair() {
+        viewModelScope.launch {
+            runOperation {
+                val code = uiState.pairingCode
+                require(code.length == PAIRING_CODE_LENGTH) { "6자리 페어링 코드를 입력하세요." }
+                val deviceName = uiState.deviceName.trim()
+                require(deviceName.isNotEmpty()) { "장치 이름을 입력하세요." }
+                val baseUrl = EndpointNormalizer.normalize(uiState.host, uiState.port)
+                val status = client.getStatus(baseUrl)
+                require(status.pairingAvailable) { "데스크톱에서 새 페어링 코드를 먼저 생성하세요." }
+
+                val result = client.pair(baseUrl, code, deviceName)
+                val profile = DesktopProfile(
+                    id = result.deviceId,
+                    name = result.deviceName,
+                    baseUrl = baseUrl,
+                    token = result.token,
+                )
+                val profiles = uiState.profiles.filterNot { it.id == profile.id } + profile
+                profileStore.save(profiles)
+                uiState = uiState.copy(
+                    profiles = profiles,
+                    selectedProfileId = profile.id,
+                    pairingCode = "",
+                    message = "${profile.name} 페어링 완료 · 토큰을 Keystore로 보호해 저장했습니다.",
+                    isError = false,
+                )
+            }
+        }
+    }
+
+    fun selectProfile(id: String) {
+        if (uiState.isLoadingPage) return
+        val profile = uiState.profiles.firstOrNull { it.id == id } ?: return
+        uiState = uiState.copy(
+            selectedProfileId = id,
+            message = "${profile.name} 선택됨",
+            isError = false,
+            galleries = emptyList(),
+            currentPage = 0,
+            hasNextPage = false,
+        )
+    }
+
+    fun removeProfile(id: String) {
+        if (uiState.isLoadingPage) return
+        val profiles = uiState.profiles.filterNot { it.id == id }
+        profileStore.save(profiles)
+        uiState = uiState.copy(
+            profiles = profiles,
+            selectedProfileId = if (uiState.selectedProfileId == id) profiles.firstOrNull()?.id
+                else uiState.selectedProfileId,
+            galleries = emptyList(),
+            currentPage = 0,
+            hasNextPage = false,
+            message = "저장된 데스크톱을 삭제했습니다.",
+            isError = false,
+        )
+    }
+
+    fun search() {
+        if (uiState.isLoadingPage) return
+        viewModelScope.launch { loadPage(reset = true) }
+    }
+
+    fun selectGallery(galleryId: Long) {
+        val viewed = rememberViewedGallery(galleryId)
+        uiState.galleries.firstOrNull { it.id == galleryId }?.let { gallery ->
+            uiState = uiState.copy(
+                activeGallery = gallery,
+                galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)),
+                viewedGalleryIds = viewed,
+            )
+        } ?: run { uiState = uiState.copy(viewedGalleryIds = viewed) }
+    }
+
+    fun loadNextPage() {
+        if (uiState.isLoadingPage || !uiState.hasNextPage || uiState.currentPage < 1) return
+        viewModelScope.launch { loadPage(reset = false) }
+    }
+
+    fun refresh() {
+        if (uiState.isLoadingPage || uiState.isRefreshing) return
+        viewModelScope.launch {
+            uiState = uiState.copy(isRefreshing = true)
+            try {
+                loadPage(reset = true, preserveResults = true)
+            } finally {
+                uiState = uiState.copy(isRefreshing = false)
+            }
+        }
+    }
+
+    fun loadReader(galleryId: Long) {
+        if (uiState.isReaderLoading) return
+        if (uiState.readerGalleryId == galleryId && uiState.readerPages.isNotEmpty()) return
+        val profile = uiState.profiles.firstOrNull { it.id == uiState.selectedProfileId }
+        if (profile == null) {
+            uiState = uiState.copy(readerError = "연결된 데스크톱이 없습니다.")
+            return
+        }
+        viewModelScope.launch {
+            uiState = uiState.copy(
+                readerGalleryId = galleryId,
+                readerPages = emptyList(),
+                isReaderLoading = true,
+                readerError = null,
+            )
+            try {
+                val pages = client.getGalleryPages(profile, galleryId)
+                uiState = uiState.copy(readerPages = pages)
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    readerError = error.message ?: "페이지 목록을 불러오지 못했습니다.",
+                )
+            } finally {
+                uiState = uiState.copy(isReaderLoading = false)
+            }
+        }
+    }
+
+    fun downloadGallery(gallery: GallerySummary) {
+        if (gallery.id in uiState.downloadingGalleryIds) return
+        val profile = uiState.profiles.firstOrNull { it.id == uiState.selectedProfileId }
+        if (profile == null) {
+            uiState = uiState.copy(message = "연결된 데스크톱이 없습니다.", isError = true)
+            return
+        }
+        viewModelScope.launch {
+            uiState = uiState.copy(
+                downloadingGalleryIds = uiState.downloadingGalleryIds + gallery.id,
+                message = null,
+                isError = false,
+            )
+            try {
+                val status = client.requestDownload(profile, gallery.id)
+                if (status.equals("completed", ignoreCase = true)) {
+                    uiState = uiState.copy(
+                        downloadNotification = DownloadNotification(gallery.id, gallery.title),
+                    )
+                } else {
+                    uiState = uiState.copy(
+                        message = "${gallery.title} 다운로드를 데스크톱 큐에 추가했습니다.",
+                        isError = false,
+                    )
+                }
+            } catch (error: Exception) {
+                val unsupported = error.message?.contains("Not found", ignoreCase = true) == true
+                uiState = uiState.copy(
+                    message = if (unsupported) {
+                        "현재 Companion Server에는 다운로드 API가 없습니다. 데스크톱 업데이트가 필요합니다."
+                    } else {
+                        error.message ?: "다운로드 요청에 실패했습니다."
+                    },
+                    isError = true,
+                )
+            } finally {
+                uiState = uiState.copy(
+                    downloadingGalleryIds = uiState.downloadingGalleryIds - gallery.id,
+                )
+            }
+        }
+    }
+
+    fun dismissDownloadNotification() {
+        uiState = uiState.copy(downloadNotification = null)
+    }
+
+    private suspend fun loadPage(reset: Boolean, preserveResults: Boolean = false) {
+        val profile = uiState.profiles.firstOrNull { it.id == uiState.selectedProfileId }
+        if (profile == null) {
+            uiState = uiState.copy(message = "먼저 데스크톱을 페어링하거나 선택하세요.", isError = true)
+            return
+        }
+        val query = if (reset) uiState.searchQuery.trim() else uiState.submittedSearchQuery
+        val searchQueries = if (reset) {
+            queriesWithPreferredLanguages(query, uiState.preferredLanguages)
+        } else {
+            uiState.submittedSearchQueries.ifEmpty {
+                queriesWithPreferredLanguages(query, uiState.preferredLanguages)
+            }
+        }
+        if (searchQueries.isEmpty()) {
+            uiState = uiState.copy(message = "검색어를 입력하세요.", isError = true)
+            return
+        }
+        val page = if (reset) 1 else uiState.currentPage + 1
+        uiState = uiState.copy(
+            submittedSearchQuery = if (reset) query else uiState.submittedSearchQuery,
+            submittedSearchQueries = if (reset) searchQueries else uiState.submittedSearchQueries,
+            galleries = if (reset && !preserveResults) emptyList() else uiState.galleries,
+            currentPage = if (reset) 0 else uiState.currentPage,
+            hasNextPage = if (reset) false else uiState.hasNextPage,
+            isLoadingPage = true,
+            message = null,
+            isError = false,
+        )
+
+        try {
+            val searchResults = coroutineScope {
+                searchQueries.map { resolvedQuery ->
+                    async { client.search(profile, resolvedQuery, page = page) }
+                }.awaitAll()
+            }
+            val galleryIds = searchResults.flatMap { it.galleryIds }.distinct()
+            val summaries = fetchGallerySummaries(profile, galleryIds)
+            val merged = if (reset) summaries else (uiState.galleries + summaries).distinctBy { it.id }
+            val knownFilters = rememberFilterTokens(summaries)
+            val failedCount = summaries.count { it.loadError != null }
+            uiState = uiState.copy(
+                galleries = merged,
+                knownFilterTokens = knownFilters,
+                currentPage = page,
+                hasNextPage = searchResults.any { it.hasNextPage },
+                message = "${page}페이지 로드 · 총 ${merged.size}개" +
+                    if (failedCount > 0) " · 상세 정보 실패 ${failedCount}개" else "",
+                isError = false,
+            )
+        } catch (error: Exception) {
+            uiState = uiState.copy(
+                message = error.message ?: "검색 페이지를 불러오지 못했습니다.",
+                hasNextPage = false,
+                isError = true,
+            )
+        } finally {
+            uiState = uiState.copy(isLoadingPage = false)
+        }
+    }
+
+    private suspend fun fetchGallerySummaries(
+        profile: DesktopProfile,
+        galleryIds: List<Long>,
+    ): List<GallerySummary> = coroutineScope {
+        val semaphore = Semaphore(GALLERY_DETAIL_CONCURRENCY)
+        galleryIds.map { galleryId ->
+            async {
+                semaphore.withPermit {
+                    runCatching { client.getGallery(profile, galleryId) }
+                        .getOrElse { error ->
+                            GallerySummary(
+                                id = galleryId,
+                                title = "Gallery #$galleryId",
+                                artists = emptyList(),
+                                series = emptyList(),
+                                galleryType = null,
+                                tags = emptyList(),
+                                thumbnailUrl = null,
+                                pageCount = 0,
+                                language = null,
+                                loadError = error.message ?: "상세 정보를 불러오지 못했습니다.",
+                            )
+                        }
+                }
+            }
+        }.awaitAll()
+    }
+
+    private suspend fun runOperation(block: suspend () -> Unit) {
+        uiState = uiState.copy(isBusy = true, message = null, isError = false)
+        try {
+            block()
+        } catch (error: Exception) {
+            uiState = uiState.copy(
+                message = error.message ?: "알 수 없는 오류가 발생했습니다.",
+                isError = true,
+            )
+        } finally {
+            uiState = uiState.copy(isBusy = false)
+        }
+    }
+
+    private inline fun update(transform: MainUiState.() -> MainUiState) {
+        uiState = uiState.transform()
+    }
+
+    private fun queriesWithPreferredLanguages(
+        query: String,
+        preferredLanguages: Set<String>,
+    ): List<String> {
+        val baseQuery = query
+            .replace(Regex("(?i)(^|\\s)-?language:[^\\s]+"), " ")
+            .trim()
+            .replace(Regex("\\s+"), " ")
+        if (preferredLanguages.isEmpty()) return listOf(query).filter { it.isNotBlank() }
+        return preferredLanguages.sorted().map { language ->
+            listOf(baseQuery, "language:$language").filter { it.isNotBlank() }.joinToString(" ")
+        }
+    }
+
+    private fun normalizeFilterFacet(facet: String): String {
+        val separator = facet.indexOf(':')
+        if (separator < 0) return facet.trim().replace(Regex("\\s+"), "_")
+        val prefix = facet.substring(0, separator).trim().lowercase()
+        val value = facet.substring(separator + 1)
+            .trim()
+            .lowercase()
+            .replace(Regex("\\s+"), "_")
+        return "$prefix:$value"
+    }
+
+    private fun refreshFilterSuggestions(query: String) {
+        suggestionJob?.cancel()
+        val rawToken = query.substringAfterLast(' ').removePrefix("-").trim()
+        if (rawToken.isEmpty()) {
+            uiState = uiState.copy(filterSuggestions = emptyList(), isLoadingFilterSuggestions = false)
+            return
+        }
+        if (':' !in rawToken) {
+            val suggestions = FILTER_TYPES
+                .filter { it.startsWith(rawToken.lowercase()) }
+                .map { FilterSuggestion("$it:", "$it 필터") }
+            uiState = uiState.copy(filterSuggestions = suggestions, isLoadingFilterSuggestions = false)
+            return
+        }
+        val type = rawToken.substringBefore(':').lowercase()
+        val partial = rawToken.substringAfter(':').lowercase()
+        if (type !in FILTER_TYPES || partial.isEmpty()) {
+            uiState = uiState.copy(filterSuggestions = emptyList(), isLoadingFilterSuggestions = false)
+            return
+        }
+
+        val local = localFilterSuggestions(type, partial)
+        val bucket = partial.first().let { if (it.isDigit()) "0-9" else it.toString() }
+        val cacheKey = "$type:$bucket"
+        suggestionCache[cacheKey]?.let { cached ->
+            uiState = uiState.copy(
+                filterSuggestions = mergeSuggestions(local, cached, partial),
+                isLoadingFilterSuggestions = false,
+            )
+            return
+        }
+
+        uiState = uiState.copy(filterSuggestions = local, isLoadingFilterSuggestions = true)
+        suggestionJob = viewModelScope.launch {
+            delay(SUGGESTION_DEBOUNCE_MS)
+            val remote = runCatching { suggestionClient.getSuggestions(type, partial) }
+                .getOrDefault(emptyList())
+            suggestionCache[cacheKey] = remote
+            val knownFilters = rememberKnownFilterTokens(remote.mapTo(linkedSetOf()) { it.token })
+            if (uiState.searchQuery.substringAfterLast(' ').removePrefix("-") == rawToken) {
+                uiState = uiState.copy(
+                    filterSuggestions = mergeSuggestions(local, remote, partial),
+                    isLoadingFilterSuggestions = false,
+                    knownFilterTokens = knownFilters,
+                )
+            } else if (knownFilters != uiState.knownFilterTokens) {
+                uiState = uiState.copy(knownFilterTokens = knownFilters)
+            }
+        }
+    }
+
+    private fun localFilterSuggestions(type: String, partial: String): List<FilterSuggestion> {
+        val favoriteTokens = uiState.searchFavorites.asSequence().flatMap { favorite ->
+            favorite.query.split(Regex("\\s+")).asSequence()
+        }
+        return (uiState.knownFilterTokens.asSequence() + favoriteTokens)
+            .map { it.removePrefix("-") }
+            .filter { it.startsWith("$type:$partial") }
+            .distinct()
+            .take(MAX_FILTER_SUGGESTIONS)
+            .map { FilterSuggestion(it, it.substringAfter(':').replace('_', ' ')) }
+            .toList()
+    }
+
+    private fun mergeSuggestions(
+        local: List<FilterSuggestion>,
+        remote: List<FilterSuggestion>,
+        partial: String,
+    ): List<FilterSuggestion> = (local + remote)
+        .filter { it.token.substringAfter(':').startsWith(partial) }
+        .distinctBy { it.token }
+        .take(MAX_FILTER_SUGGESTIONS)
+
+    private fun filterValue(value: String): String = value
+        .trim()
+        .lowercase()
+        .replace(Regex("\\s+"), "_")
+
+    private fun rememberFilterTokens(galleries: List<GallerySummary>): Set<String> {
+        val discovered = galleries.asSequence().flatMap { gallery ->
+            sequence {
+                gallery.artists.forEach { yield("artist:${filterValue(it)}") }
+                gallery.series.forEach { yield("series:${filterValue(it)}") }
+                gallery.galleryType?.let { yield("type:${filterValue(it)}") }
+                gallery.tags.forEach { yield("${it.type}:${filterValue(it.name)}") }
+            }
+        }.filter { it.substringAfter(':').isNotBlank() }.toSet()
+        return rememberKnownFilterTokens(discovered)
+    }
+
+    private fun rememberKnownFilterTokens(discovered: Set<String>): Set<String> {
+        if (discovered.isEmpty()) return uiState.knownFilterTokens
+        val merged = (uiState.knownFilterTokens + discovered)
+            .toList()
+            .takeLast(MAX_KNOWN_FILTER_TOKENS)
+            .toSet()
+        if (merged != uiState.knownFilterTokens) {
+            browserPreferenceStore.saveKnownFilterTokens(merged)
+        }
+        return merged
+    }
+
+    private fun rememberViewedGallery(galleryId: Long): Set<Long> {
+        if (galleryId in uiState.viewedGalleryIds) return uiState.viewedGalleryIds
+        val viewed = (uiState.viewedGalleryIds + galleryId)
+            .toList()
+            .takeLast(MAX_VIEWED_GALLERIES)
+            .toSet()
+        browserPreferenceStore.saveViewedGalleryIds(viewed)
+        return viewed
+    }
+
+    private fun cacheGalleries(
+        existing: Map<Long, GallerySummary>,
+        incoming: List<GallerySummary>,
+    ): Map<Long, GallerySummary> {
+        val cache = LinkedHashMap(existing)
+        incoming.forEach { gallery ->
+            cache.remove(gallery.id)
+            cache[gallery.id] = gallery
+        }
+        while (cache.size > MAX_CACHED_GALLERIES) {
+            cache.remove(cache.keys.first())
+        }
+        return cache
+    }
+
+    private companion object {
+        const val PAIRING_CODE_LENGTH = 6
+        const val GALLERY_DETAIL_CONCURRENCY = 4
+        const val SUGGESTION_DEBOUNCE_MS = 200L
+        const val MAX_FILTER_SUGGESTIONS = 12
+        const val MAX_CACHED_GALLERIES = 200
+        const val MAX_KNOWN_FILTER_TOKENS = 20_000
+        const val MAX_VIEWED_GALLERIES = 50_000
+        val FILTER_TYPES = listOf(
+            "artist", "group", "type", "language", "series", "character", "male", "female", "tag",
+        )
+    }
+}
