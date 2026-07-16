@@ -27,7 +27,12 @@ import com.doujinmenu.android.network.HitomiSuggestionClient
 import com.doujinmenu.android.security.BrowserPreferenceStore
 import com.doujinmenu.android.security.LibraryPreferenceStore
 import com.doujinmenu.android.security.SecureProfileStore
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -36,12 +41,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 
 data class MainUiState(
     val host: String = "",
     val port: String = EndpointNormalizer.DEFAULT_PORT.toString(),
     val pairingCode: String = "",
-    val deviceName: String = Build.MODEL.orEmpty().ifBlank { "Android device" },
+    val deviceName: String = "",
     val profiles: List<DesktopProfile> = emptyList(),
     val selectedProfileId: String? = null,
     val searchQuery: String = "",
@@ -58,6 +64,7 @@ data class MainUiState(
     val libraryBooks: List<LibraryBook> = emptyList(),
     val activeLibraryBook: LibraryBook? = null,
     val libraryFavoriteIds: Set<String> = emptySet(),
+    val libraryFavoriteSeriesNames: Set<String> = emptySet(),
     val libraryReadIds: Set<String> = emptySet(),
     val libraryProgress: Map<String, Int> = emptyMap(),
     val customSeriesByBookId: Map<String, CustomSeriesAssignment> = emptyMap(),
@@ -69,11 +76,14 @@ data class MainUiState(
     val selectedLibraryLocationUris: Set<String>? = null,
     val librarySeriesMode: Boolean = false,
     val selectedLibrarySeries: String? = null,
+    val isAutoCreatingSeries: Boolean = false,
+    val seriesAutoCreateStatus: String? = null,
     val isLibraryScanning: Boolean = false,
     val libraryScanError: String? = null,
     val isLibraryBookLoading: Boolean = false,
     val viewerPreferences: ViewerPreferences = ViewerPreferences(),
     val downloadLocation: StorageLocation? = null,
+    val desktopDownloadPath: String? = null,
     val submittedSearchQuery: String = "",
     val submittedSearchQueries: List<String> = emptyList(),
     val galleries: List<GallerySummary> = emptyList(),
@@ -132,6 +142,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewedGalleryIds = browserPreferenceStore.loadViewedGalleryIds(),
             libraryLocations = browserPreferenceStore.loadLibraryLocations(),
             libraryFavoriteIds = libraryPreferenceStore.loadFavoriteIds(),
+            libraryFavoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames(),
             libraryReadIds = libraryPreferenceStore.loadReadIds(),
             libraryProgress = libraryPreferenceStore.loadProgress(),
             customSeriesByBookId = libraryPreferenceStore.loadCustomSeries(),
@@ -268,17 +279,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runOperation {
                 val code = uiState.pairingCode
                 require(code.length == PAIRING_CODE_LENGTH) { "6자리 페어링 코드를 입력하세요." }
-                val deviceName = uiState.deviceName.trim()
-                require(deviceName.isNotEmpty()) { "장치 이름을 입력하세요." }
+                val profileName = uiState.deviceName.trim()
+                require(profileName.isNotEmpty()) { "앱에서 표시할 연결 이름을 입력하세요." }
+                val phoneDeviceName = Build.MODEL.orEmpty().ifBlank { "Android device" }
                 val baseUrl = EndpointNormalizer.normalize(uiState.host, uiState.port)
                 val status = client.getStatus(baseUrl)
                 require(status.pairingAvailable) { "데스크톱에서 새 페어링 코드를 먼저 생성하세요." }
 
-                val result = client.pair(baseUrl, code, deviceName)
+                val result = client.pair(baseUrl, code, phoneDeviceName)
                 notifyOnDownloadReconnect = false
                 val profile = DesktopProfile(
                     id = result.deviceId,
-                    name = result.deviceName,
+                    name = profileName,
                     baseUrl = baseUrl,
                     token = result.token,
                 )
@@ -477,15 +489,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val cloudBooks = profile?.let {
                 runCatching { client.getLibraryBooks(it) }.getOrDefault(emptyList())
             }.orEmpty()
+            val desktopDownloadPath = profile?.let {
+                runCatching { client.getDesktopDownloadPath(it) }.getOrNull()
+            }
             val hiddenIds = libraryPreferenceStore.loadHiddenIds()
             val customTitles = libraryPreferenceStore.loadCustomTitles()
             val allBooks = (result.books + cloudBooks).filterNot { it.id in hiddenIds }
-                .map { book -> customTitles[book.id]?.let { book.copy(title = it) } ?: book }
+                .map { book ->
+                    val customTitle = customTitles[book.id]
+                    if (customTitle != null) book.copy(title = customTitle, originalTitle = customTitle)
+                    else book.copy(title = preferredLocalizedTitle(book.originalTitle))
+                }
             uiState = uiState.copy(
                 libraryBooks = allBooks,
                 desktopLibraryLocations = cloudBooks.distinctBy(LibraryBook::locationUri).map { book ->
                     StorageLocation(book.locationUri, book.locationName, isCloud = true)
                 },
+                desktopDownloadPath = desktopDownloadPath,
                 activeLibraryBook = uiState.activeLibraryBook?.let { active ->
                     allBooks.firstOrNull { it.id == active.id }
                 },
@@ -584,6 +604,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(libraryFavoriteIds = ids)
     }
 
+    fun toggleLibrarySeriesFavorite(seriesName: String) {
+        val names = uiState.libraryFavoriteSeriesNames.toMutableSet().apply {
+            if (!add(seriesName)) remove(seriesName)
+        }
+        libraryPreferenceStore.saveFavoriteSeriesNames(names)
+        uiState = uiState.copy(libraryFavoriteSeriesNames = names)
+    }
+
     fun toggleLibraryRead(bookId: String) {
         val ids = uiState.libraryReadIds.toMutableSet().apply {
             if (!add(bookId)) remove(bookId)
@@ -613,6 +641,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun assignLibrarySeries(bookIds: Set<String>, seriesName: String) {
         val name = seriesName.trim()
         if (name.isEmpty()) return
+        val modifiedAt = System.currentTimeMillis()
+        val affectedNames = bookIds.mapNotNullTo(linkedSetOf()) { id ->
+            uiState.customSeriesByBookId[id]?.name?.takeIf { it != name }
+        } + name
         var nextOrder = uiState.customSeriesByBookId.values
             .filter { it.name == name }
             .maxOfOrNull(CustomSeriesAssignment::order)?.plus(1) ?: 0
@@ -621,13 +653,109 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val existing = uiState.customSeriesByBookId[bookId]
                 put(
                     bookId,
-                    if (existing?.name == name) existing else CustomSeriesAssignment(name, nextOrder++),
+                    if (existing?.name == name) existing.copy(modifiedAt = modifiedAt)
+                    else CustomSeriesAssignment(name, nextOrder++, modifiedAt),
                 )
             }
         }
-        val assignments = reindexSeriesAssignments(uiState.customSeriesByBookId + additions)
+        val assignments = touchSeriesAssignments(
+            reindexSeriesAssignments(uiState.customSeriesByBookId + additions),
+            affectedNames,
+            modifiedAt,
+        )
         libraryPreferenceStore.saveCustomSeries(assignments)
         uiState = uiState.copy(customSeriesByBookId = assignments)
+    }
+
+    fun autoCreateLibrarySeries() {
+        if (uiState.isAutoCreatingSeries) return
+        val candidates = uiState.libraryBooks.filter { it.id !in uiState.customSeriesByBookId }
+        if (candidates.size < 2) {
+            uiState = uiState.copy(
+                seriesAutoCreateStatus = "자동 생성할 미분류 갤러리가 부족합니다.",
+                isError = false,
+            )
+            return
+        }
+        uiState = uiState.copy(
+            isAutoCreatingSeries = true,
+            seriesAutoCreateStatus = "미분류 갤러리 ${candidates.size}개를 분석하는 중…",
+            isError = false,
+        )
+        viewModelScope.launch {
+            try {
+                val groups = withContext(Dispatchers.Default) {
+                    val parents = IntArray(candidates.size) { it }
+                    fun root(index: Int): Int {
+                        var value = index
+                        while (parents[value] != value) {
+                            parents[value] = parents[parents[value]]
+                            value = parents[value]
+                        }
+                        return value
+                    }
+                    fun join(left: Int, right: Int) {
+                        val leftRoot = root(left)
+                        val rightRoot = root(right)
+                        if (leftRoot != rightRoot) parents[rightRoot] = leftRoot
+                    }
+                    candidates.indices.forEach { left ->
+                        val leftArtists = candidates[left].metadata.artists
+                            .mapTo(linkedSetOf(), ::normalizeSeriesText)
+                        if (leftArtists.isEmpty()) return@forEach
+                        for (right in left + 1 until candidates.size) {
+                            val rightArtists = candidates[right].metadata.artists
+                                .mapTo(linkedSetOf(), ::normalizeSeriesText)
+                            if (leftArtists.intersect(rightArtists).isEmpty()) continue
+                            val leftStem = normalizeSeriesText(seriesComparisonStem(candidates[left].title))
+                            val rightStem = normalizeSeriesText(seriesComparisonStem(candidates[right].title))
+                            if (leftStem.length >= 2 && rightStem.length >= 2 &&
+                                (leftStem == rightStem || diceSimilarity(leftStem, rightStem) >= 0.82f)
+                            ) join(left, right)
+                        }
+                    }
+                    candidates.indices.groupBy(::root).values
+                        .map { indices -> indices.map(candidates::get) }
+                        .filter { it.size >= 2 }
+                }
+                if (groups.isEmpty()) {
+                    uiState = uiState.copy(
+                        seriesAutoCreateStatus = "같은 작가와 유사한 제목을 가진 갤러리를 찾지 못했습니다.",
+                        isError = false,
+                    )
+                    return@launch
+                }
+                val assignments = uiState.customSeriesByBookId.toMutableMap()
+                val modifiedAt = System.currentTimeMillis()
+                val usedNames = assignments.values.mapTo(linkedSetOf(), CustomSeriesAssignment::name)
+                groups.forEach { group ->
+                    val baseName = seriesDisplayStem(group.first().title).ifBlank { group.first().title }
+                    var name = baseName
+                    var suffix = 2
+                    while (name in usedNames) name = "$baseName ($suffix)".also { suffix++ }
+                    usedNames += name
+                    group.sortedWith(compareBy<LibraryBook> { trailingSeriesNumber(it.title) ?: Int.MAX_VALUE }
+                        .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                        .forEachIndexed { order, book ->
+                            assignments[book.id] = CustomSeriesAssignment(name, order, modifiedAt)
+                        }
+                }
+                val indexed = reindexSeriesAssignments(assignments)
+                libraryPreferenceStore.saveCustomSeries(indexed)
+                uiState = uiState.copy(
+                    customSeriesByBookId = indexed,
+                    seriesAutoCreateStatus = "${groups.size}개 시리즈를 자동 생성했습니다.",
+                    isError = false,
+                )
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    seriesAutoCreateStatus = "자동 생성에 실패했습니다: ${error.message ?: "알 수 없는 오류"}",
+                    isError = false,
+                )
+            } finally {
+                uiState = uiState.copy(isAutoCreatingSeries = false)
+            }
+        }
     }
 
     fun moveLibrarySeriesBook(bookId: String, offset: Int) {
@@ -643,8 +771,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val moved = orderedIds.removeAt(from)
         orderedIds.add(to, moved)
         val assignments = uiState.customSeriesByBookId.toMutableMap()
+        val modifiedAt = System.currentTimeMillis()
         orderedIds.forEachIndexed { order, id ->
-            assignments[id] = assignments.getValue(id).copy(order = order)
+            assignments[id] = assignments.getValue(id).copy(
+                order = order,
+                modifiedAt = modifiedAt,
+            )
         }
         libraryPreferenceStore.saveCustomSeries(assignments)
         uiState = uiState.copy(customSeriesByBookId = assignments)
@@ -665,15 +797,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val titles = libraryPreferenceStore.loadCustomTitles() + (bookId to normalized)
         libraryPreferenceStore.saveCustomTitles(titles)
         uiState = uiState.copy(
-            libraryBooks = uiState.libraryBooks.map { if (it.id == bookId) it.copy(title = normalized) else it },
+            libraryBooks = uiState.libraryBooks.map {
+                if (it.id == bookId) it.copy(title = normalized, originalTitle = normalized) else it
+            },
             activeLibraryBook = uiState.activeLibraryBook?.let {
-                if (it.id == bookId) it.copy(title = normalized) else it
+                if (it.id == bookId) it.copy(title = normalized, originalTitle = normalized) else it
             },
         )
     }
 
     fun removeLibraryBooksFromSeries(bookIds: Set<String>) {
-        val assignments = reindexSeriesAssignments(uiState.customSeriesByBookId - bookIds)
+        val affectedNames = bookIds.mapNotNullTo(linkedSetOf()) { uiState.customSeriesByBookId[it]?.name }
+        val modifiedAt = System.currentTimeMillis()
+        val assignments = touchSeriesAssignments(
+            reindexSeriesAssignments(uiState.customSeriesByBookId - bookIds),
+            affectedNames,
+            modifiedAt,
+        )
         libraryPreferenceStore.saveCustomSeries(assignments)
         uiState = uiState.copy(customSeriesByBookId = assignments)
     }
@@ -681,12 +821,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun renameLibrarySeries(oldName: String, newName: String) {
         val normalized = newName.trim()
         if (normalized.isEmpty() || oldName == normalized) return
+        val modifiedAt = System.currentTimeMillis()
         val renamed = uiState.customSeriesByBookId.mapValues { (_, assignment) ->
-            if (assignment.name == oldName) assignment.copy(name = normalized) else assignment
+            if (assignment.name == oldName) {
+                assignment.copy(name = normalized, modifiedAt = modifiedAt)
+            } else assignment
         }
         val assignments = reindexSeriesAssignments(renamed)
         libraryPreferenceStore.saveCustomSeries(assignments)
-        uiState = uiState.copy(customSeriesByBookId = assignments)
+        val favorites = uiState.libraryFavoriteSeriesNames.toMutableSet().apply {
+            if (remove(oldName)) add(normalized)
+        }
+        libraryPreferenceStore.saveFavoriteSeriesNames(favorites)
+        uiState = uiState.copy(
+            customSeriesByBookId = assignments,
+            libraryFavoriteSeriesNames = favorites,
+        )
+    }
+
+    fun mergeLibrarySeries(seriesNames: List<String>, mergedName: String) {
+        val names = seriesNames.distinct()
+        val name = mergedName.trim()
+        if (names.size < 2 || name.isEmpty()) return
+        val modifiedAt = System.currentTimeMillis()
+        val selectedEntries = names.flatMap { sourceName ->
+            uiState.customSeriesByBookId.entries
+                .filter { it.value.name == sourceName }
+                .sortedWith(compareBy({ it.value.order }, { it.key }))
+        }
+        if (selectedEntries.isEmpty()) return
+        val assignments = uiState.customSeriesByBookId
+            .filterValues { it.name !in names }
+            .toMutableMap()
+        var nextOrder = assignments.values.filter { it.name == name }
+            .maxOfOrNull(CustomSeriesAssignment::order)?.plus(1) ?: 0
+        selectedEntries.forEach { entry ->
+            assignments[entry.key] = CustomSeriesAssignment(name, nextOrder++, modifiedAt)
+        }
+        val indexed = touchSeriesAssignments(
+            reindexSeriesAssignments(assignments),
+            setOf(name),
+            modifiedAt,
+        )
+        libraryPreferenceStore.saveCustomSeries(indexed)
+        val keepFavorite = names.firstOrNull() in uiState.libraryFavoriteSeriesNames
+        val favorites = uiState.libraryFavoriteSeriesNames.toMutableSet().apply {
+            removeAll(names.toSet())
+            if (keepFavorite) add(name)
+        }
+        libraryPreferenceStore.saveFavoriteSeriesNames(favorites)
+        uiState = uiState.copy(
+            customSeriesByBookId = indexed,
+            libraryFavoriteSeriesNames = favorites,
+        )
     }
 
     fun deleteLibrarySeries(names: Set<String>) {
@@ -694,7 +881,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             uiState.customSeriesByBookId.filterValues { it.name !in names },
         )
         libraryPreferenceStore.saveCustomSeries(assignments)
-        uiState = uiState.copy(customSeriesByBookId = assignments)
+        val favorites = uiState.libraryFavoriteSeriesNames - names
+        libraryPreferenceStore.saveFavoriteSeriesNames(favorites)
+        uiState = uiState.copy(
+            customSeriesByBookId = assignments,
+            libraryFavoriteSeriesNames = favorites,
+        )
     }
 
     fun nextLibrarySeriesBook(bookId: String): LibraryBook? {
@@ -717,10 +909,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         assignments: Map<String, CustomSeriesAssignment>,
     ): Map<String, CustomSeriesAssignment> = buildMap {
         assignments.entries.groupBy { it.value.name }.forEach { (name, entries) ->
+            val modifiedAt = entries.maxOfOrNull { it.value.modifiedAt } ?: 0L
             entries.sortedWith(compareBy({ it.value.order }, { it.key })).forEachIndexed { index, entry ->
-                put(entry.key, CustomSeriesAssignment(name, index))
+                put(entry.key, CustomSeriesAssignment(name, index, modifiedAt))
             }
         }
+    }
+
+    private fun touchSeriesAssignments(
+        assignments: Map<String, CustomSeriesAssignment>,
+        names: Set<String>,
+        modifiedAt: Long,
+    ): Map<String, CustomSeriesAssignment> = assignments.mapValues { (_, assignment) ->
+        if (assignment.name in names) assignment.copy(modifiedAt = modifiedAt) else assignment
     }
 
     fun updateLibraryProgress(bookId: String, page: Int) {
@@ -946,7 +1147,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             block()
         } catch (error: Exception) {
             uiState = uiState.copy(
-                message = error.message ?: "알 수 없는 오류가 발생했습니다.",
+                message = operationErrorMessage(error),
                 isError = true,
             )
         } finally {
@@ -1187,4 +1388,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         val UNTYPED_SUGGESTION_TYPES = listOf("tag", "language", "type")
     }
+}
+
+private fun operationErrorMessage(error: Exception): String {
+    val causes = generateSequence(error as Throwable?) { it.cause }.toList()
+    return when {
+        causes.any { it is SocketTimeoutException } ->
+            "연결 시간이 초과되었습니다. 휴대폰의 VPN을 끄거나 로컬 네트워크 접근을 허용하고, PC와 같은 네트워크인지 확인해 주세요."
+        causes.any { it is ConnectException || it is NoRouteToHostException } ->
+            "PC에 연결할 수 없습니다. 휴대폰의 VPN과 네트워크 설정을 확인하고, PC와 같은 네트워크에 연결되어 있는지 확인해 주세요."
+        causes.any { it is UnknownHostException } ->
+            "PC 주소를 찾을 수 없습니다. 입력한 IP/호스트와 네트워크 설정을 확인해 주세요."
+        else -> error.message ?: "알 수 없는 오류가 발생했습니다."
+    }
+}
+
+private fun seriesDisplayStem(title: String): String = title
+    .replace(Regex("^\\s*\\[[^]]+]\\s*"), "")
+    .replace(
+        Regex(
+            "(?i)\\s*(?:[-_ ]*(?:vol(?:ume)?|ch(?:apter)?|episode|ep|part|권|화|장)\\.?\\s*)?#?" +
+                "[0-9０-９]+(?:\\.[0-9]+)?\\s*$",
+        ),
+        "",
+    )
+    .trim(' ', '-', '_', '.', ':')
+
+private fun seriesComparisonStem(title: String): String = seriesDisplayStem(title)
+    .replace(Regex("(?i)\\b(?:vol(?:ume)?|ch(?:apter)?|episode|ep|part)\\.?\\b"), " ")
+    .replace(Regex("(?:전|중|후|상|하)편|완결|특별편|외전"), " ")
+    .replace(Regex("[0-9０-９]+"), " ")
+    .trim()
+
+private fun normalizeSeriesText(value: String): String = value.lowercase()
+    .replace(Regex("[^\\p{L}\\p{N}]+"), "")
+
+private fun trailingSeriesNumber(value: String): Int? = Regex("([0-9]+)\\D*$")
+    .find(value)?.groupValues?.getOrNull(1)?.toIntOrNull()
+
+private fun diceSimilarity(left: String, right: String): Float {
+    if (left == right) return 1f
+    if (left.length < 2 || right.length < 2) return 0f
+    val leftPairs = left.windowed(2).groupingBy { it }.eachCount().toMutableMap()
+    var overlap = 0
+    right.windowed(2).forEach { pair ->
+        val count = leftPairs[pair] ?: 0
+        if (count > 0) {
+            overlap++
+            leftPairs[pair] = count - 1
+        }
+    }
+    return (2f * overlap) / (left.length - 1 + right.length - 1)
 }

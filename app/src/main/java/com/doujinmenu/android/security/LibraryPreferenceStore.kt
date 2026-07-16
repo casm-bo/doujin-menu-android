@@ -12,6 +12,12 @@ class LibraryPreferenceStore(context: Context) {
     fun loadFavoriteIds(): Set<String> = preferences.getStringSet(KEY_FAVORITES, emptySet()).orEmpty()
     fun saveFavoriteIds(ids: Set<String>) = preferences.edit().putStringSet(KEY_FAVORITES, ids).apply()
 
+    fun loadFavoriteSeriesNames(): Set<String> =
+        preferences.getStringSet(KEY_SERIES_FAVORITES, emptySet()).orEmpty()
+
+    fun saveFavoriteSeriesNames(names: Set<String>) =
+        preferences.edit().putStringSet(KEY_SERIES_FAVORITES, names).apply()
+
     fun loadReadIds(): Set<String> = preferences.getStringSet(KEY_READ, emptySet()).orEmpty()
     fun saveReadIds(ids: Set<String>) = preferences.edit().putStringSet(KEY_READ, ids).apply()
 
@@ -38,7 +44,14 @@ class LibraryPreferenceStore(context: Context) {
                 val value = json.opt(id)
                 if (value is JSONObject) {
                     val name = value.optString("name").trim()
-                    if (name.isNotEmpty()) put(id, CustomSeriesAssignment(name, value.optInt("order", 0)))
+                    if (name.isNotEmpty()) put(
+                        id,
+                        CustomSeriesAssignment(
+                            name = name,
+                            order = value.optInt("order", 0),
+                            modifiedAt = value.optLong("modifiedAt", 0L),
+                        ),
+                    )
                 } else {
                     val name = value?.toString().orEmpty().trim()
                     if (name.isNotEmpty()) {
@@ -54,7 +67,13 @@ class LibraryPreferenceStore(context: Context) {
     fun saveCustomSeries(series: Map<String, CustomSeriesAssignment>) {
         val json = JSONObject()
         series.forEach { (id, assignment) ->
-            json.put(id, JSONObject().put("name", assignment.name).put("order", assignment.order))
+            json.put(
+                id,
+                JSONObject()
+                    .put("name", assignment.name)
+                    .put("order", assignment.order)
+                    .put("modifiedAt", assignment.modifiedAt),
+            )
         }
         preferences.edit().putString(KEY_CUSTOM_SERIES, json.toString()).apply()
     }
@@ -97,9 +116,20 @@ class LibraryPreferenceStore(context: Context) {
             .apply()
     }
 
+    fun loadLibraryViewMode(): String = preferences.getString(KEY_LIBRARY_VIEW_MODE, "GRID") ?: "GRID"
+
+    fun saveLibraryViewMode(value: String) =
+        preferences.edit().putString(KEY_LIBRARY_VIEW_MODE, value).apply()
+
+    fun loadLibraryGridColumns(): Int = preferences.getInt(KEY_LIBRARY_GRID_COLUMNS, 3).coerceIn(2, 4)
+
+    fun saveLibraryGridColumns(value: Int) =
+        preferences.edit().putInt(KEY_LIBRARY_GRID_COLUMNS, value.coerceIn(2, 4)).apply()
+
     private companion object {
         const val FILE_NAME = "library_preferences"
         const val KEY_FAVORITES = "favorite_book_ids"
+        const val KEY_SERIES_FAVORITES = "favorite_series_names"
         const val KEY_READ = "read_book_ids"
         const val KEY_PROGRESS = "book_progress"
         const val KEY_CUSTOM_SERIES = "custom_book_series"
@@ -108,5 +138,7 @@ class LibraryPreferenceStore(context: Context) {
         const val KEY_SCALE = "viewer_scale"
         const val KEY_PAGE_NUMBER = "viewer_page_number"
         const val KEY_KEEP_SCREEN_ON = "viewer_keep_screen_on"
+        const val KEY_LIBRARY_VIEW_MODE = "library_view_mode"
+        const val KEY_LIBRARY_GRID_COLUMNS = "library_grid_columns"
     }
 }

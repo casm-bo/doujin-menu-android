@@ -432,6 +432,7 @@ private fun MainTabContent(
                 onRefresh = viewModel::refreshLibrary,
                 onOpenBook = onLibraryBookClick,
                 onToggleFavorite = viewModel::toggleLibraryFavorite,
+                onToggleSeriesFavorite = viewModel::toggleLibrarySeriesFavorite,
                 onToggleRead = viewModel::toggleLibraryRead,
                 onAddFavorites = viewModel::addLibraryFavorites,
                 onMarkRead = viewModel::markLibraryBooksRead,
@@ -442,7 +443,9 @@ private fun MainTabContent(
                 onRenameBook = viewModel::renameLibraryBook,
                 onRemoveBooksFromSeries = viewModel::removeLibraryBooksFromSeries,
                 onRenameSeries = viewModel::renameLibrarySeries,
+                onMergeSeries = viewModel::mergeLibrarySeries,
                 onDeleteSeries = viewModel::deleteLibrarySeries,
+                onAutoCreateSeries = viewModel::autoCreateLibrarySeries,
                 onSeriesModeChange = viewModel::setLibrarySeriesMode,
                 onSelectedSeriesChange = viewModel::selectLibrarySeries,
                 onBackToSearch = {

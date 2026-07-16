@@ -242,12 +242,29 @@ private fun LibrarySettingsScreen(
 
         SectionCard("다운로드 경로") {
             Text(
-                "모바일에서 내려받은 파일을 저장할 폴더 하나를 지정합니다.",
+                if (state.selectedProfileId != null) {
+                    "데스크톱 연결 중에는 PC 다운로드가 데스크톱 경로에 저장됩니다. " +
+                        "데스크톱 경로는 PC에서만 변경할 수 있으며, 모바일 로컬 경로는 별도로 설정할 수 있습니다."
+                } else {
+                    "데스크톱에 연결되지 않은 상태에서는 모바일 로컬 다운로드 경로만 사용합니다."
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (state.selectedProfileId != null) {
+                Spacer(Modifier.height(10.dp))
+                ReadOnlyPathRow(
+                    title = "데스크톱 다운로드 경로",
+                    path = state.desktopDownloadPath ?: "데스크톱에서 설정되지 않음",
+                )
+            }
             state.downloadLocation?.let { location ->
                 Spacer(Modifier.height(10.dp))
-                StorageLocationRow(location, "해제", onClearDownloadLocation)
+                StorageLocationRow(
+                    location = location,
+                    actionLabel = "삭제",
+                    title = "로컬 다운로드 경로",
+                    onAction = onClearDownloadLocation,
+                )
             }
             Row(
                 modifier = Modifier.padding(top = 10.dp),
@@ -265,6 +282,7 @@ private fun LibrarySettingsScreen(
 private fun StorageLocationRow(
     location: StorageLocation,
     actionLabel: String,
+    title: String? = null,
     onAction: () -> Unit,
 ) {
     Row(
@@ -272,6 +290,9 @@ private fun StorageLocationRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
+            title?.let {
+                Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
             Text(location.displayName, fontWeight = FontWeight.Medium)
             Text(
                 location.uri,
@@ -282,6 +303,19 @@ private fun StorageLocationRow(
             )
         }
         TextButton(onClick = onAction) { Text(actionLabel) }
+    }
+}
+
+@Composable
+private fun ReadOnlyPathRow(title: String, path: String) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        Text(path, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            "데스크톱 앱에서만 변경할 수 있습니다.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -333,7 +367,8 @@ private fun ConnectionSettingsScreen(
                 value = state.deviceName,
                 onValueChange = onDeviceNameChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("장치 이름") },
+                label = { Text("앱 표시 이름") },
+                placeholder = { Text("예: 내 데스크톱") },
                 singleLine = true,
                 enabled = enabled,
             )
@@ -352,7 +387,10 @@ private fun ConnectionSettingsScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedButton(onClick = onTestConnection, enabled = enabled) { Text("상태 확인") }
-                Button(onClick = onPair, enabled = enabled && state.pairingCode.length == 6) {
+                Button(
+                    onClick = onPair,
+                    enabled = enabled && state.pairingCode.length == 6 && state.deviceName.isNotBlank(),
+                ) {
                     Text("페어링")
                 }
             }

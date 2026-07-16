@@ -5,6 +5,7 @@ import com.doujinmenu.android.model.LibraryPage
 import com.doujinmenu.android.model.LibraryReadFilter
 import com.doujinmenu.android.model.LibrarySort
 import com.doujinmenu.android.model.LibraryMetadata
+import com.doujinmenu.android.model.CustomSeriesAssignment
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -65,6 +66,58 @@ class LibraryFilterTest {
         )
 
         assertEquals(listOf("c", "a"), visibleLibraryBooks(state).map(LibraryBook::id))
+    }
+
+    @Test
+    fun queryIncludesCustomSeriesTitle() {
+        val state = MainUiState(
+            libraryBooks = books,
+            libraryQuery = "series:내시리즈",
+            customSeriesByBookId = mapOf("b" to CustomSeriesAssignment("내시리즈", 0)),
+        )
+
+        assertEquals(listOf("b"), visibleLibraryBooks(state).map(LibraryBook::id))
+    }
+
+    @Test
+    fun titleDescendingSortIsApplied() {
+        val state = MainUiState(libraryBooks = books, librarySort = LibrarySort.TITLE_DESC)
+
+        assertEquals(listOf("a", "c", "b"), visibleLibraryBooks(state).map(LibraryBook::id))
+    }
+
+    @Test
+    fun seriesFavoriteIsIndependentFromEpisodeFavorites() {
+        val state = MainUiState(
+            libraryBooks = books,
+            libraryFavoritesOnly = true,
+            libraryFavoriteIds = emptySet(),
+            libraryFavoriteSeriesNames = setOf("Series 1"),
+            customSeriesByBookId = mapOf(
+                "a" to CustomSeriesAssignment("Series 1", 0),
+                "b" to CustomSeriesAssignment("Series 1", 1),
+            ),
+        )
+
+        assertEquals(listOf("b", "a"), visibleLibraryBooks(state).map(LibraryBook::id))
+    }
+
+    @Test
+    fun searchMatchesMetadataFromAnySeriesEpisode() {
+        val seriesBooks = listOf(
+            books[0].copy(metadata = LibraryMetadata(artists = listOf("ABC"))),
+            books[1].copy(metadata = LibraryMetadata(artists = listOf("ABC", "bcd"))),
+        )
+        val state = MainUiState(
+            libraryBooks = seriesBooks,
+            libraryQuery = "artist:bcd",
+            customSeriesByBookId = mapOf(
+                "a" to CustomSeriesAssignment("Series 1", 0),
+                "b" to CustomSeriesAssignment("Series 1", 1),
+            ),
+        )
+
+        assertEquals(listOf("b"), visibleLibraryBooks(state).map(LibraryBook::id))
     }
 
     private fun book(id: String, title: String, location: String, modifiedAt: Long) = LibraryBook(

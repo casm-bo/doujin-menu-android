@@ -3,6 +3,7 @@ package com.doujinmenu.android.model
 data class LibraryBook(
     val id: String,
     val title: String,
+    val originalTitle: String = title,
     val locationUri: String,
     val locationName: String,
     val folderUri: String,
@@ -38,6 +39,7 @@ data class LibraryMetadata(
 data class CustomSeriesAssignment(
     val name: String,
     val order: Int,
+    val modifiedAt: Long = 0L,
 )
 
 enum class LibraryReadFilter { ALL, UNREAD, READ }

@@ -31,9 +31,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items as listItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -91,14 +95,28 @@ import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.LibraryReadFilter
 import com.doujinmenu.android.model.LibrarySort
+import com.doujinmenu.android.security.LibraryPreferenceStore
 
 private enum class LibraryViewMode { GRID, LIST }
 
+private fun thumbnailBadgeScale(columns: Int): Float = when (columns) {
+    2 -> 1f
+    3 -> 0.72f
+    else -> 0.56f
+}
+
+private const val LIST_THUMBNAIL_BADGE_SCALE = 0.62f
+
 private sealed interface LibraryMainEntry {
     val title: String
-    data class Book(val book: LibraryBook) : LibraryMainEntry { override val title: String = book.title }
+    val modifiedAt: Long
+    data class Book(val book: LibraryBook) : LibraryMainEntry {
+        override val title: String = book.title
+        override val modifiedAt: Long = book.modifiedAt
+    }
     data class Series(val name: String, val books: List<LibraryBook>) : LibraryMainEntry {
         override val title: String = name
+        override val modifiedAt: Long = books.maxOfOrNull(LibraryBook::modifiedAt) ?: 0L
     }
 }
 
@@ -115,6 +133,7 @@ fun LibraryScreen(
     onRefresh: () -> Unit,
     onOpenBook: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
     onAddFavorites: (Set<String>) -> Unit,
     onMarkRead: (Set<String>) -> Unit,
@@ -125,19 +144,28 @@ fun LibraryScreen(
     onRenameBook: (String, String) -> Unit,
     onRemoveBooksFromSeries: (Set<String>) -> Unit,
     onRenameSeries: (String, String) -> Unit,
+    onMergeSeries: (List<String>, String) -> Unit,
     onDeleteSeries: (Set<String>) -> Unit,
+    onAutoCreateSeries: () -> Unit,
     onSeriesModeChange: (Boolean) -> Unit,
     onSelectedSeriesChange: (String?) -> Unit,
     onBackToSearch: () -> Unit,
 ) {
-    var viewModeName by rememberSaveable { mutableStateOf(LibraryViewMode.GRID.name) }
-    var gridColumns by rememberSaveable { mutableIntStateOf(2) }
+    val context = LocalContext.current
+    val libraryPreferences = remember(context) { LibraryPreferenceStore(context) }
+    var viewModeName by rememberSaveable {
+        mutableStateOf(libraryPreferences.loadLibraryViewMode())
+    }
+    var gridColumns by rememberSaveable {
+        mutableIntStateOf(libraryPreferences.loadLibraryGridColumns())
+    }
     val seriesMode = state.librarySeriesMode
     val selectedSeries = state.selectedLibrarySeries
     var selectedIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var selectionMode by rememberSaveable { mutableStateOf(false) }
     var selectedSeriesNames by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var seriesSelectionMode by rememberSaveable { mutableStateOf(false) }
+    var firstSelectedSeriesName by rememberSaveable { mutableStateOf<String?>(null) }
     var seriesDialog by rememberSaveable { mutableStateOf(false) }
     var seriesName by rememberSaveable { mutableStateOf("") }
     var editingSeriesOrder by rememberSaveable { mutableStateOf(false) }
@@ -146,8 +174,10 @@ fun LibraryScreen(
     var deleteDialog by rememberSaveable { mutableStateOf(false) }
     var renameBookDialog by rememberSaveable { mutableStateOf(false) }
     var renameSeriesDialog by rememberSaveable { mutableStateOf(false) }
+    var mergeSeriesDialog by rememberSaveable { mutableStateOf(false) }
     var renameInput by rememberSaveable { mutableStateOf("") }
-    val viewMode = LibraryViewMode.valueOf(viewModeName)
+    val viewMode = runCatching { LibraryViewMode.valueOf(viewModeName) }
+        .getOrDefault(LibraryViewMode.GRID)
     val books = remember(
         state.libraryBooks,
         state.libraryQuery,
@@ -157,11 +187,13 @@ fun LibraryScreen(
         state.selectedLibraryLocationUri,
         state.selectedLibraryLocationUris,
         state.libraryFavoriteIds,
+        state.libraryFavoriteSeriesNames,
         state.libraryReadIds,
     ) { visibleLibraryBooks(state) }
     val shownBooks = books.filterBySeries(selectedSeries, state.customSeriesByBookId)
-    val context = LocalContext.current
     val pullToRefreshState = rememberPullToRefreshState()
+    val seriesOverviewGridState = rememberLazyGridState()
+    val seriesOverviewListState = rememberLazyListState()
 
     BackHandler {
         when {
@@ -177,6 +209,7 @@ fun LibraryScreen(
             seriesSelectionMode -> {
                 seriesSelectionMode = false
                 selectedSeriesNames = emptySet()
+                firstSelectedSeriesName = null
             }
             editingSeriesOrder -> editingSeriesOrder = false
             selectedSeries != null -> onSelectedSeriesChange(null)
@@ -218,11 +251,21 @@ fun LibraryScreen(
                     },
                     onSelectAll = {
                         val all = seriesNames(books, state.customSeriesByBookId)
-                        selectedSeriesNames = if (selectedSeriesNames.containsAll(all)) emptySet() else all
+                        if (selectedSeriesNames.containsAll(all)) {
+                            selectedSeriesNames = emptySet()
+                            firstSelectedSeriesName = null
+                        } else {
+                            selectedSeriesNames = all
+                            firstSelectedSeriesName = all.firstOrNull()
+                        }
                     },
                     onFavorite = null,
                     onRead = null,
                     onSeries = null,
+                    onMerge = if (selectedSeriesNames.size >= 2) ({
+                        renameInput = firstSelectedSeriesName ?: selectedSeriesNames.first()
+                        mergeSeriesDialog = true
+                    }) else null,
                     onRename = selectedSeriesNames.singleOrNull()?.let { series ->
                         {
                             renameInput = series
@@ -233,6 +276,7 @@ fun LibraryScreen(
                     onClose = {
                         seriesSelectionMode = false
                         selectedSeriesNames = emptySet()
+                        firstSelectedSeriesName = null
                     },
                 )
             } else if (selectionMode) {
@@ -301,8 +345,15 @@ fun LibraryScreen(
                         selectedIds = emptySet()
                         selectedSeriesNames = emptySet()
                     },
-                    onViewModeChange = { viewModeName = it.name },
-                    onGridColumnsChange = { gridColumns = it },
+                    onAutoCreateSeries = onAutoCreateSeries,
+                    onViewModeChange = {
+                        viewModeName = it.name
+                        libraryPreferences.saveLibraryViewMode(it.name)
+                    },
+                    onGridColumnsChange = {
+                        gridColumns = it
+                        libraryPreferences.saveLibraryGridColumns(it)
+                    },
                 )
             }
             if (seriesMode && selectedSeries != null && !selectionMode) {
@@ -310,7 +361,7 @@ fun LibraryScreen(
                     TextButton(onClick = {
                         onSelectedSeriesChange(null)
                         editingSeriesOrder = false
-                    }) { Text("< ${selectedSeries.orEmpty()}") }
+                    }) { Text("<") }
                     if (shownBooks.any { state.customSeriesByBookId[it.id]?.name == selectedSeries }) {
                         TextButton(onClick = { editingSeriesOrder = !editingSeriesOrder }) {
                             Text(if (editingSeriesOrder) "순서 편집 완료" else "순서 편집")
@@ -342,15 +393,31 @@ fun LibraryScreen(
                 books.isEmpty() -> LibraryEmpty("조건에 맞는 책이 없습니다.")
                 seriesMode && selectedSeries == null -> LibrarySeriesOverview(
                     books = books,
+                    allBooks = state.libraryBooks,
                     customSeries = state.customSeriesByBookId,
+                    favoriteSeriesNames = state.libraryFavoriteSeriesNames,
+                    readBookIds = state.libraryReadIds,
                     viewMode = viewMode,
                     columns = gridColumns,
+                    sort = state.librarySort,
+                    gridState = seriesOverviewGridState,
+                    listState = seriesOverviewListState,
                     selectionMode = seriesSelectionMode,
                     selectedSeries = selectedSeriesNames,
                     onOpenSeries = onSelectedSeriesChange,
-                    onToggleSelection = { name -> selectedSeriesNames = selectedSeriesNames.toggled(name) },
+                    onToggleFavorite = onToggleSeriesFavorite,
+                    onToggleSelection = { name ->
+                        val wasSelected = name in selectedSeriesNames
+                        selectedSeriesNames = selectedSeriesNames.toggled(name)
+                        firstSelectedSeriesName = when {
+                            !wasSelected && firstSelectedSeriesName == null -> name
+                            wasSelected && firstSelectedSeriesName == name -> selectedSeriesNames.firstOrNull()
+                            else -> firstSelectedSeriesName
+                        }
+                    },
                     onLongPress = { name ->
                         context.performLightHaptic()
+                        if (!seriesSelectionMode) firstSelectedSeriesName = name
                         seriesSelectionMode = true
                         selectedSeriesNames = selectedSeriesNames + name
                     },
@@ -391,6 +458,7 @@ fun LibraryScreen(
                         pendingSeriesSelection = name
                     },
                     onToggleFavorite = onToggleFavorite,
+                    onToggleSeriesFavorite = onToggleSeriesFavorite,
                     onToggleRead = onToggleRead,
                 )
                 !seriesMode -> LibraryMixedList(
@@ -423,6 +491,7 @@ fun LibraryScreen(
                         pendingSeriesSelection = name
                     },
                     onToggleFavorite = onToggleFavorite,
+                    onToggleSeriesFavorite = onToggleSeriesFavorite,
                     onToggleRead = onToggleRead,
                 )
                 viewMode == LibraryViewMode.GRID -> LibraryGrid(
@@ -594,6 +663,21 @@ fun LibraryScreen(
             },
         )
     }
+    if (mergeSeriesDialog) {
+        RenameDialog(
+            title = "시리즈 합치기",
+            value = renameInput,
+            onValueChange = { renameInput = it },
+            onDismiss = { mergeSeriesDialog = false },
+            onConfirm = {
+                onMergeSeries(selectedSeriesNames.toList(), renameInput)
+                mergeSeriesDialog = false
+                seriesSelectionMode = false
+                selectedSeriesNames = emptySet()
+                firstSelectedSeriesName = null
+            },
+        )
+    }
 }
 
 @Composable
@@ -631,6 +715,7 @@ private fun LibraryToolbar(
     gridColumns: Int,
     seriesMode: Boolean,
     onSeriesModeChange: (Boolean) -> Unit,
+    onAutoCreateSeries: () -> Unit,
     onViewModeChange: (LibraryViewMode) -> Unit,
     onGridColumnsChange: (Int) -> Unit,
 ) {
@@ -649,6 +734,31 @@ private fun LibraryToolbar(
             ) {
                 SeriesArchiveIcon()
                 Text("시리즈", modifier = Modifier.padding(start = 7.dp))
+            }
+            if (state.selectedLibrarySeries == null) {
+                OutlinedButton(
+                    onClick = onAutoCreateSeries,
+                    enabled = !state.isAutoCreatingSeries,
+                ) {
+                    if (state.isAutoCreatingSeries) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    Text(
+                        text = if (state.isAutoCreatingSeries) "분석 중" else "자동생성",
+                        modifier = Modifier.padding(start = if (state.isAutoCreatingSeries) 7.dp else 0.dp),
+                    )
+                }
+                state.seriesAutoCreateStatus?.let { status ->
+                    Text(
+                        text = status,
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
             }
         } else {
             OutlinedButton(onClick = { onSeriesModeChange(true) }) {
@@ -709,6 +819,7 @@ private fun LibrarySelectionToolbar(
     onFavorite: (() -> Unit)?,
     onRead: (() -> Unit)?,
     onSeries: (() -> Unit)?,
+    onMerge: (() -> Unit)? = null,
     onSave: (() -> Unit)? = null,
     readLabel: String = "읽음",
     seriesLabel: String = "시리즈",
@@ -728,6 +839,7 @@ private fun LibrarySelectionToolbar(
         onFavorite?.let { action -> TextButton(onClick = action, enabled = selectedCount > 0) { Text("♥", fontSize = 24.sp) } }
         onRead?.let { action -> TextButton(onClick = action, enabled = selectedCount > 0) { Text(readLabel) } }
         onSeries?.let { action -> TextButton(onClick = action, enabled = selectedCount > 0) { Text(seriesLabel) } }
+        onMerge?.let { action -> TextButton(onClick = action) { Text("합치기") } }
         onSave?.let { action -> TextButton(onClick = action) { Text("저장") } }
         onRename?.let { action -> TextButton(onClick = action) { Text("이름변경") } }
         onDelete?.let { action -> TextButton(onClick = action, enabled = selectedCount > 0) { Text("삭제") } }
@@ -916,9 +1028,9 @@ private fun LibraryViewMenu(
                 onClick = { expanded = false; onViewModeChange(LibraryViewMode.LIST) },
             )
             HorizontalDivider()
-            (2..4).forEach { columns ->
+            listOf(2 to "크게", 3 to "중간", 4 to "작게").forEach { (columns, label) ->
                 DropdownMenuItem(
-                    text = { Text(if (gridColumns == columns) "✓ 한 줄에 ${columns}개" else "한 줄에 ${columns}개") },
+                    text = { Text(if (gridColumns == columns) "✓ $label" else label) },
                     onClick = {
                         expanded = false
                         onGridColumnsChange(columns)
@@ -969,6 +1081,7 @@ private fun LibraryGrid(
         items(books, key = LibraryBook::id) { book ->
             LibraryBookCard(
                 book = book,
+                badgeScale = thumbnailBadgeScale(columns),
                 favorite = book.id in state.libraryFavoriteIds,
                 read = book.id in state.libraryReadIds,
                 progress = state.libraryProgress[book.id] ?: 0,
@@ -1035,10 +1148,11 @@ private fun LibraryMixedGrid(
     onLongPressBook: (String) -> Unit,
     onLongPressSeries: (String, String) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
 ) {
-    val entries = remember(books, state.libraryBooks, state.customSeriesByBookId) {
-        libraryMainEntries(books, state.libraryBooks, state.customSeriesByBookId)
+    val entries = remember(books, state.libraryBooks, state.customSeriesByBookId, state.librarySort) {
+        libraryMainEntries(books, state.libraryBooks, state.customSeriesByBookId, state.librarySort)
     }
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
@@ -1056,6 +1170,7 @@ private fun LibraryMixedGrid(
             when (entry) {
                 is LibraryMainEntry.Book -> LibraryBookCard(
                     book = entry.book,
+                    badgeScale = thumbnailBadgeScale(columns),
                     favorite = entry.book.id in state.libraryFavoriteIds,
                     read = entry.book.id in state.libraryReadIds,
                     progress = state.libraryProgress[entry.book.id] ?: 0,
@@ -1072,10 +1187,14 @@ private fun LibraryMixedGrid(
                         name = entry.name,
                         books = entry.books,
                         listMode = false,
+                        badgeScale = thumbnailBadgeScale(columns),
+                        favorite = entry.name in state.libraryFavoriteSeriesNames,
+                        read = entry.books.isNotEmpty() && entry.books.all { it.id in state.libraryReadIds },
                         selectionMode = selectionMode,
                         selected = ids.isNotEmpty() && ids.all { it in selectedIds },
                         onClick = { if (selectionMode) onToggleSeries(entry.name, ids) else onOpenSeries(entry.name) },
                         onLongPress = { onLongPressSeries(entry.name, entry.books.firstOrNull()?.title.orEmpty()) },
+                        onToggleFavorite = { onToggleSeriesFavorite(entry.name) },
                     )
                 }
             }
@@ -1096,10 +1215,11 @@ private fun LibraryMixedList(
     onLongPressBook: (String) -> Unit,
     onLongPressSeries: (String, String) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
 ) {
-    val entries = remember(books, state.libraryBooks, state.customSeriesByBookId) {
-        libraryMainEntries(books, state.libraryBooks, state.customSeriesByBookId)
+    val entries = remember(books, state.libraryBooks, state.customSeriesByBookId, state.librarySort) {
+        libraryMainEntries(books, state.libraryBooks, state.customSeriesByBookId, state.librarySort)
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1131,10 +1251,14 @@ private fun LibraryMixedList(
                         name = entry.name,
                         books = entry.books,
                         listMode = true,
+                        badgeScale = LIST_THUMBNAIL_BADGE_SCALE,
+                        favorite = entry.name in state.libraryFavoriteSeriesNames,
+                        read = entry.books.isNotEmpty() && entry.books.all { it.id in state.libraryReadIds },
                         selectionMode = selectionMode,
                         selected = ids.isNotEmpty() && ids.all { it in selectedIds },
                         onClick = { if (selectionMode) onToggleSeries(entry.name, ids) else onOpenSeries(entry.name) },
                         onLongPress = { onLongPressSeries(entry.name, entry.books.firstOrNull()?.title.orEmpty()) },
+                        onToggleFavorite = { onToggleSeriesFavorite(entry.name) },
                     )
                 }
             }
@@ -1146,6 +1270,7 @@ private fun libraryMainEntries(
     visibleBooks: List<LibraryBook>,
     allBooks: List<LibraryBook>,
     customSeries: Map<String, CustomSeriesAssignment>,
+    sort: LibrarySort,
 ): List<LibraryMainEntry> {
     val visibleSeries = visibleBooks.mapNotNullTo(linkedSetOf()) { customSeries[it.id]?.name }
     val independent = visibleBooks.filter { customSeries[it.id] == null }.map { LibraryMainEntry.Book(it) }
@@ -1156,13 +1281,20 @@ private fun libraryMainEntries(
                 .sortedBy { customSeries[it.id]?.order ?: Int.MAX_VALUE },
         )
     }
-    return (independent + series).sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+    val entries = independent + series
+    return when (sort) {
+        LibrarySort.TITLE_ASC -> entries.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+        LibrarySort.TITLE_DESC -> entries.sortedWith(compareByDescending<LibraryMainEntry, String>(String.CASE_INSENSITIVE_ORDER) { it.title })
+        LibrarySort.NEWEST -> entries.sortedByDescending(LibraryMainEntry::modifiedAt)
+        LibrarySort.OLDEST -> entries.sortedBy(LibraryMainEntry::modifiedAt)
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LibraryBookCard(
     book: LibraryBook,
+    badgeScale: Float = 1f,
     favorite: Boolean,
     read: Boolean,
     progress: Int,
@@ -1189,9 +1321,10 @@ private fun LibraryBookCard(
                     isCloud = book.isCloud,
                     favorite = favorite,
                     onToggleFavorite = onToggleFavorite,
+                    scale = badgeScale,
                 )
             }
-            if (selectionMode) SelectionIndicator(selected, Modifier.align(Alignment.Center))
+            if (selectionMode) SelectionIndicator(selected, Modifier.align(Alignment.Center), badgeScale)
         }
         LibraryBookText(book, progress, Modifier.padding(10.dp))
     }
@@ -1231,9 +1364,12 @@ private fun LibraryBookListItem(
                         isCloud = book.isCloud,
                         favorite = favorite,
                         onToggleFavorite = onToggleFavorite,
+                        scale = LIST_THUMBNAIL_BADGE_SCALE,
                     )
                 }
-                if (selectionMode) SelectionIndicator(selected, Modifier.align(Alignment.Center))
+                if (selectionMode) {
+                    SelectionIndicator(selected, Modifier.align(Alignment.Center), LIST_THUMBNAIL_BADGE_SCALE)
+                }
             }
             LibraryBookText(book, progress, Modifier.padding(12.dp))
         }
@@ -1246,27 +1382,28 @@ private fun BoxScope.LibraryThumbnailBadges(
     isCloud: Boolean,
     favorite: Boolean,
     onToggleFavorite: () -> Unit,
+    scale: Float,
 ) {
     if (read) {
-        ThumbnailBadge("읽음", Modifier.align(Alignment.TopStart))
+        ThumbnailBadge("읽음", Modifier.align(Alignment.TopStart), scale)
     }
     if (isCloud) {
-        ThumbnailIconBadge(Modifier.align(Alignment.TopEnd)) { CloudOutlineIcon() }
+        ThumbnailIconBadge(Modifier.align(Alignment.TopEnd), scale) { CloudOutlineIcon(scale = scale) }
     } else {
-        ThumbnailBadge("기기", Modifier.align(Alignment.TopEnd))
+        ThumbnailBadge("기기", Modifier.align(Alignment.TopEnd), scale)
     }
     Surface(
-        modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
-        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp * scale),
+        shape = RoundedCornerShape(10.dp * scale),
         color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.88f),
         contentColor = MaterialTheme.colorScheme.inverseOnSurface,
     ) {
         TextButton(
             onClick = onToggleFavorite,
-            modifier = Modifier.size(42.dp),
+            modifier = Modifier.size(42.dp * scale),
             contentPadding = PaddingValues(0.dp),
         ) {
-            FavoriteHeartIcon(favorite = favorite, modifier = Modifier.size(22.dp))
+            FavoriteHeartIcon(favorite = favorite, modifier = Modifier.size(22.dp * scale))
         }
     }
 }
@@ -1317,25 +1454,26 @@ private fun FavoriteHeartIcon(favorite: Boolean, modifier: Modifier = Modifier) 
 @Composable
 private fun ThumbnailIconBadge(
     modifier: Modifier,
+    scale: Float,
     content: @Composable () -> Unit,
 ) {
     Surface(
-        modifier = modifier.padding(6.dp),
-        shape = RoundedCornerShape(6.dp),
+        modifier = modifier.padding(6.dp * scale),
+        shape = RoundedCornerShape(6.dp * scale),
         color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.88f),
         contentColor = MaterialTheme.colorScheme.inverseOnSurface,
     ) {
         Box(
-            modifier = Modifier.width(35.dp).height(27.dp),
+            modifier = Modifier.width(35.dp * scale).height(27.dp * scale),
             contentAlignment = Alignment.Center,
         ) { content() }
     }
 }
 
 @Composable
-private fun CloudOutlineIcon(modifier: Modifier = Modifier) {
+private fun CloudOutlineIcon(modifier: Modifier = Modifier, scale: Float = 1f) {
     val color = LocalContentColor.current
-    Canvas(modifier = modifier.size(18.dp)) {
+    Canvas(modifier = modifier.size(18.dp * scale)) {
         val path = Path().apply {
             moveTo(size.width * 0.22f, size.height * 0.78f)
             cubicTo(size.width * 0.06f, size.height * 0.78f, 0f, size.height * 0.65f, size.width * 0.04f, size.height * 0.52f)
@@ -1351,10 +1489,10 @@ private fun CloudOutlineIcon(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun SelectionIndicator(selected: Boolean, modifier: Modifier = Modifier) {
+private fun SelectionIndicator(selected: Boolean, modifier: Modifier = Modifier, scale: Float = 1f) {
     Surface(
-        modifier = modifier.size(42.dp).border(
-            width = 3.dp,
+        modifier = modifier.size(42.dp * scale).border(
+            width = 3.dp * scale,
             color = if (selected) MaterialTheme.colorScheme.primary else Color.White,
             shape = CircleShape,
         ),
@@ -1362,7 +1500,7 @@ private fun SelectionIndicator(selected: Boolean, modifier: Modifier = Modifier)
         color = if (selected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.25f),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            if (selected) Text("✓", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+            if (selected) Text("✓", color = Color.White, fontSize = 25.sp * scale, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1372,17 +1510,17 @@ private fun selectionColorFilter(enabled: Boolean): ColorFilter? = if (enabled) 
 } else null
 
 @Composable
-private fun ThumbnailBadge(text: String, modifier: Modifier) {
+private fun ThumbnailBadge(text: String, modifier: Modifier, scale: Float) {
     Surface(
-        modifier = modifier.padding(6.dp),
-        shape = RoundedCornerShape(6.dp),
+        modifier = modifier.padding(6.dp * scale),
+        shape = RoundedCornerShape(6.dp * scale),
         color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.88f),
         contentColor = MaterialTheme.colorScheme.inverseOnSurface,
     ) {
         Text(
             text,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 7.dp * scale, vertical = 4.dp * scale),
+            fontSize = 11.sp * scale,
             fontWeight = FontWeight.Bold,
         )
     }
@@ -1424,27 +1562,42 @@ private fun LibraryBookText(book: LibraryBook, progress: Int, modifier: Modifier
 @Composable
 private fun LibrarySeriesOverview(
     books: List<LibraryBook>,
+    allBooks: List<LibraryBook>,
     customSeries: Map<String, CustomSeriesAssignment>,
+    favoriteSeriesNames: Set<String>,
+    readBookIds: Set<String>,
     viewMode: LibraryViewMode,
     columns: Int,
+    sort: LibrarySort,
+    gridState: LazyGridState,
+    listState: LazyListState,
     selectionMode: Boolean,
     selectedSeries: Set<String>,
     onOpenSeries: (String) -> Unit,
+    onToggleFavorite: (String) -> Unit,
     onToggleSelection: (String) -> Unit,
     onLongPress: (String) -> Unit,
 ) {
-    val groups = remember(books, customSeries) {
-        books.flatMap { book -> book.effectiveSeries(customSeries).map { it to book } }
-            .groupBy({ it.first }, { it.second })
-            .mapValues { (seriesName, seriesBooks) ->
-                seriesBooks.sortedWith(
+    val groups = remember(books, allBooks, customSeries, sort) {
+        val grouped = seriesNames(books, customSeries).map { seriesName ->
+            seriesName to allBooks.filter { customSeries[it.id]?.name == seriesName }
+                .sortedWith(
                     compareBy<LibraryBook> {
                         customSeries[it.id]?.takeIf { assignment -> assignment.name == seriesName }?.order
                             ?: Int.MAX_VALUE
                     }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
                 )
+        }
+        when (sort) {
+            LibrarySort.TITLE_ASC -> grouped.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.first })
+            LibrarySort.TITLE_DESC -> grouped.sortedWith(compareByDescending<Pair<String, List<LibraryBook>>, String>(String.CASE_INSENSITIVE_ORDER) { it.first })
+            LibrarySort.NEWEST -> grouped.sortedByDescending { (_, seriesBooks) ->
+                seriesBooks.maxOfOrNull(LibraryBook::modifiedAt) ?: 0L
             }
-            .toSortedMap(String.CASE_INSENSITIVE_ORDER).toList()
+            LibrarySort.OLDEST -> grouped.sortedBy { (_, seriesBooks) ->
+                seriesBooks.maxOfOrNull(LibraryBook::modifiedAt) ?: 0L
+            }
+        }
     }
     if (groups.isEmpty()) {
         LibraryEmpty("등록된 시리즈가 없습니다. 항목을 길게 눌러 시리즈로 묶어보세요.")
@@ -1453,6 +1606,7 @@ private fun LibrarySeriesOverview(
     if (viewMode == LibraryViewMode.GRID) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
+            state = gridState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1463,15 +1617,20 @@ private fun LibrarySeriesOverview(
                     name = name,
                     books = seriesBooks,
                     listMode = false,
+                    badgeScale = thumbnailBadgeScale(columns),
+                    favorite = name in favoriteSeriesNames,
+                    read = seriesBooks.isNotEmpty() && seriesBooks.all { it.id in readBookIds },
                     selectionMode = selectionMode,
                     selected = name in selectedSeries,
                     onClick = { if (selectionMode) onToggleSelection(name) else onOpenSeries(name) },
                     onLongPress = { onLongPress(name) },
+                    onToggleFavorite = { onToggleFavorite(name) },
                 )
             }
         }
     } else {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1481,10 +1640,14 @@ private fun LibrarySeriesOverview(
                     name = name,
                     books = seriesBooks,
                     listMode = true,
+                    badgeScale = LIST_THUMBNAIL_BADGE_SCALE,
+                    favorite = name in favoriteSeriesNames,
+                    read = seriesBooks.isNotEmpty() && seriesBooks.all { it.id in readBookIds },
                     selectionMode = selectionMode,
                     selected = name in selectedSeries,
                     onClick = { if (selectionMode) onToggleSelection(name) else onOpenSeries(name) },
                     onLongPress = { onLongPress(name) },
+                    onToggleFavorite = { onToggleFavorite(name) },
                 )
             }
         }
@@ -1497,10 +1660,14 @@ private fun SeriesCard(
     name: String,
     books: List<LibraryBook>,
     listMode: Boolean,
+    badgeScale: Float,
+    favorite: Boolean,
+    read: Boolean,
     selectionMode: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
+    onToggleFavorite: () -> Unit,
 ) {
     val cover = books.firstOrNull()
     val context = LocalContext.current
@@ -1513,9 +1680,14 @@ private fun SeriesCard(
             Row(modifier = Modifier.fillMaxSize()) {
                 SeriesCover(
                     book = cover,
+                    books = books,
                     context = context,
+                    favorite = favorite,
+                    read = read,
+                    onToggleFavorite = onToggleFavorite,
                     selectionMode = selectionMode,
                     selected = selected,
+                    badgeScale = badgeScale,
                     modifier = Modifier.width(100.dp).fillMaxHeight(),
                 )
                 SeriesText(name, books, Modifier.padding(14.dp))
@@ -1524,9 +1696,14 @@ private fun SeriesCard(
             Column {
                 SeriesCover(
                     book = cover,
+                    books = books,
                     context = context,
+                    favorite = favorite,
+                    read = read,
+                    onToggleFavorite = onToggleFavorite,
                     selectionMode = selectionMode,
                     selected = selected,
+                    badgeScale = badgeScale,
                     modifier = Modifier.fillMaxWidth().aspectRatio(0.72f),
                 )
                 SeriesText(name, books, Modifier.padding(10.dp))
@@ -1538,9 +1715,14 @@ private fun SeriesCard(
 @Composable
 private fun SeriesCover(
     book: LibraryBook?,
+    books: List<LibraryBook>,
     context: android.content.Context,
+    favorite: Boolean,
+    read: Boolean,
+    onToggleFavorite: () -> Unit,
     selectionMode: Boolean,
     selected: Boolean,
+    badgeScale: Float,
     modifier: Modifier,
 ) {
     Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
@@ -1554,16 +1736,60 @@ private fun SeriesCover(
             )
         }
         if (!selectionMode) {
-            Surface(
-                modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
-                shape = RoundedCornerShape(6.dp),
-                color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.88f),
-                contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-            ) {
-                SeriesStackIcon(Modifier.padding(6.dp).size(20.dp))
-            }
+            SeriesThumbnailBadges(
+                read = read,
+                source = when {
+                    books.all(LibraryBook::isCloud) -> SeriesSource.CLOUD
+                    books.none(LibraryBook::isCloud) -> SeriesSource.LOCAL
+                    else -> SeriesSource.MIXED
+                },
+                favorite = favorite,
+                onToggleFavorite = onToggleFavorite,
+                scale = badgeScale,
+            )
         }
-        if (selectionMode) SelectionIndicator(selected, Modifier.align(Alignment.Center))
+        if (selectionMode) SelectionIndicator(selected, Modifier.align(Alignment.Center), badgeScale)
+    }
+}
+
+private enum class SeriesSource { CLOUD, LOCAL, MIXED }
+
+@Composable
+private fun BoxScope.SeriesThumbnailBadges(
+    read: Boolean,
+    source: SeriesSource,
+    favorite: Boolean,
+    onToggleFavorite: () -> Unit,
+    scale: Float,
+) {
+    if (read) ThumbnailBadge("읽음", Modifier.align(Alignment.TopStart), scale)
+    when (source) {
+        SeriesSource.CLOUD ->
+            ThumbnailIconBadge(Modifier.align(Alignment.TopEnd), scale) { CloudOutlineIcon(scale = scale) }
+        SeriesSource.LOCAL -> ThumbnailBadge("기기", Modifier.align(Alignment.TopEnd), scale)
+        SeriesSource.MIXED -> ThumbnailBadge("혼합", Modifier.align(Alignment.TopEnd), scale)
+    }
+    Surface(
+        modifier = Modifier.align(Alignment.BottomStart).padding(6.dp * scale),
+        shape = RoundedCornerShape(6.dp * scale),
+        color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.88f),
+        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+    ) {
+        SeriesStackIcon(Modifier.padding(6.dp * scale).size(20.dp * scale))
+    }
+    Surface(
+        modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp * scale),
+        shape = RoundedCornerShape(10.dp * scale),
+        color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.88f),
+        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+    ) {
+        TextButton(
+            onClick = onToggleFavorite,
+            modifier = Modifier.size(42.dp * scale),
+            contentPadding = PaddingValues(0.dp),
+        ) {
+            FavoriteHeartIcon(favorite = favorite, modifier = Modifier.size(22.dp * scale))
+        }
     }
 }
 
@@ -1588,13 +1814,44 @@ private fun SeriesStackIcon(modifier: Modifier = Modifier) {
 
 @Composable
 private fun SeriesText(name: String, books: List<LibraryBook>, modifier: Modifier) {
+    val artists = books.flatMap { it.metadata.artists }.distinctBy { it.lowercase() }
+    val tags = books.flatMap { it.metadata.tags }.distinctBy { it.lowercase() }
+    val source = when {
+        books.all(LibraryBook::isCloud) -> "클라우드"
+        books.none(LibraryBook::isCloud) -> "로컬"
+        else -> "클라우드 · 로컬"
+    }
     Column(modifier = modifier) {
-        Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2)
         Text(
-            "${books.size}화 · ${books.take(3).joinToString { it.title }}",
+            name,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (artists.isNotEmpty()) {
+            Text(
+                artists.joinToString(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (tags.isNotEmpty()) {
+            Text(
+                tags.take(4).joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            "${books.size}화 · $source",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 3,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -1763,8 +2020,14 @@ internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
                 else -> true
             }
         }
-        .filter { book -> queryTerms.all { it.matches(book) } }
-        .filter { !state.libraryFavoritesOnly || it.id in state.libraryFavoriteIds }
+        .filter { book ->
+            queryTerms.all { term -> term.matches(book, state.customSeriesByBookId[book.id]?.name) }
+        }
+        .filter { book ->
+            !state.libraryFavoritesOnly ||
+                book.id in state.libraryFavoriteIds ||
+                state.customSeriesByBookId[book.id]?.name in state.libraryFavoriteSeriesNames
+        }
         .filter {
             when (state.libraryReadFilter) {
                 LibraryReadFilter.ALL -> true
@@ -1782,19 +2045,20 @@ internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
 }
 
 private data class LibraryQueryTerm(val field: String?, val value: String, val excluded: Boolean) {
-    fun matches(book: LibraryBook): Boolean {
+    fun matches(book: LibraryBook, customSeriesName: String?): Boolean {
         val candidates = when (field) {
             "title", "제목" -> listOf(book.title)
             "artist", "artists", "작가" -> book.metadata.artists
             "tag", "tags", "태그" -> book.metadata.tags
-            "series", "시리즈" -> book.metadata.series
+            "series", "시리즈" -> book.metadata.series + listOfNotNull(customSeriesName)
             "group", "groups", "그룹" -> book.metadata.groups
             "character", "characters", "캐릭터" -> book.metadata.characters
             "language", "lang", "언어" -> listOfNotNull(book.metadata.language)
             "type", "종류" -> listOfNotNull(book.metadata.galleryType)
             "id" -> listOfNotNull(book.metadata.hitomiId, book.id)
             else -> listOf(book.title) + book.metadata.artists + book.metadata.tags +
-                book.metadata.series + book.metadata.groups + book.metadata.characters +
+                book.metadata.series + listOfNotNull(customSeriesName) +
+                book.metadata.groups + book.metadata.characters +
                 listOfNotNull(book.metadata.language, book.metadata.galleryType)
         }
         val found = candidates.any { it.contains(value, ignoreCase = true) }

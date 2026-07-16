@@ -90,6 +90,13 @@ fun BrowserScreen(
     var addLanguageDialog by rememberSaveable { mutableStateOf(false) }
     var languageInput by rememberSaveable { mutableStateOf("") }
     var deleteLanguage by rememberSaveable { mutableStateOf<String?>(null) }
+    val librarySourcesByGalleryId = remember(state.libraryBooks) {
+        state.libraryBooks.mapNotNull { book ->
+            book.metadata.hitomiId?.toLongOrNull()?.let { id ->
+                id to if (book.isCloud) GalleryLibrarySource.CLOUD else GalleryLibrarySource.DEVICE
+            }
+        }.groupBy({ it.first }, { it.second }).mapValues { it.value.toSet() }
+    }
     var queryFieldValue by remember {
         mutableStateOf(
             TextFieldValue(
@@ -306,6 +313,7 @@ fun BrowserScreen(
                 GalleryCard(
                     gallery = gallery,
                     viewed = gallery.id in state.viewedGalleryIds,
+                    librarySources = librarySourcesByGalleryId[gallery.id].orEmpty(),
                     onClick = { onGalleryClick(gallery.id) },
                 )
             }
@@ -378,8 +386,15 @@ private val PREFERRED_LANGUAGES = listOf(
     "chinese" to "중국어",
 )
 
+private enum class GalleryLibrarySource { CLOUD, DEVICE }
+
 @Composable
-private fun GalleryCard(gallery: GallerySummary, viewed: Boolean, onClick: () -> Unit) {
+private fun GalleryCard(
+    gallery: GallerySummary,
+    viewed: Boolean,
+    librarySources: Set<GalleryLibrarySource>,
+    onClick: () -> Unit,
+) {
     val context = LocalContext.current
     val request = gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id) }
 
@@ -397,7 +412,7 @@ private fun GalleryCard(gallery: GallerySummary, viewed: Boolean, onClick: () ->
                 if (request != null) {
                     AsyncImage(
                         model = request,
-                        contentDescription = "${gallery.title} 썸네일",
+                        contentDescription = "${preferredLocalizedTitle(gallery.title)} 썸네일",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
@@ -417,6 +432,26 @@ private fun GalleryCard(gallery: GallerySummary, viewed: Boolean, onClick: () ->
                         )
                     }
                 }
+                if (librarySources.isNotEmpty()) {
+                    val sourceLabel = when (librarySources) {
+                        setOf(GalleryLibrarySource.CLOUD) -> "클라우드"
+                        setOf(GalleryLibrarySource.DEVICE) -> "기기"
+                        else -> "클라우드 · 기기"
+                    }
+                    Surface(
+                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+                        shape = RoundedCornerShape(5.dp),
+                        color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.88f),
+                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    ) {
+                        Text(
+                            sourceLabel,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
             }
             Spacer(Modifier.width(14.dp))
             Column(
@@ -424,7 +459,7 @@ private fun GalleryCard(gallery: GallerySummary, viewed: Boolean, onClick: () ->
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(
-                    gallery.title,
+                    preferredLocalizedTitle(gallery.title),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 3,

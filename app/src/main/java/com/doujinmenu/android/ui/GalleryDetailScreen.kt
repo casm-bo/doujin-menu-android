@@ -1,7 +1,13 @@
 package com.doujinmenu.android.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +30,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -84,13 +91,13 @@ fun GalleryDetailScreen(
                     gallery.thumbnailUrl?.let { url ->
                         AsyncImage(
                             model = hitomiImageRequest(context, url, gallery.id, crossfade = false),
-                            contentDescription = gallery.title,
+                            contentDescription = preferredLocalizedTitle(gallery.title),
                             modifier = Modifier.fillMaxWidth().height(390.dp),
                             contentScale = ContentScale.Fit,
                         )
                     }
                     Text(
-                        gallery.title,
+                        preferredLocalizedTitle(gallery.title),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                     )
@@ -101,10 +108,10 @@ fun GalleryDetailScreen(
                         } else {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 gallery.artists.forEach { artist ->
-                                    AssistChip(
+                                    CopyableFacetChip(
+                                        text = artist,
                                         onClick = { onSearchFacet("artist:$artist") },
                                         enabled = artist.isGalleryFacetSearchable(),
-                                        label = { Text(artist) },
                                     )
                                 }
                             }
@@ -166,10 +173,10 @@ fun GalleryDetailScreen(
                                         .takeIf { it == "female" || it == "male" }
                                         ?: "tag"
                                     val facet = "$namespace:${tag.name}"
-                                    AssistChip(
+                                    CopyableFacetChip(
+                                        text = facet,
                                         onClick = { onSearchFacet(facet) },
                                         enabled = tag.name.isGalleryFacetSearchable(),
-                                        label = { Text(facet) },
                                     )
                                 }
                             }
@@ -238,6 +245,34 @@ fun GalleryDetailScreen(
                 }
             }
         }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun CopyableFacetChip(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    Surface(
+        modifier = Modifier.combinedClickable(
+            enabled = enabled,
+            onClick = onClick,
+            onLongClick = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("gallery metadata", text))
+                Toast.makeText(context, "클립보드에 복사했습니다.", Toast.LENGTH_SHORT).show()
+            },
+        ),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = if (enabled) MaterialTheme.colorScheme.onSurface
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    ) {
+        Text(text, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
     }
 }
 

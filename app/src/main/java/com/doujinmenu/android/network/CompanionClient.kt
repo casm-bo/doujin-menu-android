@@ -173,6 +173,14 @@ class CompanionClient {
             }
         }
 
+    suspend fun getDesktopDownloadPath(profile: DesktopProfile): String? =
+        withContext(Dispatchers.IO) {
+            request(
+                url = "${profile.baseUrl}/v1/downloads/path",
+                token = profile.token,
+            ).requireSuccess().nullableString("path")
+        }
+
     suspend fun getLibraryBookPages(profile: DesktopProfile, bookId: Long): List<String> =
         withContext(Dispatchers.IO) {
             val pages = request(
