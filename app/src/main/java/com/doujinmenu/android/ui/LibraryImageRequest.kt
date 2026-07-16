@@ -4,15 +4,18 @@ import android.content.Context
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 
 internal fun libraryImageRequest(context: Context, uri: String, token: String?): Any {
-    if (token.isNullOrBlank() || !uri.startsWith("http")) return uri
-    return ImageRequest.Builder(context)
+    val request = ImageRequest.Builder(context)
         .data(uri)
-        .httpHeaders(
+        .crossfade(true)
+    if (!token.isNullOrBlank() && uri.startsWith("http")) {
+        request.httpHeaders(
             NetworkHeaders.Builder()
                 .set("Authorization", "Bearer $token")
                 .build(),
         )
-        .build()
+    }
+    return request.build()
 }

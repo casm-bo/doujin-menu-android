@@ -35,6 +35,11 @@ data class LibraryMetadata(
     val language: String? = null,
 )
 
+data class CustomSeriesAssignment(
+    val name: String,
+    val order: Int,
+)
+
 enum class LibraryReadFilter { ALL, UNREAD, READ }
 
 enum class LibrarySort { TITLE_ASC, TITLE_DESC, NEWEST, OLDEST }

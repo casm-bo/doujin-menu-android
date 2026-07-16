@@ -60,6 +60,8 @@ fun LocalReaderScreen(
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
     onProgress: (Int) -> Unit,
+    nextBookTitle: String?,
+    onOpenNextBook: () -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
 ) {
     HideSystemBars()
@@ -71,20 +73,23 @@ fun LocalReaderScreen(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("책을 열 수 없습니다.", color = Color.White)
-                Button(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) { Text("돌아가기") }
+                Button(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) { Text("<") }
             }
         }
         return
     }
 
-    val pagerState = rememberPagerState(
-        initialPage = initialPage.coerceIn(0, book.pages.lastIndex),
-        pageCount = { book.pages.size },
-    )
+    val pagerState = androidx.compose.runtime.key(book.id) {
+        rememberPagerState(
+            initialPage = initialPage.coerceIn(0, book.pages.lastIndex),
+            pageCount = { book.pages.size },
+        )
+    }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var controlsVisible by remember { mutableStateOf(true) }
     var settingsVisible by remember { mutableStateOf(false) }
+    var nextChapterDialog by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState.currentPage) { onProgress(pagerState.currentPage) }
     BackHandler(enabled = settingsVisible) { settingsVisible = false }
 
@@ -108,8 +113,12 @@ fun LocalReaderScreen(
                         fraction < TAP_ZONE -> if (pagerState.currentPage > 0) {
                             scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
                         }
-                        fraction > 1f - TAP_ZONE -> if (pagerState.currentPage < book.pages.lastIndex) {
-                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                        fraction > 1f - TAP_ZONE -> {
+                            if (pagerState.currentPage < book.pages.lastIndex) {
+                                scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                            } else if (nextBookTitle != null) {
+                                nextChapterDialog = true
+                            }
                         }
                         else -> controlsVisible = !controlsVisible
                     }
@@ -123,7 +132,7 @@ fun LocalReaderScreen(
                     .background(Color.Black.copy(alpha = 0.72f)).padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onBack) { Text("‹ 뒤로", color = Color.White) }
+                TextButton(onClick = onBack) { Text("<", color = Color.White) }
                 Text(
                     book.title,
                     modifier = Modifier.weight(1f),
@@ -153,6 +162,22 @@ fun LocalReaderScreen(
             preferences = preferences,
             onChange = onPreferencesChange,
             onDismiss = { settingsVisible = false },
+        )
+    }
+    if (nextChapterDialog && nextBookTitle != null) {
+        AlertDialog(
+            onDismissRequest = { nextChapterDialog = false },
+            title = { Text("다음 챕터") },
+            text = { Text("$nextBookTitle 을(를) 이어서 볼까요?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    nextChapterDialog = false
+                    onOpenNextBook()
+                }) { Text("열기") }
+            },
+            dismissButton = {
+                TextButton(onClick = { nextChapterDialog = false }) { Text("취소") }
+            },
         )
     }
 }

@@ -84,7 +84,7 @@ fun ReaderScreen(
         Button(
             onClick = onBack,
             modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
-        ) { Text("닫기") }
+        ) { Text("<") }
     }
 }
 

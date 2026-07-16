@@ -1,16 +1,19 @@
 package com.doujinmenu.android.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -21,6 +24,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,6 +32,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -40,17 +46,25 @@ import com.doujinmenu.android.model.LibraryBook
 @Composable
 fun LibraryDetailScreen(
     book: LibraryBook?,
+    previousBook: LibraryBook?,
+    nextBook: LibraryBook?,
+    isSeriesBook: Boolean,
+    progress: Int,
     isLoading: Boolean,
     error: String?,
     onBack: () -> Unit,
     onOpenReader: (Int) -> Unit,
+    onOpenPreviousBook: () -> Unit,
+    onOpenNextBook: () -> Unit,
+    onOpenSeriesList: () -> Unit,
     onSearchFacet: (String) -> Unit,
+    onSearchLanguage: (String) -> Unit,
 ) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(if (book?.isCloud == true) "클라우드 갤러리 상세" else "갤러리 상세") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("뒤로") } },
+                navigationIcon = { TextButton(onClick = onBack) { Text("<") } },
             )
         },
     ) { padding ->
@@ -88,7 +102,7 @@ fun LibraryDetailScreen(
                         FacetSection("타입", listOf(value), "type", onSearchFacet)
                     }
                     metadata.language?.let { value ->
-                        FacetSection("언어", listOf(value), "language", onSearchFacet)
+                        FacetSection("언어", listOf(value), "language", onSearchLanguage, rawValue = true)
                     }
                     FacetSection("태그", metadata.tags, "tag", onSearchFacet)
                     Text(
@@ -100,11 +114,58 @@ fun LibraryDetailScreen(
                         ).joinToString(" · "),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Button(
-                        onClick = { onOpenReader(0) },
-                        enabled = !isLoading && book.pages.all { it.uri.isNotBlank() },
+                    val readerEnabled = !isLoading && book.pages.all { it.uri.isNotBlank() }
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (isLoading) "페이지 불러오는 중…" else "전체화면으로 읽기") }
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = { onOpenReader(0) },
+                            enabled = readerEnabled,
+                            modifier = Modifier.weight(1f),
+                        ) { Text(if (isLoading) "불러오는 중…" else "처음부터 읽기") }
+                        Button(
+                            onClick = { onOpenReader(progress.coerceAtLeast(0)) },
+                            enabled = readerEnabled && progress > 0,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("계속해서 읽기") }
+                    }
+                    if (isSeriesBook) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(0.dp),
+                        ) {
+                            Button(
+                                onClick = onOpenPreviousBook,
+                                enabled = previousBook != null,
+                                modifier = Modifier.weight(3f),
+                                shape = RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                            ) {
+                                DetailChevronIcon(pointsRight = false)
+                                Text("이전화", modifier = Modifier.padding(start = 5.dp), maxLines = 1)
+                            }
+                            Button(
+                                onClick = onOpenSeriesList,
+                                modifier = Modifier.weight(4f),
+                                shape = RoundedCornerShape(0.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp),
+                            ) {
+                                DetailListIcon()
+                                Text("목록보기", modifier = Modifier.padding(start = 6.dp), maxLines = 1)
+                            }
+                            Button(
+                                onClick = onOpenNextBook,
+                                enabled = nextBook != null,
+                                modifier = Modifier.weight(3f),
+                                shape = RoundedCornerShape(topEnd = 14.dp, bottomEnd = 14.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                            ) {
+                                Text("다음화", modifier = Modifier.padding(end = 5.dp), maxLines = 1)
+                                DetailChevronIcon(pointsRight = true)
+                            }
+                        }
+                    }
                     if (isLoading) {
                         Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
@@ -137,22 +198,60 @@ fun LibraryDetailScreen(
 }
 
 @Composable
+private fun DetailChevronIcon(pointsRight: Boolean, modifier: Modifier = Modifier) {
+    val color = LocalContentColor.current
+    Canvas(modifier = modifier.size(16.dp)) {
+        val startX = if (pointsRight) size.width * 0.32f else size.width * 0.68f
+        val endX = if (pointsRight) size.width * 0.7f else size.width * 0.3f
+        drawLine(color, Offset(startX, size.height * 0.18f), Offset(endX, size.height * 0.5f), size.width * 0.12f)
+        drawLine(color, Offset(endX, size.height * 0.5f), Offset(startX, size.height * 0.82f), size.width * 0.12f)
+    }
+}
+
+@Composable
+private fun DetailListIcon(modifier: Modifier = Modifier) {
+    val color = LocalContentColor.current
+    Canvas(modifier = modifier.size(17.dp)) {
+        listOf(0.25f, 0.5f, 0.75f).forEach { y ->
+            drawCircle(color, radius = size.width * 0.07f, center = Offset(size.width * 0.12f, size.height * y))
+            drawLine(
+                color,
+                Offset(size.width * 0.28f, size.height * y),
+                Offset(size.width * 0.9f, size.height * y),
+                strokeWidth = size.width * 0.1f,
+            )
+        }
+    }
+}
+
+@Composable
 private fun FacetSection(
     title: String,
     values: List<String>,
     prefix: String,
     onSearchFacet: (String) -> Unit,
+    rawValue: Boolean = false,
 ) {
     if (values.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, fontWeight = FontWeight.SemiBold)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             values.forEach { value ->
+                val enabled = value.isSearchableFacet()
+                val facet = when {
+                    rawValue -> value
+                    prefix == "tag" && value.substringBefore(':').lowercase() in setOf("female", "male") -> value
+                    else -> "$prefix:$value"
+                }
                 AssistChip(
-                    onClick = { onSearchFacet("$prefix:$value") },
+                    onClick = { onSearchFacet(facet) },
+                    enabled = enabled,
                     label = { Text(value.replace('_', ' ')) },
                 )
             }
         }
     }
 }
+
+private fun String.isSearchableFacet(): Boolean =
+    trim().isNotEmpty() && lowercase() !in setOf("n/a", "na", "unknown", "정보 없음")

@@ -53,6 +53,15 @@ class BrowserPreferenceStore(context: Context) {
         preferences.edit().putStringSet(KEY_LANGUAGES, languages).apply()
     }
 
+    fun loadCustomLanguages(): Set<String> =
+        preferences.getStringSet(KEY_CUSTOM_LANGUAGES, emptySet()).orEmpty()
+            .mapTo(linkedSetOf()) { it.trim().lowercase() }
+            .filterTo(linkedSetOf()) { it.isNotEmpty() }
+
+    fun saveCustomLanguages(languages: Set<String>) {
+        preferences.edit().putStringSet(KEY_CUSTOM_LANGUAGES, languages).apply()
+    }
+
     fun loadKnownFilterTokens(): Set<String> =
         preferences.getStringSet(KEY_KNOWN_FILTERS, emptySet()).orEmpty().toSet()
 
@@ -121,6 +130,7 @@ class BrowserPreferenceStore(context: Context) {
         const val FILE_NAME = "browser_preferences"
         const val KEY_FAVORITES = "search_favorites"
         const val KEY_LANGUAGES = "preferred_languages"
+        const val KEY_CUSTOM_LANGUAGES = "custom_languages"
         const val KEY_KNOWN_FILTERS = "known_filter_tokens"
         const val KEY_VIEWED_GALLERIES = "viewed_gallery_ids"
         const val KEY_LIBRARY_LOCATIONS = "library_locations"

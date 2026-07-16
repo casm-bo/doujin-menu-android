@@ -20,7 +20,7 @@ fun ConnectionRequiredScreen(
     contentPadding: PaddingValues,
     onConnect: () -> Unit,
     title: String = "PC 연결이 필요합니다",
-    description: String = "PC 브라우저 검색과 원격 다운로드를 사용하려면 데스크톱 앱과 연결해주세요.",
+    description: String = "PC 검색과 원격 다운로드를 사용하려면 데스크톱 앱과 연결해주세요.",
     buttonLabel: String = "PC 연결하기",
 ) {
     Box(

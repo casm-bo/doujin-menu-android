@@ -57,6 +57,16 @@ class LibraryFilterTest {
         assertEquals(listOf("match"), visibleLibraryBooks(state).map(LibraryBook::id))
     }
 
+    @Test
+    fun multipleLibraryLocationsCanBeSelectedTogether() {
+        val state = MainUiState(
+            libraryBooks = books,
+            selectedLibraryLocationUris = setOf("one"),
+        )
+
+        assertEquals(listOf("c", "a"), visibleLibraryBooks(state).map(LibraryBook::id))
+    }
+
     private fun book(id: String, title: String, location: String, modifiedAt: Long) = LibraryBook(
         id = id,
         title = title,

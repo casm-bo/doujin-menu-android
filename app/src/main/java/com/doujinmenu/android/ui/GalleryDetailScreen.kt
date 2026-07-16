@@ -48,6 +48,7 @@ fun GalleryDetailScreen(
     onBack: () -> Unit,
     onOpenReader: (Int) -> Unit,
     onSearchFacet: (String) -> Unit,
+    onSearchLanguage: (String) -> Unit,
     onDownload: (GallerySummary) -> Unit,
 ) {
     Scaffold(
@@ -55,7 +56,7 @@ fun GalleryDetailScreen(
         topBar = {
             TopAppBar(
                 title = { Text("갤러리 상세") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("뒤로") } },
+                navigationIcon = { TextButton(onClick = onBack) { Text("<") } },
             )
         },
     ) { scaffoldPadding ->
@@ -102,6 +103,7 @@ fun GalleryDetailScreen(
                                 gallery.artists.forEach { artist ->
                                     AssistChip(
                                         onClick = { onSearchFacet("artist:$artist") },
+                                        enabled = artist.isGalleryFacetSearchable(),
                                         label = { Text(artist) },
                                     )
                                 }
@@ -117,6 +119,7 @@ fun GalleryDetailScreen(
                                 gallery.series.forEach { series ->
                                     AssistChip(
                                         onClick = { onSearchFacet("series:$series") },
+                                        enabled = series.isGalleryFacetSearchable(),
                                         label = { Text(series) },
                                     )
                                 }
@@ -128,6 +131,7 @@ fun GalleryDetailScreen(
                         gallery.galleryType?.let { type ->
                             AssistChip(
                                 onClick = { onSearchFacet("type:$type") },
+                                enabled = type.isGalleryFacetSearchable(),
                                 label = { Text(type) },
                             )
                         } ?: Text(
@@ -138,20 +142,33 @@ fun GalleryDetailScreen(
                     Text(
                         listOfNotNull(
                             "ID ${gallery.id}",
-                            gallery.language,
                             gallery.pageCount.takeIf { it > 0 }?.let { "${it}페이지" },
                             formatGalleryPublishedDate(gallery.publishedDate)?.let { "업로드 $it" },
                         ).joinToString(" · "),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    gallery.language?.let { language ->
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("언어", fontWeight = FontWeight.SemiBold)
+                            AssistChip(
+                                onClick = { onSearchLanguage(language) },
+                                enabled = language.isGalleryFacetSearchable(),
+                                label = { Text(language.replace('_', ' ')) },
+                            )
+                        }
+                    }
                     if (gallery.tags.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("태그", fontWeight = FontWeight.SemiBold)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 gallery.tags.forEach { tag ->
-                                    val facet = "${tag.type}:${tag.name}"
+                                    val namespace = tag.type.lowercase()
+                                        .takeIf { it == "female" || it == "male" }
+                                        ?: "tag"
+                                    val facet = "$namespace:${tag.name}"
                                     AssistChip(
                                         onClick = { onSearchFacet(facet) },
+                                        enabled = tag.name.isGalleryFacetSearchable(),
                                         label = { Text(facet) },
                                     )
                                 }
@@ -223,3 +240,6 @@ fun GalleryDetailScreen(
         }
     }
 }
+
+private fun String.isGalleryFacetSearchable(): Boolean =
+    trim().isNotEmpty() && lowercase() !in setOf("n/a", "na", "unknown", "정보 없음")

@@ -13,6 +13,7 @@ import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
+import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.LibraryPage
 import com.doujinmenu.android.model.LibraryReadFilter
 import com.doujinmenu.android.model.LibrarySort
@@ -47,6 +48,7 @@ data class MainUiState(
     val favoriteName: String = "",
     val searchFavorites: List<SearchFavorite> = emptyList(),
     val preferredLanguages: Set<String> = emptySet(),
+    val customLanguages: Set<String> = emptySet(),
     val filterSuggestions: List<FilterSuggestion> = emptyList(),
     val isLoadingFilterSuggestions: Boolean = false,
     val knownFilterTokens: Set<String> = emptySet(),
@@ -58,11 +60,15 @@ data class MainUiState(
     val libraryFavoriteIds: Set<String> = emptySet(),
     val libraryReadIds: Set<String> = emptySet(),
     val libraryProgress: Map<String, Int> = emptyMap(),
+    val customSeriesByBookId: Map<String, CustomSeriesAssignment> = emptyMap(),
     val libraryQuery: String = "",
     val libraryFavoritesOnly: Boolean = false,
     val libraryReadFilter: LibraryReadFilter = LibraryReadFilter.ALL,
     val librarySort: LibrarySort = LibrarySort.TITLE_ASC,
     val selectedLibraryLocationUri: String? = null,
+    val selectedLibraryLocationUris: Set<String>? = null,
+    val librarySeriesMode: Boolean = false,
+    val selectedLibrarySeries: String? = null,
     val isLibraryScanning: Boolean = false,
     val libraryScanError: String? = null,
     val isLibraryBookLoading: Boolean = false,
@@ -121,12 +127,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             selectedProfileId = profiles.firstOrNull()?.id,
             searchFavorites = browserPreferenceStore.loadFavorites(),
             preferredLanguages = browserPreferenceStore.loadPreferredLanguages(),
+            customLanguages = browserPreferenceStore.loadCustomLanguages(),
             knownFilterTokens = browserPreferenceStore.loadKnownFilterTokens(),
             viewedGalleryIds = browserPreferenceStore.loadViewedGalleryIds(),
             libraryLocations = browserPreferenceStore.loadLibraryLocations(),
             libraryFavoriteIds = libraryPreferenceStore.loadFavoriteIds(),
             libraryReadIds = libraryPreferenceStore.loadReadIds(),
             libraryProgress = libraryPreferenceStore.loadProgress(),
+            customSeriesByBookId = libraryPreferenceStore.loadCustomSeries(),
             viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
         )
@@ -199,18 +207,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(preferredLanguages = languages)
     }
 
+    fun addCustomLanguage(language: String) {
+        val normalized = language.substringAfter(':').trim().lowercase()
+            .replace(Regex("\\s+"), "_")
+        if (normalized.isEmpty()) return
+        val custom = uiState.customLanguages + normalized
+        val selected = uiState.preferredLanguages + normalized
+        browserPreferenceStore.saveCustomLanguages(custom)
+        browserPreferenceStore.savePreferredLanguages(selected)
+        uiState = uiState.copy(customLanguages = custom, preferredLanguages = selected)
+    }
+
+    fun removeCustomLanguage(language: String) {
+        val normalized = language.trim().lowercase()
+        val custom = uiState.customLanguages - normalized
+        val selected = uiState.preferredLanguages - normalized
+        browserPreferenceStore.saveCustomLanguages(custom)
+        browserPreferenceStore.savePreferredLanguages(selected)
+        uiState = uiState.copy(customLanguages = custom, preferredLanguages = selected)
+    }
+
+    fun searchFromLanguage(language: String) {
+        val normalized = language.trim().lowercase().replace(Regex("\\s+"), "_")
+        if (normalized.isEmpty() || normalized == "n/a") return
+        val selected = setOf(normalized)
+        browserPreferenceStore.savePreferredLanguages(selected)
+        uiState = uiState.copy(
+            preferredLanguages = selected,
+            searchQuery = uiState.searchQuery
+                .replace(Regex("(?i)(^|\\s)-?language:[^\\s]+"), " ")
+                .trim().replace(Regex("\\s+"), " "),
+        )
+        search()
+    }
+
     fun searchFromFacet(facet: String) {
         val normalizedFacet = normalizeFilterFacet(facet)
-        val filters = uiState.submittedSearchQuery
-            .split(Regex("\\s+"))
-            .filter { token ->
-                val normalized = token.removePrefix("-").lowercase()
-                normalized.startsWith("language:") ||
-                    normalized.startsWith("tag:") ||
-                    normalized.startsWith("type:")
-            }
-        val query = (listOf(normalizedFacet) + filters).distinct().joinToString(" ")
-        uiState = uiState.copy(searchQuery = query)
+        uiState = uiState.copy(searchQuery = normalizedFacet)
         search()
     }
 
@@ -426,6 +459,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             libraryLocations = locations,
             selectedLibraryLocationUri = uiState.selectedLibraryLocationUri
                 ?.takeIf { selected -> locations.any { it.uri == selected } },
+            selectedLibraryLocationUris = uiState.selectedLibraryLocationUris?.filterTo(linkedSetOf()) {
+                selected -> locations.any { it.uri == selected } ||
+                    uiState.desktopLibraryLocations.any { it.uri == selected }
+            },
         )
         refreshLibrary()
     }
@@ -440,7 +477,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val cloudBooks = profile?.let {
                 runCatching { client.getLibraryBooks(it) }.getOrDefault(emptyList())
             }.orEmpty()
-            val allBooks = result.books + cloudBooks
+            val hiddenIds = libraryPreferenceStore.loadHiddenIds()
+            val customTitles = libraryPreferenceStore.loadCustomTitles()
+            val allBooks = (result.books + cloudBooks).filterNot { it.id in hiddenIds }
+                .map { book -> customTitles[book.id]?.let { book.copy(title = it) } ?: book }
             uiState = uiState.copy(
                 libraryBooks = allBooks,
                 desktopLibraryLocations = cloudBooks.distinctBy(LibraryBook::locationUri).map { book ->
@@ -463,6 +503,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setLibraryReadFilter(value: LibraryReadFilter) = update { copy(libraryReadFilter = value) }
     fun setLibrarySort(value: LibrarySort) = update { copy(librarySort = value) }
     fun selectLibraryLocation(uri: String?) = update { copy(selectedLibraryLocationUri = uri) }
+    fun toggleLibraryLocation(uri: String) = update {
+        val allUris = (libraryLocations + desktopLibraryLocations).mapTo(linkedSetOf()) { it.uri }
+        val current = selectedLibraryLocationUris ?: allUris
+        val toggled = current.toMutableSet().apply {
+            if (!add(uri)) remove(uri)
+        }
+        copy(
+            selectedLibraryLocationUri = null,
+            selectedLibraryLocationUris = toggled.takeUnless { it.containsAll(allUris) },
+        )
+    }
+    fun setLibrarySeriesMode(enabled: Boolean) = update {
+        copy(librarySeriesMode = enabled, selectedLibrarySeries = null)
+    }
+    fun selectLibrarySeries(name: String?) = update { copy(selectedLibrarySeries = name) }
 
     fun openLibraryBook(bookId: String) {
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
@@ -535,6 +590,137 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         libraryPreferenceStore.saveReadIds(ids)
         uiState = uiState.copy(libraryReadIds = ids)
+    }
+
+    fun addLibraryFavorites(bookIds: Set<String>) {
+        val ids = uiState.libraryFavoriteIds + bookIds
+        libraryPreferenceStore.saveFavoriteIds(ids)
+        uiState = uiState.copy(libraryFavoriteIds = ids)
+    }
+
+    fun markLibraryBooksRead(bookIds: Set<String>) {
+        val ids = uiState.libraryReadIds + bookIds
+        libraryPreferenceStore.saveReadIds(ids)
+        uiState = uiState.copy(libraryReadIds = ids)
+    }
+
+    fun markLibraryBooksUnread(bookIds: Set<String>) {
+        val ids = uiState.libraryReadIds - bookIds
+        libraryPreferenceStore.saveReadIds(ids)
+        uiState = uiState.copy(libraryReadIds = ids)
+    }
+
+    fun assignLibrarySeries(bookIds: Set<String>, seriesName: String) {
+        val name = seriesName.trim()
+        if (name.isEmpty()) return
+        var nextOrder = uiState.customSeriesByBookId.values
+            .filter { it.name == name }
+            .maxOfOrNull(CustomSeriesAssignment::order)?.plus(1) ?: 0
+        val additions = buildMap {
+            bookIds.forEach { bookId ->
+                val existing = uiState.customSeriesByBookId[bookId]
+                put(
+                    bookId,
+                    if (existing?.name == name) existing else CustomSeriesAssignment(name, nextOrder++),
+                )
+            }
+        }
+        val assignments = reindexSeriesAssignments(uiState.customSeriesByBookId + additions)
+        libraryPreferenceStore.saveCustomSeries(assignments)
+        uiState = uiState.copy(customSeriesByBookId = assignments)
+    }
+
+    fun moveLibrarySeriesBook(bookId: String, offset: Int) {
+        val assignment = uiState.customSeriesByBookId[bookId] ?: return
+        val orderedIds = uiState.customSeriesByBookId
+            .filterValues { it.name == assignment.name }
+            .entries.sortedWith(compareBy({ it.value.order }, { it.key }))
+            .map { it.key }
+            .toMutableList()
+        val from = orderedIds.indexOf(bookId)
+        val to = (from + offset).coerceIn(0, orderedIds.lastIndex)
+        if (from < 0 || from == to) return
+        val moved = orderedIds.removeAt(from)
+        orderedIds.add(to, moved)
+        val assignments = uiState.customSeriesByBookId.toMutableMap()
+        orderedIds.forEachIndexed { order, id ->
+            assignments[id] = assignments.getValue(id).copy(order = order)
+        }
+        libraryPreferenceStore.saveCustomSeries(assignments)
+        uiState = uiState.copy(customSeriesByBookId = assignments)
+    }
+
+    fun hideLibraryBooks(bookIds: Set<String>) {
+        val hidden = libraryPreferenceStore.loadHiddenIds() + bookIds
+        libraryPreferenceStore.saveHiddenIds(hidden)
+        uiState = uiState.copy(
+            libraryBooks = uiState.libraryBooks.filterNot { it.id in bookIds },
+            activeLibraryBook = uiState.activeLibraryBook?.takeUnless { it.id in bookIds },
+        )
+    }
+
+    fun renameLibraryBook(bookId: String, title: String) {
+        val normalized = title.trim()
+        if (normalized.isEmpty()) return
+        val titles = libraryPreferenceStore.loadCustomTitles() + (bookId to normalized)
+        libraryPreferenceStore.saveCustomTitles(titles)
+        uiState = uiState.copy(
+            libraryBooks = uiState.libraryBooks.map { if (it.id == bookId) it.copy(title = normalized) else it },
+            activeLibraryBook = uiState.activeLibraryBook?.let {
+                if (it.id == bookId) it.copy(title = normalized) else it
+            },
+        )
+    }
+
+    fun removeLibraryBooksFromSeries(bookIds: Set<String>) {
+        val assignments = reindexSeriesAssignments(uiState.customSeriesByBookId - bookIds)
+        libraryPreferenceStore.saveCustomSeries(assignments)
+        uiState = uiState.copy(customSeriesByBookId = assignments)
+    }
+
+    fun renameLibrarySeries(oldName: String, newName: String) {
+        val normalized = newName.trim()
+        if (normalized.isEmpty() || oldName == normalized) return
+        val renamed = uiState.customSeriesByBookId.mapValues { (_, assignment) ->
+            if (assignment.name == oldName) assignment.copy(name = normalized) else assignment
+        }
+        val assignments = reindexSeriesAssignments(renamed)
+        libraryPreferenceStore.saveCustomSeries(assignments)
+        uiState = uiState.copy(customSeriesByBookId = assignments)
+    }
+
+    fun deleteLibrarySeries(names: Set<String>) {
+        val assignments = reindexSeriesAssignments(
+            uiState.customSeriesByBookId.filterValues { it.name !in names },
+        )
+        libraryPreferenceStore.saveCustomSeries(assignments)
+        uiState = uiState.copy(customSeriesByBookId = assignments)
+    }
+
+    fun nextLibrarySeriesBook(bookId: String): LibraryBook? {
+        val assignment = uiState.customSeriesByBookId[bookId] ?: return null
+        val nextId = uiState.customSeriesByBookId.entries
+            .filter { it.value.name == assignment.name && it.value.order > assignment.order }
+            .minByOrNull { it.value.order }?.key ?: return null
+        return uiState.libraryBooks.firstOrNull { it.id == nextId }
+    }
+
+    fun previousLibrarySeriesBook(bookId: String): LibraryBook? {
+        val assignment = uiState.customSeriesByBookId[bookId] ?: return null
+        val previousId = uiState.customSeriesByBookId.entries
+            .filter { it.value.name == assignment.name && it.value.order < assignment.order }
+            .maxByOrNull { it.value.order }?.key ?: return null
+        return uiState.libraryBooks.firstOrNull { it.id == previousId }
+    }
+
+    private fun reindexSeriesAssignments(
+        assignments: Map<String, CustomSeriesAssignment>,
+    ): Map<String, CustomSeriesAssignment> = buildMap {
+        assignments.entries.groupBy { it.value.name }.forEach { (name, entries) ->
+            entries.sortedWith(compareBy({ it.value.order }, { it.key })).forEachIndexed { index, entry ->
+                put(entry.key, CustomSeriesAssignment(name, index))
+            }
+        }
     }
 
     fun updateLibraryProgress(bookId: String, page: Int) {

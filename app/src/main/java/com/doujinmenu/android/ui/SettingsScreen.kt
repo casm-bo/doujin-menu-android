@@ -388,7 +388,7 @@ private fun SettingsDetailLayout(
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text("‹ 설정") }
+                TextButton(onClick = onBack) { Text("<") }
                 Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
         }

@@ -2,6 +2,7 @@ package com.doujinmenu.android.ui
 
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -70,18 +72,24 @@ fun BrowserScreen(
     onRemoveFavorite: (String) -> Unit,
     onFavoriteSearch: (SearchFavorite) -> Unit,
     onToggleLanguage: (String) -> Unit,
+    onAddCustomLanguage: (String) -> Unit,
+    onRemoveCustomLanguage: (String) -> Unit,
     onSelectSuggestion: (FilterSuggestion) -> Unit,
     onRefresh: () -> Unit,
     onLoadNextPage: () -> Unit,
     onGalleryClick: (Long) -> Unit,
     onConnect: () -> Unit,
 ) {
+    val context = LocalContext.current
     val selected = state.profiles.firstOrNull { it.id == state.selectedProfileId }
     if (selected == null) {
         ConnectionRequiredScreen(contentPadding, onConnect)
         return
     }
     var expandedPanel by rememberSaveable { mutableStateOf<String?>(null) }
+    var addLanguageDialog by rememberSaveable { mutableStateOf(false) }
+    var languageInput by rememberSaveable { mutableStateOf("") }
+    var deleteLanguage by rememberSaveable { mutableStateOf<String?>(null) }
     var queryFieldValue by remember {
         mutableStateOf(
             TextFieldValue(
@@ -203,6 +211,33 @@ fun BrowserScreen(
                                     label = { Text(label) },
                                 )
                             }
+                            (state.customLanguages + (state.preferredLanguages -
+                                PREFERRED_LANGUAGES.mapTo(linkedSetOf()) { it.first }))
+                                .sorted().forEach { language ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (language in state.preferredLanguages)
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    else MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.combinedClickable(
+                                        onClick = { onToggleLanguage(language) },
+                                        onLongClick = {
+                                            context.performLightHaptic()
+                                            deleteLanguage = language
+                                        },
+                                    ),
+                                ) {
+                                    Text(
+                                        language.replaceFirstChar { it.uppercase() },
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                                    )
+                                }
+                            }
+                            FilterChip(
+                                selected = false,
+                                onClick = { addLanguageDialog = true },
+                                label = { Text("+") },
+                            )
                         }
                     }
 
@@ -289,6 +324,51 @@ fun BrowserScreen(
         }
     }
     }
+
+    if (addLanguageDialog) {
+        AlertDialog(
+            onDismissRequest = { addLanguageDialog = false },
+            title = { Text("언어 추가") },
+            text = {
+                OutlinedTextField(
+                    value = languageInput,
+                    onValueChange = { languageInput = it },
+                    label = { Text("언어") },
+                    placeholder = { Text("예: french 또는 French") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onAddCustomLanguage(languageInput)
+                        languageInput = ""
+                        addLanguageDialog = false
+                    },
+                    enabled = languageInput.substringAfter(':').isNotBlank(),
+                ) { Text("추가") }
+            },
+            dismissButton = {
+                TextButton(onClick = { addLanguageDialog = false }) { Text("취소") }
+            },
+        )
+    }
+    deleteLanguage?.let { language ->
+        AlertDialog(
+            onDismissRequest = { deleteLanguage = null },
+            title = { Text("언어 삭제") },
+            text = { Text("${language.replaceFirstChar { it.uppercase() }} 언어를 삭제하시겠습니까?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onRemoveCustomLanguage(language)
+                    deleteLanguage = null
+                }) { Text("삭제") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteLanguage = null }) { Text("취소") }
+            },
+        )
+    }
 }
 
 private val PREFERRED_LANGUAGES = listOf(
@@ -296,7 +376,6 @@ private val PREFERRED_LANGUAGES = listOf(
     "japanese" to "일본어",
     "english" to "영어",
     "chinese" to "중국어",
-    "spanish" to "스페인어",
 )
 
 @Composable
