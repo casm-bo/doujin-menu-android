@@ -190,6 +190,15 @@ class CompanionClient {
             pages.toStringList().map { absoluteUrl(profile.baseUrl, it) ?: it }
         }
 
+    suspend fun deleteLibraryBook(profile: DesktopProfile, bookId: Long) =
+        withContext(Dispatchers.IO) {
+            request(
+                url = "${profile.baseUrl}/v1/library/books/$bookId",
+                method = "DELETE",
+                token = profile.token,
+            ).requireSuccess()
+        }
+
     suspend fun requestDownload(profile: DesktopProfile, galleryId: Long): DownloadQueueItem =
         withContext(Dispatchers.IO) {
             val data = request(

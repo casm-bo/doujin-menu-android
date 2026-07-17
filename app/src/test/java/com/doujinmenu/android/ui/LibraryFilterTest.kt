@@ -4,6 +4,7 @@ import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.LibraryPage
 import com.doujinmenu.android.model.LibraryReadFilter
 import com.doujinmenu.android.model.LibrarySort
+import com.doujinmenu.android.model.LibraryVisibilityFilter
 import com.doujinmenu.android.model.LibraryMetadata
 import com.doujinmenu.android.model.CustomSeriesAssignment
 import org.junit.Assert.assertEquals
@@ -84,6 +85,36 @@ class LibraryFilterTest {
         val state = MainUiState(libraryBooks = books, librarySort = LibrarySort.TITLE_DESC)
 
         assertEquals(listOf("a", "c", "b"), visibleLibraryBooks(state).map(LibraryBook::id))
+    }
+
+    @Test
+    fun hiddenBooksCanBeViewedWithVisibilityFilter() {
+        val visible = MainUiState(
+            libraryBooks = books,
+            libraryHiddenIds = setOf("b"),
+        )
+        val hidden = visible.copy(libraryVisibilityFilter = LibraryVisibilityFilter.HIDDEN)
+        val all = visible.copy(libraryVisibilityFilter = LibraryVisibilityFilter.ALL)
+
+        assertEquals(listOf("c", "a"), visibleLibraryBooks(visible).map(LibraryBook::id))
+        assertEquals(listOf("b"), visibleLibraryBooks(hidden).map(LibraryBook::id))
+        assertEquals(listOf("b", "c", "a"), visibleLibraryBooks(all).map(LibraryBook::id))
+    }
+
+    @Test
+    fun artistSortUsesTitleAsSecondaryKeyAndPutsUnknownArtistsLast() {
+        val artistBooks = listOf(
+            book("z2", "Beta", "one", 10).copy(metadata = LibraryMetadata(artists = listOf("Zed"))),
+            book("a2", "Zulu", "one", 10).copy(metadata = LibraryMetadata(artists = listOf("Alpha"))),
+            book("unknown", "Aardvark", "one", 10),
+            book("z1", "Alpha", "one", 10).copy(metadata = LibraryMetadata(artists = listOf("zed"))),
+        )
+
+        val ascending = MainUiState(libraryBooks = artistBooks, librarySort = LibrarySort.ARTIST_ASC)
+        val descending = MainUiState(libraryBooks = artistBooks, librarySort = LibrarySort.ARTIST_DESC)
+
+        assertEquals(listOf("a2", "z1", "z2", "unknown"), visibleLibraryBooks(ascending).map(LibraryBook::id))
+        assertEquals(listOf("z1", "z2", "a2", "unknown"), visibleLibraryBooks(descending).map(LibraryBook::id))
     }
 
     @Test

@@ -30,6 +30,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +71,8 @@ fun SettingsScreen(
     onClearDownloadLocation: () -> Unit,
     openConnectionRequested: Boolean,
     onConnectionRequestHandled: () -> Unit,
+    onStartConnectionMonitoring: () -> Unit,
+    onStopConnectionMonitoring: () -> Unit,
 ) {
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.HOME.name) }
     val section = SettingsSection.valueOf(sectionName)
@@ -83,6 +86,13 @@ fun SettingsScreen(
         if (openConnectionRequested) {
             openSection(SettingsSection.CONNECTION)
             onConnectionRequestHandled()
+        }
+    }
+
+    DisposableEffect(section) {
+        if (section == SettingsSection.CONNECTION) onStartConnectionMonitoring()
+        onDispose {
+            if (section == SettingsSection.CONNECTION) onStopConnectionMonitoring()
         }
     }
 
@@ -397,17 +407,17 @@ private fun ConnectionSettingsScreen(
         }
 
         if (state.profiles.isNotEmpty()) {
-            SectionCard("연결된 PC") {
+            SectionCard("등록된 PC") {
                 SavedDesktopRows(
                     profiles = state.profiles,
                     selectedProfileId = state.selectedProfileId,
+                    connectionState = state.desktopConnectionState,
                     enabled = enabled,
                     onSelect = onSelectProfile,
                     onRemove = onRemoveProfile,
                 )
             }
         }
-        state.message?.takeUnless { state.isError }?.let { MessageCard(it, false) }
         if (state.isBusy) LoadingRow("연결 중…")
     }
 }
@@ -443,6 +453,7 @@ private fun SettingsDetailLayout(
 private fun SavedDesktopRows(
     profiles: List<DesktopProfile>,
     selectedProfileId: String?,
+    connectionState: DesktopConnectionState,
     enabled: Boolean,
     onSelect: (String) -> Unit,
     onRemove: (String) -> Unit,
@@ -465,6 +476,15 @@ private fun SavedDesktopRows(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (profile.id == selectedProfileId) {
+                    val (label, color) = when (connectionState) {
+                        DesktopConnectionState.CONNECTING -> "연결 중…" to MaterialTheme.colorScheme.primary
+                        DesktopConnectionState.CONNECTED -> "연결됨" to MaterialTheme.colorScheme.primary
+                        DesktopConnectionState.DISCONNECTED -> "연결 끊김" to MaterialTheme.colorScheme.error
+                        DesktopConnectionState.IDLE -> "등록됨" to MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Text(label, style = MaterialTheme.typography.labelMedium, color = color)
+                }
             }
             TextButton(onClick = { onRemove(profile.id) }, enabled = enabled) { Text("삭제") }
         }

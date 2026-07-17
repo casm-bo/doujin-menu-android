@@ -63,7 +63,7 @@ fun LibraryDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (book?.isCloud == true) "클라우드 갤러리 상세" else "갤러리 상세") },
+                title = { Text("갤러리 상세") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("<") } },
             )
         },
@@ -243,10 +243,11 @@ private fun FacetSection(
                     prefix == "tag" && value.substringBefore(':').lowercase() in setOf("female", "male") -> value
                     else -> "$prefix:$value"
                 }
-                AssistChip(
+                CopyableFacetChip(
+                    text = value.replace('_', ' '),
+                    clipboardText = if (prefix == "artist") value else facet,
                     onClick = { onSearchFacet(facet) },
                     enabled = enabled,
-                    label = { Text(value.replace('_', ' ')) },
                 )
             }
         }

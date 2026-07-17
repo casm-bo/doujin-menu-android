@@ -57,6 +57,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Precision
 import com.doujinmenu.android.model.GallerySummary
+import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.network.FilterSuggestion
 
@@ -78,6 +79,7 @@ fun BrowserScreen(
     onRefresh: () -> Unit,
     onLoadNextPage: () -> Unit,
     onGalleryClick: (Long) -> Unit,
+    onToggleLibraryFavorite: (String) -> Unit,
     onConnect: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -90,12 +92,11 @@ fun BrowserScreen(
     var addLanguageDialog by rememberSaveable { mutableStateOf(false) }
     var languageInput by rememberSaveable { mutableStateOf("") }
     var deleteLanguage by rememberSaveable { mutableStateOf<String?>(null) }
-    val librarySourcesByGalleryId = remember(state.libraryBooks) {
-        state.libraryBooks.mapNotNull { book ->
-            book.metadata.hitomiId?.toLongOrNull()?.let { id ->
-                id to if (book.isCloud) GalleryLibrarySource.CLOUD else GalleryLibrarySource.DEVICE
-            }
-        }.groupBy({ it.first }, { it.second }).mapValues { it.value.toSet() }
+    val libraryBookByGalleryId = remember(state.libraryBooks, state.libraryHiddenIds) {
+        val visibleBooks = state.libraryBooks.filterNot { it.id in state.libraryHiddenIds }
+        visibleBooks.mapNotNull { it.metadata.hitomiId?.toLongOrNull() }
+            .distinct()
+            .associateWith { preferredLibraryBookForGalleryId(visibleBooks, it) }
     }
     var queryFieldValue by remember {
         mutableStateOf(
@@ -293,10 +294,6 @@ fun BrowserScreen(
             }
         }
 
-        state.message?.takeUnless { state.isError }?.let { message ->
-            item { MessageCard(message, state.isError) }
-        }
-
         if (state.isLoadingPage && state.galleries.isEmpty()) {
             item { LoadingRow("불러오는 중…") }
         }
@@ -310,10 +307,16 @@ fun BrowserScreen(
                 )
             }
             items(state.galleries, key = { it.id }) { gallery ->
+                val libraryBook = libraryBookByGalleryId[gallery.id]
                 GalleryCard(
                     gallery = gallery,
-                    viewed = gallery.id in state.viewedGalleryIds,
-                    librarySources = librarySourcesByGalleryId[gallery.id].orEmpty(),
+                    read = gallery.id in state.viewedGalleryIds ||
+                        libraryBook?.id in state.libraryReadIds,
+                    libraryBook = libraryBook,
+                    favorite = libraryBook?.id?.let { it in state.libraryFavoriteIds } == true,
+                    onToggleFavorite = {
+                        libraryBook?.id?.let(onToggleLibraryFavorite)
+                    },
                     onClick = { onGalleryClick(gallery.id) },
                 )
             }
@@ -386,13 +389,13 @@ private val PREFERRED_LANGUAGES = listOf(
     "chinese" to "중국어",
 )
 
-private enum class GalleryLibrarySource { CLOUD, DEVICE }
-
 @Composable
 private fun GalleryCard(
     gallery: GallerySummary,
-    viewed: Boolean,
-    librarySources: Set<GalleryLibrarySource>,
+    read: Boolean,
+    libraryBook: LibraryBook?,
+    favorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -417,41 +420,14 @@ private fun GalleryCard(
                         contentScale = ContentScale.Crop,
                     )
                 }
-                if (viewed) {
-                    Surface(
-                        modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
-                        shape = RoundedCornerShape(5.dp),
-                        color = MaterialTheme.colorScheme.inverseSurface,
-                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                    ) {
-                        Text(
-                            "읽음",
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-                if (librarySources.isNotEmpty()) {
-                    val sourceLabel = when (librarySources) {
-                        setOf(GalleryLibrarySource.CLOUD) -> "클라우드"
-                        setOf(GalleryLibrarySource.DEVICE) -> "기기"
-                        else -> "클라우드 · 기기"
-                    }
-                    Surface(
-                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
-                        shape = RoundedCornerShape(5.dp),
-                        color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.88f),
-                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                    ) {
-                        Text(
-                            sourceLabel,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
+                LibraryThumbnailBadges(
+                    read = read,
+                    isCloud = libraryBook?.isCloud,
+                    favorite = favorite,
+                    showFavorite = libraryBook != null,
+                    onToggleFavorite = onToggleFavorite,
+                    scale = 0.82f,
+                )
             }
             Spacer(Modifier.width(14.dp))
             Column(
