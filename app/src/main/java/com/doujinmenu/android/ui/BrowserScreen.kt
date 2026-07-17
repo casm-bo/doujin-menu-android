@@ -92,10 +92,11 @@ fun BrowserScreen(
     var addLanguageDialog by rememberSaveable { mutableStateOf(false) }
     var languageInput by rememberSaveable { mutableStateOf("") }
     var deleteLanguage by rememberSaveable { mutableStateOf<String?>(null) }
-    val libraryBookByGalleryId = remember(state.libraryBooks) {
-        state.libraryBooks.mapNotNull { it.metadata.hitomiId?.toLongOrNull() }
+    val libraryBookByGalleryId = remember(state.libraryBooks, state.libraryHiddenIds) {
+        val visibleBooks = state.libraryBooks.filterNot { it.id in state.libraryHiddenIds }
+        visibleBooks.mapNotNull { it.metadata.hitomiId?.toLongOrNull() }
             .distinct()
-            .associateWith { preferredLibraryBookForGalleryId(state.libraryBooks, it) }
+            .associateWith { preferredLibraryBookForGalleryId(visibleBooks, it) }
     }
     var queryFieldValue by remember {
         mutableStateOf(
@@ -291,10 +292,6 @@ fun BrowserScreen(
                     }
                 }
             }
-        }
-
-        state.message?.takeUnless { state.isError }?.let { message ->
-            item { MessageCard(message, state.isError) }
         }
 
         if (state.isLoadingPage && state.galleries.isEmpty()) {

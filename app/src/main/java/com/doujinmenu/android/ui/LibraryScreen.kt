@@ -1,14 +1,11 @@
 package com.doujinmenu.android.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -57,8 +54,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
-import androidx.compose.material3.pulltorefresh.pullToRefresh
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -95,6 +92,7 @@ import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.LibraryReadFilter
 import com.doujinmenu.android.model.LibrarySort
+import com.doujinmenu.android.model.LibraryVisibilityFilter
 import com.doujinmenu.android.security.LibraryPreferenceStore
 
 private enum class LibraryViewMode { GRID, LIST }
@@ -120,6 +118,48 @@ private sealed interface LibraryMainEntry {
     }
 }
 
+private fun LibraryBook.primaryArtist(): String? =
+    metadata.artists.firstOrNull { it.isNotBlank() }?.trim()
+
+private fun compareArtists(left: String?, right: String?, descending: Boolean): Int {
+    if (left == null) return if (right == null) 0 else 1
+    if (right == null) return -1
+    val result = String.CASE_INSENSITIVE_ORDER.compare(left, right)
+    return if (descending) -result else result
+}
+
+private fun libraryBookArtistComparator(descending: Boolean): Comparator<LibraryBook> =
+    Comparator { left, right ->
+        compareArtists(left.primaryArtist(), right.primaryArtist(), descending)
+            .takeIf { it != 0 }
+            ?: String.CASE_INSENSITIVE_ORDER.compare(left.title, right.title)
+    }
+
+private fun LibraryMainEntry.primaryArtist(): String? = when (this) {
+    is LibraryMainEntry.Book -> book.primaryArtist()
+    is LibraryMainEntry.Series -> books.mapNotNull(LibraryBook::primaryArtist)
+        .minWithOrNull(String.CASE_INSENSITIVE_ORDER)
+}
+
+private fun libraryMainEntryArtistComparator(descending: Boolean): Comparator<LibraryMainEntry> =
+    Comparator { left, right ->
+        compareArtists(left.primaryArtist(), right.primaryArtist(), descending)
+            .takeIf { it != 0 }
+            ?: String.CASE_INSENSITIVE_ORDER.compare(left.title, right.title)
+    }
+
+private fun seriesGroupArtistComparator(
+    descending: Boolean,
+): Comparator<Pair<String, List<LibraryBook>>> = Comparator { left, right ->
+    val leftArtist = left.second.mapNotNull(LibraryBook::primaryArtist)
+        .minWithOrNull(String.CASE_INSENSITIVE_ORDER)
+    val rightArtist = right.second.mapNotNull(LibraryBook::primaryArtist)
+        .minWithOrNull(String.CASE_INSENSITIVE_ORDER)
+    compareArtists(leftArtist, rightArtist, descending)
+        .takeIf { it != 0 }
+        ?: String.CASE_INSENSITIVE_ORDER.compare(left.first, right.first)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
@@ -128,6 +168,7 @@ fun LibraryScreen(
     onQueryChange: (String) -> Unit,
     onToggleFavoritesFilter: () -> Unit,
     onReadFilterChange: (LibraryReadFilter) -> Unit,
+    onVisibilityFilterChange: (LibraryVisibilityFilter) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
     onLocationChange: (String) -> Unit,
     onRefresh: () -> Unit,
@@ -140,6 +181,7 @@ fun LibraryScreen(
     onMarkUnread: (Set<String>) -> Unit,
     onAssignSeries: (Set<String>, String) -> Unit,
     onMoveSeriesBook: (String, Int) -> Unit,
+    onSetBooksHidden: (Set<String>, Boolean) -> Unit,
     onDeleteBooks: (Set<String>) -> Unit,
     onRenameBook: (String, String) -> Unit,
     onRemoveBooksFromSeries: (Set<String>) -> Unit,
@@ -183,6 +225,8 @@ fun LibraryScreen(
         state.libraryQuery,
         state.libraryFavoritesOnly,
         state.libraryReadFilter,
+        state.libraryVisibilityFilter,
+        state.libraryHiddenIds,
         state.librarySort,
         state.selectedLibraryLocationUri,
         state.selectedLibraryLocationUris,
@@ -190,6 +234,11 @@ fun LibraryScreen(
         state.libraryFavoriteSeriesNames,
         state.libraryReadIds,
     ) { visibleLibraryBooks(state) }
+    val visibilityBooks = remember(
+        state.libraryBooks,
+        state.libraryHiddenIds,
+        state.libraryVisibilityFilter,
+    ) { state.libraryBooksInVisibility() }
     val shownBooks = books.filterBySeries(selectedSeries, state.customSeriesByBookId)
     val pullToRefreshState = rememberPullToRefreshState()
     val seriesOverviewGridState = rememberLazyGridState()
@@ -218,16 +267,20 @@ fun LibraryScreen(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(contentPadding)
-            .pullToRefresh(
-                isRefreshing = state.isLibraryScanning,
-                state = pullToRefreshState,
-                enabled = !editingSeriesOrder,
-                onRefresh = onRefresh,
-            ),
+    PullToRefreshBox(
+        isRefreshing = state.isLibraryScanning,
+        onRefresh = { if (!editingSeriesOrder) onRefresh() },
+        state = pullToRefreshState,
+        indicator = {
+            if (!editingSeriesOrder) {
+                PullToRefreshDefaults.Indicator(
+                    isRefreshing = state.isLibraryScanning,
+                    state = pullToRefreshState,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            }
+        },
+        modifier = Modifier.fillMaxSize().padding(contentPadding),
     ) {
         Column(modifier = Modifier.fillMaxSize().animateContentSize()) {
             OutlinedTextField(
@@ -281,6 +334,7 @@ fun LibraryScreen(
                 )
             } else if (selectionMode) {
                 val allSelectedRead = selectedIds.isNotEmpty() && selectedIds.all { it in state.libraryReadIds }
+                val allSelectedHidden = selectedIds.isNotEmpty() && selectedIds.all { it in state.libraryHiddenIds }
                 LibrarySelectionToolbar(
                     selectedCount = selectedIds.size,
                     allSelected = shownBooks.isNotEmpty() && selectedIds.containsAll(shownBooks.map { it.id }),
@@ -316,6 +370,12 @@ fun LibraryScreen(
                             renameBookDialog = true
                         }
                     } else null,
+                    onHide = if (addingToSeries == null) ({
+                        onSetBooksHidden(selectedIds, !allSelectedHidden)
+                        selectionMode = false
+                        selectedIds = emptySet()
+                    }) else null,
+                    hideLabel = if (allSelectedHidden) "숨김 해제" else "숨김",
                     onDelete = if (addingToSeries == null) ({ deleteDialog = true }) else null,
                     onClose = {
                         addingToSeries?.let { series ->
@@ -332,6 +392,7 @@ fun LibraryScreen(
                     state = state,
                     onToggleFavoritesFilter = onToggleFavoritesFilter,
                     onReadFilterChange = onReadFilterChange,
+                    onVisibilityFilterChange = onVisibilityFilterChange,
                     onSortChange = onSortChange,
                     onLocationChange = onLocationChange,
                     viewMode = viewMode,
@@ -393,7 +454,7 @@ fun LibraryScreen(
                 books.isEmpty() -> LibraryEmpty("조건에 맞는 책이 없습니다.")
                 seriesMode && selectedSeries == null -> LibrarySeriesOverview(
                     books = books,
-                    allBooks = state.libraryBooks,
+                    allBooks = visibilityBooks,
                     customSeries = state.customSeriesByBookId,
                     favoriteSeriesNames = state.libraryFavoriteSeriesNames,
                     readBookIds = state.libraryReadIds,
@@ -540,17 +601,6 @@ fun LibraryScreen(
                 )
             }
         }
-        AnimatedVisibility(
-            visible = !editingSeriesOrder,
-            modifier = Modifier.align(Alignment.TopCenter),
-            enter = fadeIn(),
-            exit = fadeOut(),
-        ) {
-            PullToRefreshDefaults.Indicator(
-                isRefreshing = state.isLibraryScanning,
-                state = pullToRefreshState,
-            )
-        }
     }
 
     if (seriesDialog) {
@@ -614,7 +664,7 @@ fun LibraryScreen(
                 Text(when {
                     deletingSeries -> "선택한 ${selectedSeriesNames.size}개 시리즈를 삭제할까요? 갤러리는 삭제되지 않습니다."
                     removingFromSeries -> "선택한 ${selectedIds.size}개 갤러리를 이 시리즈에서 제외할까요?"
-                    else -> "선택한 ${selectedIds.size}개 항목을 갤러리 목록에서 삭제하시겠습니까? 원본 파일은 유지됩니다."
+                    else -> "선택한 ${selectedIds.size}개 항목을 삭제할까요? 데스크톱 항목은 원본을 휴지통으로 이동한 뒤 DB에서 삭제하며, 로컬 항목은 파일 또는 폴더를 영구 삭제합니다."
                 })
             },
             confirmButton = {
@@ -709,6 +759,7 @@ private fun LibraryToolbar(
     state: MainUiState,
     onToggleFavoritesFilter: () -> Unit,
     onReadFilterChange: (LibraryReadFilter) -> Unit,
+    onVisibilityFilterChange: (LibraryVisibilityFilter) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
     onLocationChange: (String) -> Unit,
     viewMode: LibraryViewMode,
@@ -769,8 +820,10 @@ private fun LibraryToolbar(
         LibraryFilterMenu(
             favoritesOnly = state.libraryFavoritesOnly,
             readFilter = state.libraryReadFilter,
+            visibilityFilter = state.libraryVisibilityFilter,
             onToggleFavorites = onToggleFavoritesFilter,
             onReadFilterChange = onReadFilterChange,
+            onVisibilityFilterChange = onVisibilityFilterChange,
         )
         LibrarySortControl(sort = state.librarySort, onSortChange = onSortChange)
         LibraryViewMenu(
@@ -824,6 +877,8 @@ private fun LibrarySelectionToolbar(
     readLabel: String = "읽음",
     seriesLabel: String = "시리즈",
     onRename: (() -> Unit)?,
+    onHide: (() -> Unit)? = null,
+    hideLabel: String = "숨김",
     onDelete: (() -> Unit)?,
     onClose: () -> Unit,
 ) {
@@ -842,6 +897,7 @@ private fun LibrarySelectionToolbar(
         onMerge?.let { action -> TextButton(onClick = action) { Text("합치기") } }
         onSave?.let { action -> TextButton(onClick = action) { Text("저장") } }
         onRename?.let { action -> TextButton(onClick = action) { Text("이름변경") } }
+        onHide?.let { action -> TextButton(onClick = action, enabled = selectedCount > 0) { Text(hideLabel) } }
         onDelete?.let { action -> TextButton(onClick = action, enabled = selectedCount > 0) { Text("삭제") } }
         TextButton(onClick = onClose) { Text("취소") }
     }
@@ -851,11 +907,14 @@ private fun LibrarySelectionToolbar(
 private fun LibraryFilterMenu(
     favoritesOnly: Boolean,
     readFilter: LibraryReadFilter,
+    visibilityFilter: LibraryVisibilityFilter,
     onToggleFavorites: () -> Unit,
     onReadFilterChange: (LibraryReadFilter) -> Unit,
+    onVisibilityFilterChange: (LibraryVisibilityFilter) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val active = favoritesOnly || readFilter != LibraryReadFilter.ALL
+    val active = favoritesOnly || readFilter != LibraryReadFilter.ALL ||
+        visibilityFilter != LibraryVisibilityFilter.VISIBLE
     Box {
         if (active) {
             Button(
@@ -888,6 +947,18 @@ private fun LibraryFilterMenu(
                     onClick = { expanded = false; onReadFilterChange(filter) },
                 )
             }
+            HorizontalDivider()
+            LibraryVisibilityFilter.entries.forEach { filter ->
+                val label = when (filter) {
+                    LibraryVisibilityFilter.VISIBLE -> "표시 항목"
+                    LibraryVisibilityFilter.HIDDEN -> "숨김 항목"
+                    LibraryVisibilityFilter.ALL -> "표시+숨김 전체"
+                }
+                DropdownMenuItem(
+                    text = { Text(if (visibilityFilter == filter) "✓ $label" else label) },
+                    onClick = { expanded = false; onVisibilityFilterChange(filter) },
+                )
+            }
         }
     }
 }
@@ -896,6 +967,8 @@ private fun LibraryFilterMenu(
 private fun LibrarySortControl(sort: LibrarySort, onSortChange: (LibrarySort) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val titleSelected = sort == LibrarySort.TITLE_ASC || sort == LibrarySort.TITLE_DESC
+    val artistSelected = sort == LibrarySort.ARTIST_ASC || sort == LibrarySort.ARTIST_DESC
+    val modifiedAtSelected = sort == LibrarySort.NEWEST || sort == LibrarySort.OLDEST
     Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
         Box {
             OutlinedButton(
@@ -914,7 +987,14 @@ private fun LibrarySortControl(sort: LibrarySort, onSortChange: (LibrarySort) ->
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text(if (!titleSelected) "✓ 수정일" else "수정일") },
+                    text = { Text(if (artistSelected) "✓ 작가" else "작가") },
+                    onClick = {
+                        expanded = false
+                        onSortChange(if (sort.isAscending()) LibrarySort.ARTIST_ASC else LibrarySort.ARTIST_DESC)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (modifiedAtSelected) "✓ 수정일" else "수정일") },
                     onClick = {
                         expanded = false
                         onSortChange(if (sort.isAscending()) LibrarySort.OLDEST else LibrarySort.NEWEST)
@@ -1151,8 +1231,15 @@ private fun LibraryMixedGrid(
     onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
 ) {
-    val entries = remember(books, state.libraryBooks, state.customSeriesByBookId, state.librarySort) {
-        libraryMainEntries(books, state.libraryBooks, state.customSeriesByBookId, state.librarySort)
+    val entries = remember(
+        books,
+        state.libraryBooks,
+        state.libraryHiddenIds,
+        state.libraryVisibilityFilter,
+        state.customSeriesByBookId,
+        state.librarySort,
+    ) {
+        libraryMainEntries(books, state.libraryBooksInVisibility(), state.customSeriesByBookId, state.librarySort)
     }
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
@@ -1218,8 +1305,15 @@ private fun LibraryMixedList(
     onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
 ) {
-    val entries = remember(books, state.libraryBooks, state.customSeriesByBookId, state.librarySort) {
-        libraryMainEntries(books, state.libraryBooks, state.customSeriesByBookId, state.librarySort)
+    val entries = remember(
+        books,
+        state.libraryBooks,
+        state.libraryHiddenIds,
+        state.libraryVisibilityFilter,
+        state.customSeriesByBookId,
+        state.librarySort,
+    ) {
+        libraryMainEntries(books, state.libraryBooksInVisibility(), state.customSeriesByBookId, state.librarySort)
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1285,6 +1379,8 @@ private fun libraryMainEntries(
     return when (sort) {
         LibrarySort.TITLE_ASC -> entries.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
         LibrarySort.TITLE_DESC -> entries.sortedWith(compareByDescending<LibraryMainEntry, String>(String.CASE_INSENSITIVE_ORDER) { it.title })
+        LibrarySort.ARTIST_ASC -> entries.sortedWith(libraryMainEntryArtistComparator(descending = false))
+        LibrarySort.ARTIST_DESC -> entries.sortedWith(libraryMainEntryArtistComparator(descending = true))
         LibrarySort.NEWEST -> entries.sortedByDescending(LibraryMainEntry::modifiedAt)
         LibrarySort.OLDEST -> entries.sortedBy(LibraryMainEntry::modifiedAt)
     }
@@ -1592,6 +1688,8 @@ private fun LibrarySeriesOverview(
         when (sort) {
             LibrarySort.TITLE_ASC -> grouped.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.first })
             LibrarySort.TITLE_DESC -> grouped.sortedWith(compareByDescending<Pair<String, List<LibraryBook>>, String>(String.CASE_INSENSITIVE_ORDER) { it.first })
+            LibrarySort.ARTIST_ASC -> grouped.sortedWith(seriesGroupArtistComparator(descending = false))
+            LibrarySort.ARTIST_DESC -> grouped.sortedWith(seriesGroupArtistComparator(descending = true))
             LibrarySort.NEWEST -> grouped.sortedByDescending { (_, seriesBooks) ->
                 seriesBooks.maxOfOrNull(LibraryBook::modifiedAt) ?: 0L
             }
@@ -2002,18 +2100,20 @@ private fun <T> FilterMenu(label: String, options: List<Pair<T, String>>, onSele
 }
 
 private fun LibrarySort.isAscending(): Boolean =
-    this == LibrarySort.TITLE_ASC || this == LibrarySort.OLDEST
+    this == LibrarySort.TITLE_ASC || this == LibrarySort.ARTIST_ASC || this == LibrarySort.OLDEST
 
 private fun LibrarySort.reversed(): LibrarySort = when (this) {
     LibrarySort.TITLE_ASC -> LibrarySort.TITLE_DESC
     LibrarySort.TITLE_DESC -> LibrarySort.TITLE_ASC
+    LibrarySort.ARTIST_ASC -> LibrarySort.ARTIST_DESC
+    LibrarySort.ARTIST_DESC -> LibrarySort.ARTIST_ASC
     LibrarySort.NEWEST -> LibrarySort.OLDEST
     LibrarySort.OLDEST -> LibrarySort.NEWEST
 }
 
 internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
     val queryTerms = parseLibraryQuery(state.libraryQuery)
-    val filtered = state.libraryBooks.asSequence()
+    val filtered = state.libraryBooksInVisibility().asSequence()
         .filter {
             when {
                 state.selectedLibraryLocationUris != null -> it.locationUri in state.selectedLibraryLocationUris
@@ -2040,8 +2140,18 @@ internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
     return when (state.librarySort) {
         LibrarySort.TITLE_ASC -> filtered.sortedBy { it.title.lowercase() }
         LibrarySort.TITLE_DESC -> filtered.sortedByDescending { it.title.lowercase() }
+        LibrarySort.ARTIST_ASC -> filtered.sortedWith(libraryBookArtistComparator(descending = false))
+        LibrarySort.ARTIST_DESC -> filtered.sortedWith(libraryBookArtistComparator(descending = true))
         LibrarySort.NEWEST -> filtered.sortedByDescending(LibraryBook::modifiedAt)
         LibrarySort.OLDEST -> filtered.sortedBy(LibraryBook::modifiedAt)
+    }
+}
+
+private fun MainUiState.libraryBooksInVisibility(): List<LibraryBook> = libraryBooks.filter { book ->
+    when (libraryVisibilityFilter) {
+        LibraryVisibilityFilter.VISIBLE -> book.id !in libraryHiddenIds
+        LibraryVisibilityFilter.HIDDEN -> book.id in libraryHiddenIds
+        LibraryVisibilityFilter.ALL -> true
     }
 }
 

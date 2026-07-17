@@ -48,7 +48,7 @@ fun AppErrorBanner(message: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun AppSuccessBanner(message: String, onDismiss: () -> Unit) {
+fun AppSuccessBanner(message: String, onDismiss: () -> Unit, title: String = "알림") {
     LaunchedEffect(message) {
         delay(NOTIFICATION_AUTO_DISMISS_MS)
         onDismiss()
@@ -69,7 +69,7 @@ fun AppSuccessBanner(message: String, onDismiss: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("연결됨", style = MaterialTheme.typography.titleSmall)
+                Text(title, style = MaterialTheme.typography.titleSmall)
                 Text(message, style = MaterialTheme.typography.bodyMedium)
             }
             TextButton(onClick = onDismiss) { Text("확인") }

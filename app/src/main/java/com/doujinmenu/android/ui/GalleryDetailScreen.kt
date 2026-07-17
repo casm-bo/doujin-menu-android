@@ -250,8 +250,9 @@ fun GalleryDetailScreen(
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun CopyableFacetChip(
+internal fun CopyableFacetChip(
     text: String,
+    clipboardText: String = text,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
@@ -261,8 +262,9 @@ private fun CopyableFacetChip(
             enabled = enabled,
             onClick = onClick,
             onLongClick = {
+                context.performLightHaptic()
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("gallery metadata", text))
+                clipboard.setPrimaryClip(ClipData.newPlainText("gallery metadata", clipboardText))
                 Toast.makeText(context, "클립보드에 복사했습니다.", Toast.LENGTH_SHORT).show()
             },
         ),

@@ -44,7 +44,9 @@ data class CustomSeriesAssignment(
 
 enum class LibraryReadFilter { ALL, UNREAD, READ }
 
-enum class LibrarySort { TITLE_ASC, TITLE_DESC, NEWEST, OLDEST }
+enum class LibraryVisibilityFilter { VISIBLE, HIDDEN, ALL }
+
+enum class LibrarySort { TITLE_ASC, TITLE_DESC, ARTIST_ASC, ARTIST_DESC, NEWEST, OLDEST }
 
 enum class ViewerScale { FIT_SCREEN, FIT_WIDTH }
 

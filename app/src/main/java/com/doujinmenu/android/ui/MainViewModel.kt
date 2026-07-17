@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.doujinmenu.android.data.LibraryScanner
 import com.doujinmenu.android.data.LibraryArchiveExtractor
+import com.doujinmenu.android.data.LibraryFileDeleter
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.GallerySummary
@@ -17,6 +18,7 @@ import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.LibraryPage
 import com.doujinmenu.android.model.LibraryReadFilter
 import com.doujinmenu.android.model.LibrarySort
+import com.doujinmenu.android.model.LibraryVisibilityFilter
 import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.model.StorageLocation
 import com.doujinmenu.android.model.ViewerPreferences
@@ -62,6 +64,7 @@ data class MainUiState(
     val libraryLocations: List<StorageLocation> = emptyList(),
     val desktopLibraryLocations: List<StorageLocation> = emptyList(),
     val libraryBooks: List<LibraryBook> = emptyList(),
+    val libraryHiddenIds: Set<String> = emptySet(),
     val activeLibraryBook: LibraryBook? = null,
     val libraryFavoriteIds: Set<String> = emptySet(),
     val libraryFavoriteSeriesNames: Set<String> = emptySet(),
@@ -71,6 +74,7 @@ data class MainUiState(
     val libraryQuery: String = "",
     val libraryFavoritesOnly: Boolean = false,
     val libraryReadFilter: LibraryReadFilter = LibraryReadFilter.ALL,
+    val libraryVisibilityFilter: LibraryVisibilityFilter = LibraryVisibilityFilter.VISIBLE,
     val librarySort: LibrarySort = LibrarySort.TITLE_ASC,
     val selectedLibraryLocationUri: String? = null,
     val selectedLibraryLocationUris: Set<String>? = null,
@@ -126,9 +130,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val libraryPreferenceStore = LibraryPreferenceStore(application)
     private val libraryScanner = LibraryScanner(application)
     private val libraryArchiveExtractor = LibraryArchiveExtractor(application)
+    private val libraryFileDeleter = LibraryFileDeleter(application)
     private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
     private var suggestionJob: Job? = null
     private var connectionMonitorJob: Job? = null
+    private var downloadRefreshJob: Job? = null
     private var notifyOnDownloadReconnect = false
 
     var uiState by mutableStateOf(MainUiState())
@@ -146,6 +152,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewedGalleryIds = browserPreferenceStore.loadViewedGalleryIds(),
             libraryLocations = browserPreferenceStore.loadLibraryLocations(),
             libraryFavoriteIds = libraryPreferenceStore.loadFavoriteIds(),
+            libraryHiddenIds = libraryPreferenceStore.loadHiddenIds(),
             libraryFavoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames(),
             libraryReadIds = libraryPreferenceStore.loadReadIds(),
             libraryProgress = libraryPreferenceStore.loadProgress(),
@@ -375,7 +382,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun libraryBookIdForGallery(galleryId: Long): String? =
-        preferredLibraryBookForGalleryId(uiState.libraryBooks, galleryId)?.id
+        preferredLibraryBookForGalleryId(
+            uiState.libraryBooks.filterNot { it.id in uiState.libraryHiddenIds },
+            galleryId,
+        )?.id
 
     fun startConnectionMonitoring() {
         if (connectionMonitorJob?.isActive == true) return
@@ -472,7 +482,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val item = client.requestDownload(profile, gallery.id)
                 uiState = uiState.copy(
-                    downloadQueue = (uiState.downloadQueue + item).distinctBy { it.id },
+                    downloadQueue = sortDownloadQueueNewest(
+                        (uiState.downloadQueue + item).distinctBy { it.id },
+                    ),
                     downloadNotification = DownloadNotification(gallery.id, gallery.title),
                 )
             } catch (error: Exception) {
@@ -543,14 +555,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val hiddenIds = libraryPreferenceStore.loadHiddenIds()
             val customTitles = libraryPreferenceStore.loadCustomTitles()
-            val allBooks = (result.books + cloudBooks).filterNot { it.id in hiddenIds }
-                .map { book ->
+            val allBooks = (result.books + cloudBooks).map { book ->
                     val customTitle = customTitles[book.id]
                     if (customTitle != null) book.copy(title = customTitle, originalTitle = customTitle)
                     else book.copy(title = preferredLocalizedTitle(book.originalTitle))
                 }
             uiState = uiState.copy(
                 libraryBooks = allBooks,
+                libraryHiddenIds = hiddenIds,
                 desktopLibraryLocations = cloudBooks.distinctBy(LibraryBook::locationUri).map { book ->
                     StorageLocation(book.locationUri, book.locationName, isCloud = true)
                 },
@@ -570,6 +582,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         copy(libraryFavoritesOnly = !libraryFavoritesOnly)
     }
     fun setLibraryReadFilter(value: LibraryReadFilter) = update { copy(libraryReadFilter = value) }
+    fun setLibraryVisibilityFilter(value: LibraryVisibilityFilter) = update {
+        copy(libraryVisibilityFilter = value)
+    }
     fun setLibrarySort(value: LibrarySort) = update { copy(librarySort = value) }
     fun selectLibraryLocation(uri: String?) = update { copy(selectedLibraryLocationUri = uri) }
     fun toggleLibraryLocation(uri: String) = update {
@@ -718,7 +733,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun autoCreateLibrarySeries() {
         if (uiState.isAutoCreatingSeries) return
-        val candidates = uiState.libraryBooks.filter { it.id !in uiState.customSeriesByBookId }
+        val candidates = uiState.libraryBooks.filter {
+            it.id !in uiState.customSeriesByBookId && it.id !in uiState.libraryHiddenIds
+        }
         if (candidates.size < 2) {
             uiState = uiState.copy(
                 seriesAutoCreateStatus = "자동 생성할 미분류 갤러리가 부족합니다.",
@@ -831,11 +848,77 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(customSeriesByBookId = assignments)
     }
 
-    fun hideLibraryBooks(bookIds: Set<String>) {
-        val hidden = libraryPreferenceStore.loadHiddenIds() + bookIds
+    fun setLibraryBooksHidden(bookIds: Set<String>, hidden: Boolean) {
+        val updated = if (hidden) uiState.libraryHiddenIds + bookIds else uiState.libraryHiddenIds - bookIds
+        libraryPreferenceStore.saveHiddenIds(updated)
+        uiState = uiState.copy(
+            libraryHiddenIds = updated,
+            activeLibraryBook = uiState.activeLibraryBook?.takeUnless { hidden && it.id in bookIds },
+            message = if (hidden) "선택한 갤러리를 숨겼습니다." else "선택한 갤러리의 숨김을 해제했습니다.",
+            isError = false,
+        )
+    }
+
+    fun deleteLibraryBooks(bookIds: Set<String>) {
+        if (bookIds.isEmpty()) return
+        val profile = selectedProfile()
+        val selectedBooks = uiState.libraryBooks.filter { it.id in bookIds }
+        val remoteBooks = selectedBooks.filter { it.isCloud && it.remoteBookId != null }
+        val localBooks = selectedBooks.filterNot(LibraryBook::isCloud)
+        if (remoteBooks.isNotEmpty() && profile == null) {
+            uiState = uiState.copy(
+                message = "데스크톱 갤러리를 삭제하려면 PC에 연결해야 합니다.",
+                isError = true,
+            )
+            return
+        }
+        viewModelScope.launch {
+            val deletedIds = linkedSetOf<String>()
+            val failures = mutableListOf<String>()
+            remoteBooks.forEach { book ->
+                runCatching { client.deleteLibraryBook(profile!!, book.remoteBookId!!) }
+                    .onSuccess { deletedIds += book.id }
+                    .onFailure { failures += "${book.title}: ${it.message ?: "삭제 실패"}" }
+            }
+            localBooks.forEach { book ->
+                runCatching { libraryFileDeleter.delete(book) }
+                    .onSuccess { deletedIds += book.id }
+                    .onFailure { failures += "${book.title}: ${it.message ?: "삭제 실패"}" }
+            }
+            if (deletedIds.isNotEmpty()) removeDeletedLibraryState(deletedIds)
+            val details = buildList {
+                if (remoteBooks.any { it.id in deletedIds }) {
+                    add("데스크톱 갤러리를 휴지통으로 이동하고 DB에서 삭제했습니다.")
+                }
+                if (localBooks.any { it.id in deletedIds }) {
+                    add("로컬 갤러리 파일을 영구 삭제했습니다.")
+                }
+                if (failures.isNotEmpty()) add("${failures.size}개 삭제에 실패했습니다.")
+            }.joinToString(" ")
+            uiState = uiState.copy(message = details, isError = failures.isNotEmpty())
+        }
+    }
+
+    private fun removeDeletedLibraryState(bookIds: Set<String>) {
+        val hidden = uiState.libraryHiddenIds - bookIds
         libraryPreferenceStore.saveHiddenIds(hidden)
+        val favorites = uiState.libraryFavoriteIds - bookIds
+        libraryPreferenceStore.saveFavoriteIds(favorites)
+        val read = uiState.libraryReadIds - bookIds
+        libraryPreferenceStore.saveReadIds(read)
+        val progress = uiState.libraryProgress - bookIds
+        libraryPreferenceStore.saveProgress(progress)
+        val series = uiState.customSeriesByBookId - bookIds
+        libraryPreferenceStore.saveCustomSeries(series)
+        val titles = libraryPreferenceStore.loadCustomTitles() - bookIds
+        libraryPreferenceStore.saveCustomTitles(titles)
         uiState = uiState.copy(
             libraryBooks = uiState.libraryBooks.filterNot { it.id in bookIds },
+            libraryHiddenIds = hidden,
+            libraryFavoriteIds = favorites,
+            libraryReadIds = read,
+            libraryProgress = progress,
+            customSeriesByBookId = series,
             activeLibraryBook = uiState.activeLibraryBook?.takeUnless { it.id in bookIds },
         )
     }
@@ -1004,20 +1087,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshDownloads(silent: Boolean = false) {
-        if (uiState.isDownloadQueueLoading || uiState.isDownloadConnectionUnavailable) return
+        if (downloadRefreshJob?.isActive == true || uiState.isDownloadConnectionUnavailable) return
         val profile = selectedProfile() ?: run {
             if (!silent) {
                 uiState = uiState.copy(downloadQueueError = "연결된 데스크톱이 없습니다.")
             }
             return
         }
-        viewModelScope.launch {
-            uiState = uiState.copy(
-                isDownloadQueueLoading = true,
-                downloadQueueError = if (silent) uiState.downloadQueueError else null,
-            )
+        downloadRefreshJob = viewModelScope.launch {
+            if (!silent) {
+                uiState = uiState.copy(
+                    isDownloadQueueLoading = true,
+                    downloadQueueError = null,
+                )
+            }
             try {
-                val downloads = client.getDownloads(profile)
+                val downloads = sortDownloadQueueNewest(client.getDownloads(profile))
                 uiState = uiState.copy(
                     downloadQueue = downloads,
                     downloadQueueError = null,
@@ -1030,12 +1115,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 notifyOnDownloadReconnect = false
             } catch (error: Exception) {
-                uiState = uiState.copy(
-                    downloadQueueError = null,
-                    isDownloadConnectionUnavailable = true,
-                )
+                if (!silent) {
+                    uiState = uiState.copy(
+                        downloadQueueError = error.message ?: "다운로드 목록을 불러오지 못했습니다.",
+                        isDownloadConnectionUnavailable = true,
+                    )
+                }
             } finally {
-                uiState = uiState.copy(isDownloadQueueLoading = false)
+                if (!silent) uiState = uiState.copy(isDownloadQueueLoading = false)
             }
         }
     }
@@ -1078,7 +1165,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 action(profile)
                 uiState = uiState.copy(
-                    downloadQueue = client.getDownloads(profile),
+                    downloadQueue = sortDownloadQueueNewest(client.getDownloads(profile)),
                     downloadQueueError = null,
                 )
             } catch (error: Exception) {
@@ -1439,6 +1526,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val UNTYPED_SUGGESTION_TYPES = listOf("tag", "language", "type")
     }
 }
+
+internal fun sortDownloadQueueNewest(items: List<DownloadQueueItem>): List<DownloadQueueItem> =
+    items.sortedWith(
+        compareByDescending<DownloadQueueItem> { it.addedAt }
+            .thenByDescending(DownloadQueueItem::id),
+    )
 
 internal fun preferredLibraryBookForGalleryId(
     books: List<LibraryBook>,

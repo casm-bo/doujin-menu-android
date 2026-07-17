@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -169,15 +170,18 @@ private fun DownloadQueueCard(
     onRemove: () -> Unit,
 ) {
     val context = LocalContext.current
+    val thumbnailRequest = remember(item.thumbnailUrl, item.galleryId) {
+        item.thumbnailUrl?.let {
+            hitomiImageRequest(context, it, item.galleryId, crossfade = false)
+        }
+    }
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             AsyncImage(
-                model = item.thumbnailUrl?.let {
-                    hitomiImageRequest(context, it, item.galleryId, crossfade = false)
-                },
+                model = thumbnailRequest,
                 contentDescription = item.galleryTitle,
                 modifier = Modifier.size(width = 76.dp, height = 104.dp),
                 contentScale = ContentScale.Crop,

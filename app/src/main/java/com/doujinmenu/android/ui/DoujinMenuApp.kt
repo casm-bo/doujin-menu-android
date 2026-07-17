@@ -219,13 +219,22 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
             }
         }
 
-        val errorMessage = viewModel.uiState.message?.takeIf { viewModel.uiState.isError }
-        if (errorMessage != null) {
-            AppErrorBanner(errorMessage, viewModel::dismissMessage)
+        val appMessage = viewModel.uiState.message
+        if (appMessage != null) {
+            if (viewModel.uiState.isError) {
+                AppErrorBanner(appMessage, viewModel::dismissMessage)
+            } else {
+                AppSuccessBanner(
+                    message = appMessage,
+                    onDismiss = viewModel::dismissMessage,
+                    title = "알림",
+                )
+            }
         } else if (viewModel.uiState.connectionNotification != null) {
             AppSuccessBanner(
                 message = viewModel.uiState.connectionNotification.orEmpty(),
                 onDismiss = viewModel::dismissConnectionNotification,
+                title = "연결됨",
             )
         } else viewModel.uiState.downloadNotification?.let { notification ->
             DownloadNotificationBanner(
@@ -434,6 +443,7 @@ private fun MainTabContent(
                 onQueryChange = viewModel::setLibraryQuery,
                 onToggleFavoritesFilter = viewModel::toggleLibraryFavoritesFilter,
                 onReadFilterChange = viewModel::setLibraryReadFilter,
+                onVisibilityFilterChange = viewModel::setLibraryVisibilityFilter,
                 onSortChange = viewModel::setLibrarySort,
                 onLocationChange = viewModel::toggleLibraryLocation,
                 onRefresh = viewModel::refreshLibrary,
@@ -446,7 +456,8 @@ private fun MainTabContent(
                 onMarkUnread = viewModel::markLibraryBooksUnread,
                 onAssignSeries = viewModel::assignLibrarySeries,
                 onMoveSeriesBook = viewModel::moveLibrarySeriesBook,
-                onDeleteBooks = viewModel::hideLibraryBooks,
+                onSetBooksHidden = viewModel::setLibraryBooksHidden,
+                onDeleteBooks = viewModel::deleteLibraryBooks,
                 onRenameBook = viewModel::renameLibraryBook,
                 onRemoveBooksFromSeries = viewModel::removeLibraryBooksFromSeries,
                 onRenameSeries = viewModel::renameLibrarySeries,

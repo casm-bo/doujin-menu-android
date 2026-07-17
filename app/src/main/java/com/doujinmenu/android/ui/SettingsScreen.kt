@@ -418,7 +418,6 @@ private fun ConnectionSettingsScreen(
                 )
             }
         }
-        state.message?.takeUnless { state.isError }?.let { MessageCard(it, false) }
         if (state.isBusy) LoadingRow("연결 중…")
     }
 }
