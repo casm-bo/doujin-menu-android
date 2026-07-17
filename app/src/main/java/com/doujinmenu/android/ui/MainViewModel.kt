@@ -105,10 +105,13 @@ data class MainUiState(
     val activeDownloadActionIds: Set<Long> = emptySet(),
     val downloadNotification: DownloadNotification? = null,
     val connectionNotification: String? = null,
+    val desktopConnectionState: DesktopConnectionState = DesktopConnectionState.IDLE,
     val isBusy: Boolean = false,
     val message: String? = null,
     val isError: Boolean = false,
 )
+
+enum class DesktopConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 
 data class DownloadNotification(
     val galleryId: Long,
@@ -125,6 +128,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val libraryArchiveExtractor = LibraryArchiveExtractor(application)
     private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
     private var suggestionJob: Job? = null
+    private var connectionMonitorJob: Job? = null
     private var notifyOnDownloadReconnect = false
 
     var uiState by mutableStateOf(MainUiState())
@@ -268,6 +272,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     message = "연결 성공: ${status.service} API v${status.version}" +
                         if (status.pairingAvailable) " · 페어링 가능" else " · 페어링 코드 없음",
                     connectionNotification = "PC와 연결되었습니다.",
+                    desktopConnectionState = DesktopConnectionState.CONNECTED,
                     isError = false,
                 )
             }
@@ -302,6 +307,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     pairingCode = "",
                     isDownloadConnectionUnavailable = false,
                     connectionNotification = "${profile.name}와 연결되었습니다.",
+                    desktopConnectionState = DesktopConnectionState.CONNECTED,
                     message = "${profile.name} 페어링 완료 · 토큰을 Keystore로 보호해 저장했습니다.",
                     isError = false,
                 )
@@ -323,6 +329,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             downloadQueue = emptyList(),
             downloadQueueError = null,
             isDownloadConnectionUnavailable = false,
+            desktopConnectionState = DesktopConnectionState.CONNECTING,
         )
         refreshLibrary()
     }
@@ -341,6 +348,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             downloadQueue = emptyList(),
             downloadQueueError = null,
             isDownloadConnectionUnavailable = false,
+            desktopConnectionState = if (profiles.isEmpty()) {
+                DesktopConnectionState.IDLE
+            } else {
+                DesktopConnectionState.CONNECTING
+            },
             message = "저장된 데스크톱을 삭제했습니다.",
             isError = false,
         )
@@ -360,6 +372,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 viewedGalleryIds = viewed,
             )
         } ?: run { uiState = uiState.copy(viewedGalleryIds = viewed) }
+    }
+
+    fun libraryBookIdForGallery(galleryId: Long): String? =
+        preferredLibraryBookForGalleryId(uiState.libraryBooks, galleryId)?.id
+
+    fun startConnectionMonitoring() {
+        if (connectionMonitorJob?.isActive == true) return
+        connectionMonitorJob = viewModelScope.launch {
+            var monitoredProfileId: String? = null
+            while (true) {
+                val profile = selectedProfile()
+                if (profile == null) {
+                    monitoredProfileId = null
+                    uiState = uiState.copy(desktopConnectionState = DesktopConnectionState.IDLE)
+                    delay(CONNECTION_MONITOR_INTERVAL_MS)
+                    continue
+                }
+                if (monitoredProfileId != profile.id) {
+                    monitoredProfileId = profile.id
+                    uiState = uiState.copy(desktopConnectionState = DesktopConnectionState.CONNECTING)
+                }
+                val connected = runCatching { client.getStatus(profile.baseUrl) }.isSuccess
+                uiState = uiState.copy(
+                    desktopConnectionState = if (connected) {
+                        DesktopConnectionState.CONNECTED
+                    } else {
+                        DesktopConnectionState.DISCONNECTED
+                    },
+                )
+                delay(CONNECTION_MONITOR_INTERVAL_MS)
+            }
+        }
+    }
+
+    fun stopConnectionMonitoring() {
+        connectionMonitorJob?.cancel()
+        connectionMonitorJob = null
     }
 
     fun loadNextPage() {
@@ -1379,6 +1428,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val PAIRING_CODE_LENGTH = 6
         const val GALLERY_DETAIL_CONCURRENCY = 4
         const val SUGGESTION_DEBOUNCE_MS = 200L
+        const val CONNECTION_MONITOR_INTERVAL_MS = 2_000L
         const val MAX_FILTER_SUGGESTIONS = 12
         const val MAX_CACHED_GALLERIES = 200
         const val MAX_KNOWN_FILTER_TOKENS = 20_000
@@ -1389,6 +1439,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val UNTYPED_SUGGESTION_TYPES = listOf("tag", "language", "type")
     }
 }
+
+internal fun preferredLibraryBookForGalleryId(
+    books: List<LibraryBook>,
+    galleryId: Long,
+): LibraryBook? = books.asSequence()
+    .filter { it.metadata.hitomiId?.toLongOrNull() == galleryId }
+    .sortedBy(LibraryBook::isCloud)
+    .firstOrNull()
 
 private fun operationErrorMessage(error: Exception): String {
     val causes = generateSequence(error as Throwable?) { it.cause }.toList()

@@ -1377,22 +1377,23 @@ private fun LibraryBookListItem(
 }
 
 @Composable
-private fun BoxScope.LibraryThumbnailBadges(
+internal fun BoxScope.LibraryThumbnailBadges(
     read: Boolean,
-    isCloud: Boolean,
+    isCloud: Boolean?,
     favorite: Boolean,
+    showFavorite: Boolean = true,
     onToggleFavorite: () -> Unit,
     scale: Float,
 ) {
     if (read) {
         ThumbnailBadge("읽음", Modifier.align(Alignment.TopStart), scale)
     }
-    if (isCloud) {
+    if (isCloud == true) {
         ThumbnailIconBadge(Modifier.align(Alignment.TopEnd), scale) { CloudOutlineIcon(scale = scale) }
-    } else {
+    } else if (isCloud == false) {
         ThumbnailBadge("기기", Modifier.align(Alignment.TopEnd), scale)
     }
-    Surface(
+    if (showFavorite) Surface(
         modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp * scale),
         shape = RoundedCornerShape(10.dp * scale),
         color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.88f),

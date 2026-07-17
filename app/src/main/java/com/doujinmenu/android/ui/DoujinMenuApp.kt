@@ -84,8 +84,14 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     initialDestinationRoute = lastMainDestination,
                     onDestinationChanged = { lastMainDestination = it },
                     onGalleryClick = {
-                        viewModel.selectGallery(it)
-                        navController.navigate("gallery/$it")
+                        val libraryBookId = viewModel.libraryBookIdForGallery(it)
+                        if (libraryBookId != null) {
+                            viewModel.openLibraryBook(libraryBookId)
+                            navController.navigate("library-detail")
+                        } else {
+                            viewModel.selectGallery(it)
+                            navController.navigate("gallery/$it")
+                        }
                     },
                     onLibraryBookClick = { bookId ->
                         viewModel.openLibraryBook(bookId)
@@ -417,6 +423,7 @@ private fun MainTabContent(
                 onRefresh = viewModel::refresh,
                 onLoadNextPage = viewModel::loadNextPage,
                 onGalleryClick = onGalleryClick,
+                onToggleLibraryFavorite = viewModel::toggleLibraryFavorite,
                 onConnect = openConnectionSettings,
             )
         }
@@ -485,6 +492,8 @@ private fun MainTabContent(
                 onClearDownloadLocation = viewModel::clearDownloadLocation,
                 openConnectionRequested = connectionSettingsRequested,
                 onConnectionRequestHandled = { connectionSettingsRequested = false },
+                onStartConnectionMonitoring = viewModel::startConnectionMonitoring,
+                onStopConnectionMonitoring = viewModel::stopConnectionMonitoring,
             )
         }
         }
