@@ -82,6 +82,21 @@ class LibraryPreferenceStore(context: Context) {
         preferences.edit().putString(KEY_CUSTOM_SERIES, json.toString()).apply()
     }
 
+    fun loadSeriesRemovalTimes(): Map<String, Long> {
+        val json = runCatching {
+            JSONObject(preferences.getString(KEY_SERIES_REMOVAL_TIMES, "{}").orEmpty())
+        }.getOrNull() ?: return emptyMap()
+        return buildMap {
+            json.keys().forEach { id -> put(id, json.optLong(id, 0L)) }
+        }
+    }
+
+    fun saveSeriesRemovalTimes(times: Map<String, Long>) {
+        val json = JSONObject()
+        times.forEach { (id, modifiedAt) -> json.put(id, modifiedAt) }
+        preferences.edit().putString(KEY_SERIES_REMOVAL_TIMES, json.toString()).apply()
+    }
+
     fun loadHiddenIds(): Set<String> =
         preferences.getStringSet(KEY_HIDDEN, emptySet()).orEmpty().toSet()
 
@@ -169,6 +184,7 @@ class LibraryPreferenceStore(context: Context) {
         const val KEY_PROGRESS = "book_progress"
         const val KEY_ONLINE_PROGRESS = "online_gallery_progress"
         const val KEY_CUSTOM_SERIES = "custom_book_series"
+        const val KEY_SERIES_REMOVAL_TIMES = "series_removal_times"
         const val KEY_HIDDEN = "hidden_book_ids"
         const val KEY_CUSTOM_TITLES = "custom_book_titles"
         const val KEY_SCALE = "viewer_scale"

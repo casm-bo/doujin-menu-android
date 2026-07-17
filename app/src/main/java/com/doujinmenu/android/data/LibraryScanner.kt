@@ -49,7 +49,7 @@ class LibraryScanner(private val context: Context) {
                 ?.let { readInfo(it.uri) } ?: ParsedInfoTxt()
             val folderUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId).toString()
             books += LibraryBook(
-                id = folderUri,
+                id = info.uuid?.let(::stableFileId) ?: folderUri,
                 title = info.title ?: directoryName.ifBlank { location.displayName },
                 locationUri = location.uri,
                 locationName = location.displayName,
@@ -98,7 +98,7 @@ class LibraryScanner(private val context: Context) {
             )
         }
         return LibraryBook(
-            id = entry.uri.toString(),
+            id = info.uuid?.let(::stableFileId) ?: entry.uri.toString(),
             title = info.title ?: entry.name.substringBeforeLast('.'),
             locationUri = location.uri,
             locationName = location.displayName,
@@ -157,6 +157,8 @@ class LibraryScanner(private val context: Context) {
         mimeType.startsWith("image/") || name.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
 
     private fun isArchive(name: String) = name.substringAfterLast('.', "").lowercase() in ARCHIVE_EXTENSIONS
+
+    private fun stableFileId(uuid: String) = "file:${uuid.trim().lowercase()}"
 
     private data class DocumentEntry(
         val documentId: String,

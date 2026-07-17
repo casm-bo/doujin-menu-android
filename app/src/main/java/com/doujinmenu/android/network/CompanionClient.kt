@@ -1,6 +1,7 @@
 package com.doujinmenu.android.network
 
 import com.doujinmenu.android.model.CompanionStatus
+import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.DownloadStatus
@@ -17,6 +18,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+
+data class SeriesSyncUpdate(
+    val bookSyncId: String,
+    val assignment: CustomSeriesAssignment?,
+    val modifiedAt: Long,
+)
 
 class CompanionClient {
     suspend fun getStatus(baseUrl: String): CompanionStatus = withContext(Dispatchers.IO) {
@@ -134,6 +141,20 @@ class CompanionClient {
                 repeat(books.length()) { index ->
                     val item = books.optJSONObject(index) ?: return@repeat
                     val id = item.optLong("id")
+                    val syncId = item.nullableString("syncId") ?: item.nullableString("sync_id")
+                    val hasSyncedSeriesState = item.has("seriesCollection")
+                    val syncedSeriesObject = item.optJSONObject("seriesCollection")
+                    val syncedSeriesModifiedAt = syncedSeriesObject?.optLong("modifiedAt", 0L) ?: 0L
+                    val syncedSeries = syncedSeriesObject?.let { series ->
+                        val name = series.optString("name").trim()
+                        name.takeIf(String::isNotEmpty)?.let {
+                            CustomSeriesAssignment(
+                                name = it,
+                                order = series.optInt("order", 0).coerceAtLeast(0),
+                                modifiedAt = syncedSeriesModifiedAt,
+                            )
+                        }
+                    }
                     val pageCount = item.optInt("pageCount", item.optInt("page_count", 0))
                     val sourcePath = item.nullableString("libraryPath")
                         ?: item.nullableString("library_path")
@@ -142,7 +163,8 @@ class CompanionClient {
                         ?: "${profile.baseUrl}/v1/library/books/$id/cover"
                     add(
                         LibraryBook(
-                            id = "desktop:${profile.id}:$id",
+                            id = syncId?.let { "desktop:${profile.id}:${it.lowercase()}" }
+                                ?: "desktop:${profile.id}:$id",
                             title = item.optString("title", "Gallery #$id"),
                             locationUri = "desktop:${profile.id}:$sourcePath",
                             locationName = sourcePath.substringAfterLast('\\').substringAfterLast('/'),
@@ -164,6 +186,10 @@ class CompanionClient {
                                     ?: item.nullableString("language_name_english"),
                             ),
                             isCloud = true,
+                            syncId = syncId,
+                            syncedSeries = syncedSeries,
+                            syncedSeriesModifiedAt = syncedSeriesModifiedAt,
+                            hasSyncedSeriesState = hasSyncedSeriesState,
                             remoteBookId = id,
                             coverUriOverride = coverUrl,
                             cloudToken = profile.token,
@@ -198,6 +224,32 @@ class CompanionClient {
                 token = profile.token,
             ).requireSuccess()
         }
+
+    suspend fun saveLibrarySeries(
+        profile: DesktopProfile,
+        assignments: List<SeriesSyncUpdate>,
+    ) = withContext(Dispatchers.IO) {
+        val body = JSONObject().put(
+            "assignments",
+            JSONArray().apply {
+                assignments.forEach { update ->
+                    put(
+                        JSONObject()
+                            .put("bookSyncId", update.bookSyncId)
+                            .put("name", update.assignment?.name ?: JSONObject.NULL)
+                            .put("order", update.assignment?.order ?: 0)
+                            .put("modifiedAt", update.modifiedAt),
+                    )
+                }
+            },
+        )
+        request(
+            url = "${profile.baseUrl}/v1/library/series",
+            method = "POST",
+            token = profile.token,
+            body = body,
+        ).requireSuccess()
+    }
 
     suspend fun requestDownload(profile: DesktopProfile, galleryId: Long): DownloadQueueItem =
         withContext(Dispatchers.IO) {

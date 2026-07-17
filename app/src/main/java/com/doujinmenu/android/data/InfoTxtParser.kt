@@ -4,6 +4,7 @@ import com.doujinmenu.android.model.LibraryMetadata
 
 data class ParsedInfoTxt(
     val title: String? = null,
+    val uuid: String? = null,
     val metadata: LibraryMetadata = LibraryMetadata(),
 )
 
@@ -16,8 +17,12 @@ object InfoTxtParser {
         }.filter { it.second.isNotBlank() }.toMap()
         fun list(key: String) = values[key].orEmpty().split(',')
             .map { it.trim().replace(Regex("\\s+"), "_") }.filter(String::isNotBlank)
+        val uuid = values.entries.firstOrNull { (key) ->
+            key.equals("uuid", ignoreCase = true) || key == "고유 UUID"
+        }?.value
         return ParsedInfoTxt(
             title = values["제목"],
+            uuid = uuid,
             metadata = LibraryMetadata(
                 hitomiId = values["갤러리 넘버"],
                 artists = list("작가"),
