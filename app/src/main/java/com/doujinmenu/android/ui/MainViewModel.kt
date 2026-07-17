@@ -70,6 +70,7 @@ data class MainUiState(
     val libraryFavoriteSeriesNames: Set<String> = emptySet(),
     val libraryReadIds: Set<String> = emptySet(),
     val libraryProgress: Map<String, Int> = emptyMap(),
+    val onlineReaderProgress: Map<Long, Int> = emptyMap(),
     val customSeriesByBookId: Map<String, CustomSeriesAssignment> = emptyMap(),
     val libraryQuery: String = "",
     val libraryFavoritesOnly: Boolean = false,
@@ -156,6 +157,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             libraryFavoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames(),
             libraryReadIds = libraryPreferenceStore.loadReadIds(),
             libraryProgress = libraryPreferenceStore.loadProgress(),
+            onlineReaderProgress = libraryPreferenceStore.loadOnlineProgress(),
             customSeriesByBookId = libraryPreferenceStore.loadCustomSeries(),
             viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
@@ -1061,6 +1063,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val progress = uiState.libraryProgress + (bookId to page.coerceAtLeast(0))
         libraryPreferenceStore.saveProgress(progress)
         uiState = uiState.copy(libraryProgress = progress)
+    }
+
+    fun updateOnlineReaderProgress(galleryId: Long, page: Int) {
+        if (uiState.onlineReaderProgress[galleryId] == page) return
+        val progress = uiState.onlineReaderProgress + (galleryId to page.coerceAtLeast(0))
+        libraryPreferenceStore.saveOnlineProgress(progress)
+        uiState = uiState.copy(onlineReaderProgress = progress)
     }
 
     fun updateViewerPreferences(value: ViewerPreferences) {

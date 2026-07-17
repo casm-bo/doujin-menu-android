@@ -3,7 +3,11 @@ package com.doujinmenu.android.security
 import android.content.Context
 import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.ViewerPreferences
+import com.doujinmenu.android.model.ViewerPageTurnMode
+import com.doujinmenu.android.model.ViewerReadingDirection
 import com.doujinmenu.android.model.ViewerScale
+import com.doujinmenu.android.model.ViewerTapAction
+import com.doujinmenu.android.model.ViewerTapZones
 import org.json.JSONObject
 
 class LibraryPreferenceStore(context: Context) {
@@ -106,6 +110,16 @@ class LibraryPreferenceStore(context: Context) {
         }.getOrDefault(ViewerScale.FIT_SCREEN),
         showPageNumber = preferences.getBoolean(KEY_PAGE_NUMBER, true),
         keepScreenOn = preferences.getBoolean(KEY_KEEP_SCREEN_ON, true),
+        readingDirection = enumPreference(KEY_READING_DIRECTION, ViewerReadingDirection.LEFT_TO_RIGHT),
+        pageTurnMode = enumPreference(KEY_PAGE_TURN_MODE, ViewerPageTurnMode.SWIPE_AND_TAP),
+        customTapZonesEnabled = preferences.getBoolean(KEY_CUSTOM_TAP_ZONES_ENABLED, false),
+        tapZones = ViewerTapZones(
+            preferences.getString(KEY_TAP_ZONES, null)
+                ?.split(',')
+                ?.mapNotNull { value -> runCatching { ViewerTapAction.valueOf(value) }.getOrNull() }
+                ?.takeIf { it.size == 9 }
+                ?: ViewerTapZones.DEFAULT_ACTIONS,
+        ),
     )
 
     fun saveViewerPreferences(value: ViewerPreferences) {
@@ -113,8 +127,29 @@ class LibraryPreferenceStore(context: Context) {
             .putString(KEY_SCALE, value.scale.name)
             .putBoolean(KEY_PAGE_NUMBER, value.showPageNumber)
             .putBoolean(KEY_KEEP_SCREEN_ON, value.keepScreenOn)
+            .putString(KEY_READING_DIRECTION, value.readingDirection.name)
+            .putString(KEY_PAGE_TURN_MODE, value.pageTurnMode.name)
+            .putBoolean(KEY_CUSTOM_TAP_ZONES_ENABLED, value.customTapZonesEnabled)
+            .putString(KEY_TAP_ZONES, value.tapZones.actions.joinToString(",") { it.name })
             .apply()
     }
+
+    fun loadOnlineProgress(): Map<Long, Int> {
+        val json = runCatching { JSONObject(preferences.getString(KEY_ONLINE_PROGRESS, "{}").orEmpty()) }
+            .getOrNull() ?: return emptyMap()
+        return buildMap {
+            json.keys().forEach { key -> key.toLongOrNull()?.let { put(it, json.optInt(key, 0)) } }
+        }
+    }
+
+    fun saveOnlineProgress(progress: Map<Long, Int>) {
+        val json = JSONObject()
+        progress.forEach { (id, page) -> json.put(id.toString(), page) }
+        preferences.edit().putString(KEY_ONLINE_PROGRESS, json.toString()).apply()
+    }
+
+    private inline fun <reified T : Enum<T>> enumPreference(key: String, fallback: T): T =
+        runCatching { enumValueOf<T>(preferences.getString(key, null).orEmpty()) }.getOrDefault(fallback)
 
     fun loadLibraryViewMode(): String = preferences.getString(KEY_LIBRARY_VIEW_MODE, "GRID") ?: "GRID"
 
@@ -132,12 +167,17 @@ class LibraryPreferenceStore(context: Context) {
         const val KEY_SERIES_FAVORITES = "favorite_series_names"
         const val KEY_READ = "read_book_ids"
         const val KEY_PROGRESS = "book_progress"
+        const val KEY_ONLINE_PROGRESS = "online_gallery_progress"
         const val KEY_CUSTOM_SERIES = "custom_book_series"
         const val KEY_HIDDEN = "hidden_book_ids"
         const val KEY_CUSTOM_TITLES = "custom_book_titles"
         const val KEY_SCALE = "viewer_scale"
         const val KEY_PAGE_NUMBER = "viewer_page_number"
         const val KEY_KEEP_SCREEN_ON = "viewer_keep_screen_on"
+        const val KEY_READING_DIRECTION = "viewer_reading_direction"
+        const val KEY_PAGE_TURN_MODE = "viewer_page_turn_mode"
+        const val KEY_CUSTOM_TAP_ZONES_ENABLED = "viewer_custom_tap_zones_enabled"
+        const val KEY_TAP_ZONES = "viewer_tap_zones"
         const val KEY_LIBRARY_VIEW_MODE = "library_view_mode"
         const val KEY_LIBRARY_GRID_COLUMNS = "library_grid_columns"
     }

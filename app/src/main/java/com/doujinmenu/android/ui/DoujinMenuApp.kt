@@ -202,19 +202,23 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 arguments = listOf(
                     navArgument("startPage") {
                         type = NavType.IntType
-                        defaultValue = 0
+                        defaultValue = -1
                     },
                 ),
             ) { entry ->
                 val galleryId = entry.arguments?.getString("galleryId")?.toLongOrNull()
                     ?: return@composable
-                val startPage = entry.arguments?.getInt("startPage") ?: 0
+                val requestedPage = entry.arguments?.getInt("startPage") ?: -1
                 ReaderScreen(
                     galleryId = galleryId,
-                    initialPage = startPage,
+                    initialPage = if (requestedPage >= 0) requestedPage
+                        else viewModel.uiState.onlineReaderProgress[galleryId] ?: 0,
                     state = viewModel.uiState,
+                    preferences = viewModel.uiState.viewerPreferences,
                     onLoad = viewModel::loadReader,
                     onBack = navController::popBackStack,
+                    onProgress = { page -> viewModel.updateOnlineReaderProgress(galleryId, page) },
+                    onPreferencesChange = viewModel::updateViewerPreferences,
                 )
             }
         }
