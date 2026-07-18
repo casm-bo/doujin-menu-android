@@ -47,8 +47,11 @@ class LibraryPreferenceStore(context: Context) {
             json.keys().forEach { id ->
                 val value = json.opt(id)
                 if (value is JSONObject) {
-                    val name = value.optString("name").trim()
-                    if (name.isNotEmpty()) put(
+                    val name = value.takeUnless { it.isNull("name") }
+                        ?.optString("name")
+                        ?.trim()
+                        .orEmpty()
+                    if (name.isNotEmpty() && !name.equals("null", ignoreCase = true)) put(
                         id,
                         CustomSeriesAssignment(
                             name = name,
@@ -58,7 +61,7 @@ class LibraryPreferenceStore(context: Context) {
                     )
                 } else {
                     val name = value?.toString().orEmpty().trim()
-                    if (name.isNotEmpty()) {
+                    if (name.isNotEmpty() && !name.equals("null", ignoreCase = true)) {
                         val order = legacyOrders.getOrDefault(name, 0)
                         put(id, CustomSeriesAssignment(name, order))
                         legacyOrders[name] = order + 1
@@ -96,6 +99,18 @@ class LibraryPreferenceStore(context: Context) {
         times.forEach { (id, modifiedAt) -> json.put(id, modifiedAt) }
         preferences.edit().putString(KEY_SERIES_REMOVAL_TIMES, json.toString()).apply()
     }
+
+    fun loadPendingSeriesSyncIds(): Set<String> =
+        preferences.getStringSet(KEY_PENDING_SERIES_SYNC, emptySet()).orEmpty().toSet()
+
+    fun savePendingSeriesSyncIds(ids: Set<String>) =
+        preferences.edit().putStringSet(KEY_PENDING_SERIES_SYNC, ids).apply()
+
+    fun loadPendingBookStateSyncIds(): Set<String> =
+        preferences.getStringSet(KEY_PENDING_BOOK_STATE_SYNC, emptySet()).orEmpty().toSet()
+
+    fun savePendingBookStateSyncIds(ids: Set<String>) =
+        preferences.edit().putStringSet(KEY_PENDING_BOOK_STATE_SYNC, ids).apply()
 
     fun loadHiddenIds(): Set<String> =
         preferences.getStringSet(KEY_HIDDEN, emptySet()).orEmpty().toSet()
@@ -185,6 +200,8 @@ class LibraryPreferenceStore(context: Context) {
         const val KEY_ONLINE_PROGRESS = "online_gallery_progress"
         const val KEY_CUSTOM_SERIES = "custom_book_series"
         const val KEY_SERIES_REMOVAL_TIMES = "series_removal_times"
+        const val KEY_PENDING_SERIES_SYNC = "pending_series_sync_ids"
+        const val KEY_PENDING_BOOK_STATE_SYNC = "pending_book_state_sync_ids"
         const val KEY_HIDDEN = "hidden_book_ids"
         const val KEY_CUSTOM_TITLES = "custom_book_titles"
         const val KEY_SCALE = "viewer_scale"

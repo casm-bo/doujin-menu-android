@@ -600,6 +600,15 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxWidth().padding(12.dp),
                 )
             }
+            state.librarySyncError
+                ?.takeIf { it != state.libraryScanError }
+                ?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    )
+                }
         }
     }
 
@@ -800,14 +809,6 @@ private fun LibraryToolbar(
                     Text(
                         text = if (state.isAutoCreatingSeries) "분석 중" else "자동생성",
                         modifier = Modifier.padding(start = if (state.isAutoCreatingSeries) 7.dp else 0.dp),
-                    )
-                }
-                state.seriesAutoCreateStatus?.let { status ->
-                    Text(
-                        text = status,
-                        modifier = Modifier.align(Alignment.CenterVertically),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelMedium,
                     )
                 }
             }

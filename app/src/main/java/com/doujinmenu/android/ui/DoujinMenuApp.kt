@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -28,6 +29,7 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -281,6 +283,38 @@ private fun MainShell(
             onNavigate = navigate,
         )
     }
+    val topBar: @Composable () -> Unit = {
+        TopAppBar(
+            title = { Text(selected.label) },
+            actions = {
+                if (selected == MainDestination.Library) {
+                    TextButton(
+                        onClick = viewModel::syncLibraryNow,
+                        enabled = !viewModel.uiState.isLibrarySyncing &&
+                            viewModel.uiState.selectedProfileId != null,
+                    ) {
+                        if (viewModel.uiState.isLibrarySyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        }
+                        val pending = viewModel.uiState.librarySyncPendingCount
+                        Text(
+                            text = when {
+                                viewModel.uiState.isLibrarySyncing -> "동기화 중"
+                                pending > 0 -> "동기화 · $pending"
+                                else -> "동기화"
+                            },
+                            modifier = Modifier.padding(
+                                start = if (viewModel.uiState.isLibrarySyncing) 7.dp else 0.dp,
+                            ),
+                        )
+                    }
+                }
+            },
+        )
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth >= 700.dp) {
@@ -297,12 +331,12 @@ private fun MainShell(
                 }
                 Scaffold(
                     modifier = Modifier.weight(1f),
-                    topBar = { TopAppBar(title = { Text(selected.label) }) },
+                    topBar = topBar,
                 ) { padding -> content(padding) }
             }
         } else {
             Scaffold(
-                topBar = { TopAppBar(title = { Text(selected.label) }) },
+                topBar = topBar,
                 bottomBar = {
                     NavigationBar {
                         MainDestination.entries.forEach { destination ->

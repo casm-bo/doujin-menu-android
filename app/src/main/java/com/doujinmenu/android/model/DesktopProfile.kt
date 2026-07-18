@@ -11,6 +11,7 @@ data class CompanionStatus(
     val service: String,
     val version: Int,
     val pairingAvailable: Boolean,
+    val syncGeneration: Long = 0L,
 )
 
 data class PairingResult(
