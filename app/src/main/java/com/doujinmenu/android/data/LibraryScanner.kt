@@ -11,7 +11,10 @@ import java.util.zip.ZipInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class LibraryScanner(private val context: Context) {
+class LibraryScanner(
+    private val context: Context,
+    private val identityStore: LibraryIdentityStore = LibraryIdentityStore(context),
+) {
     private val contentResolver = context.contentResolver
     suspend fun scan(locations: List<StorageLocation>): ScanResult = withContext(Dispatchers.IO) {
         val books = mutableListOf<LibraryBook>()
@@ -45,11 +48,18 @@ class LibraryScanner(private val context: Context) {
             .toList()
 
         if (imagePages.isNotEmpty()) {
-            val info = children.firstOrNull { !it.isDirectory && it.name.equals("info.txt", true) }
+            val parsedInfo = children.firstOrNull { !it.isDirectory && it.name.equals("info.txt", true) }
                 ?.let { readInfo(it.uri) } ?: ParsedInfoTxt()
             val folderUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId).toString()
+            val identity = identityStore.resolve(
+                sourceKey = "folder:$folderUri",
+                sourceUri = folderUri,
+                parsedInfo = parsedInfo,
+                modifiedAt = children.maxOfOrNull(DocumentEntry::modifiedAt) ?: 0L,
+            )
+            val info = identity.info
             books += LibraryBook(
-                id = info.uuid?.let(::stableFileId) ?: folderUri,
+                id = LibraryIdentityStore.stableFileId(identity.syncId),
                 title = info.title ?: directoryName.ifBlank { location.displayName },
                 locationUri = location.uri,
                 locationName = location.displayName,
@@ -57,7 +67,7 @@ class LibraryScanner(private val context: Context) {
                 pages = imagePages,
                 modifiedAt = children.maxOfOrNull(DocumentEntry::modifiedAt) ?: 0L,
                 metadata = info.metadata,
-                syncId = info.uuid?.let(::normalizedUuid),
+                syncId = identity.syncId,
             )
         }
 
@@ -104,6 +114,13 @@ class LibraryScanner(private val context: Context) {
             }
         }
         if (pageEntries.isEmpty()) return null
+        val identity = identityStore.resolve(
+            sourceKey = "archive:${entry.uri}",
+            sourceUri = entry.uri.toString(),
+            parsedInfo = info,
+            modifiedAt = entry.modifiedAt,
+        )
+        info = identity.info
         val sorted = pageEntries.sortedBy(::naturalSortKey)
         val pages = sorted.mapIndexed { index, name ->
             LibraryPage(
@@ -114,7 +131,7 @@ class LibraryScanner(private val context: Context) {
             )
         }
         return LibraryBook(
-            id = info.uuid?.let(::stableFileId) ?: entry.uri.toString(),
+            id = LibraryIdentityStore.stableFileId(identity.syncId),
             title = info.title ?: entry.name.substringBeforeLast('.'),
             locationUri = location.uri,
             locationName = location.displayName,
@@ -122,7 +139,7 @@ class LibraryScanner(private val context: Context) {
             pages = pages,
             modifiedAt = entry.modifiedAt,
             metadata = info.metadata,
-            syncId = info.uuid?.let(::normalizedUuid),
+            syncId = identity.syncId,
             coverUriOverride = coverUri,
         )
     }
@@ -134,22 +151,6 @@ class LibraryScanner(private val context: Context) {
         if (!file.exists()) file.outputStream().buffered().use(zip::copyTo)
         return file.toURI().toString()
     }
-
-    private fun mergeParsedInfo(preferred: ParsedInfoTxt, fallback: ParsedInfoTxt): ParsedInfoTxt =
-        ParsedInfoTxt(
-            title = preferred.title ?: fallback.title,
-            uuid = preferred.uuid ?: fallback.uuid,
-            metadata = com.doujinmenu.android.model.LibraryMetadata(
-                hitomiId = preferred.metadata.hitomiId ?: fallback.metadata.hitomiId,
-                artists = preferred.metadata.artists.ifEmpty { fallback.metadata.artists },
-                groups = preferred.metadata.groups.ifEmpty { fallback.metadata.groups },
-                galleryType = preferred.metadata.galleryType ?: fallback.metadata.galleryType,
-                series = preferred.metadata.series.ifEmpty { fallback.metadata.series },
-                characters = preferred.metadata.characters.ifEmpty { fallback.metadata.characters },
-                tags = preferred.metadata.tags.ifEmpty { fallback.metadata.tags },
-                language = preferred.metadata.language ?: fallback.metadata.language,
-            ),
-        )
 
     private fun readInfo(uri: Uri): ParsedInfoTxt = runCatching {
         contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
@@ -190,10 +191,6 @@ class LibraryScanner(private val context: Context) {
         mimeType.startsWith("image/") || name.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
 
     private fun isArchive(name: String) = name.substringAfterLast('.', "").lowercase() in ARCHIVE_EXTENSIONS
-
-    private fun stableFileId(uuid: String) = "file:${normalizedUuid(uuid)}"
-
-    private fun normalizedUuid(uuid: String) = uuid.trim().lowercase()
 
     private data class DocumentEntry(
         val documentId: String,

@@ -28,4 +28,17 @@ class InfoTxtParserTest {
         assertEquals(listOf("full_color", "sole_female"), parsed.metadata.tags)
         assertEquals("korean", parsed.metadata.language)
     }
+
+    @Test
+    fun parsesMetadataKeysWrittenByAndroidArchiveExporter() {
+        val parsed = InfoTxtParser.parse(
+            """
+            갤러리 번호: 67890
+            종류: manga
+            """.trimIndent(),
+        )
+
+        assertEquals("67890", parsed.metadata.hitomiId)
+        assertEquals("manga", parsed.metadata.galleryType)
+    }
 }

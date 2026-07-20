@@ -10,9 +10,11 @@ import androidx.lifecycle.viewModelScope
 import com.doujinmenu.android.data.LibraryScanner
 import com.doujinmenu.android.data.LibraryArchiveExtractor
 import com.doujinmenu.android.data.LibraryFileDeleter
+import com.doujinmenu.android.data.LibraryIdentityStore
 import com.doujinmenu.android.data.LibraryUploadPreparer
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.DownloadQueueItem
+import com.doujinmenu.android.model.DownloadStatus
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.CustomSeriesAssignment
@@ -24,6 +26,7 @@ import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.model.StorageLocation
 import com.doujinmenu.android.model.ViewerPreferences
 import com.doujinmenu.android.network.CompanionClient
+import com.doujinmenu.android.network.CompanionApiException
 import com.doujinmenu.android.network.BookStateSyncUpdate
 import com.doujinmenu.android.network.EndpointNormalizer
 import com.doujinmenu.android.network.FilterSuggestion
@@ -139,7 +142,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val profileStore = SecureProfileStore(application)
     private val browserPreferenceStore = BrowserPreferenceStore(application)
     private val libraryPreferenceStore = LibraryPreferenceStore(application)
-    private val libraryScanner = LibraryScanner(application)
+    private val libraryIdentityStore = LibraryIdentityStore(application)
+    private val libraryScanner = LibraryScanner(application, libraryIdentityStore)
     private val libraryArchiveExtractor = LibraryArchiveExtractor(application)
     private val libraryFileDeleter = LibraryFileDeleter(application)
     private val libraryUploadPreparer = LibraryUploadPreparer(application)
@@ -147,9 +151,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var suggestionJob: Job? = null
     private var connectionMonitorJob: Job? = null
     private var downloadRefreshJob: Job? = null
+    private var librarySyncDebounceJob: Job? = null
+    private var importantLibraryRefreshJob: Job? = null
+    private var hasEnteredForeground = false
     private var notifyOnDownloadReconnect = false
+    private val observedCompletedDownloadIds = mutableSetOf<Long>()
+    private val pendingHistoryBookIds = mutableSetOf<String>()
     private val seriesSyncMutex = Mutex()
     private val bookStateSyncMutex = Mutex()
+    private val librarySyncFlushMutex = Mutex()
 
     var uiState by mutableStateOf(MainUiState())
         private set
@@ -172,6 +182,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             libraryProgress = libraryPreferenceStore.loadProgress(),
             onlineReaderProgress = libraryPreferenceStore.loadOnlineProgress(),
             customSeriesByBookId = libraryPreferenceStore.loadCustomSeries(),
+            librarySyncPendingCount = pendingLibrarySyncCount(),
             viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
         )
@@ -408,12 +419,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             var monitoredProfileId: String? = null
             var wasConnected = false
             var lastSyncGeneration = 0L
+            var hasSyncGenerationBaseline = false
             while (true) {
                 val profile = selectedProfile()
                 if (profile == null) {
                     monitoredProfileId = null
                     wasConnected = false
                     lastSyncGeneration = 0L
+                    hasSyncGenerationBaseline = false
                     uiState = uiState.copy(desktopConnectionState = DesktopConnectionState.IDLE)
                     delay(CONNECTION_MONITOR_INTERVAL_MS)
                     continue
@@ -422,6 +435,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     monitoredProfileId = profile.id
                     wasConnected = false
                     lastSyncGeneration = 0L
+                    hasSyncGenerationBaseline = false
                     uiState = uiState.copy(desktopConnectionState = DesktopConnectionState.CONNECTING)
                 }
                 val status = runCatching { client.getStatus(profile.baseUrl) }.getOrNull()
@@ -433,9 +447,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ) {
                     refreshLibrary()
                 }
-                if (status != null && status.syncGeneration > lastSyncGeneration) {
-                    if (lastSyncGeneration > 0L) syncLibraryNow()
-                    lastSyncGeneration = status.syncGeneration
+                if (status != null) {
+                    when {
+                        !hasSyncGenerationBaseline || status.syncGeneration < lastSyncGeneration -> {
+                            lastSyncGeneration = status.syncGeneration
+                            hasSyncGenerationBaseline = true
+                        }
+                        status.syncGeneration > lastSyncGeneration -> {
+                            lastSyncGeneration = status.syncGeneration
+                            requestImportantLibraryRefresh()
+                        }
+                    }
                 }
                 wasConnected = connected
                 uiState = uiState.copy(
@@ -587,6 +609,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cloudResult?.isSuccess == true -> cloudResult.getOrThrow()
                 else -> uiState.libraryBooks.filter(LibraryBook::isCloud)
             }
+            val identityReconciliation = withContext(Dispatchers.IO) {
+                libraryIdentityStore.reconcileWithDesktop(result.books, cloudBooks)
+            }
+            val localBooks = identityReconciliation.books
             val cloudError = cloudResult?.exceptionOrNull()?.let { error ->
                 "데스크톱 라이브러리를 불러오지 못했습니다: ${error.message ?: "알 수 없는 오류"}"
             }
@@ -600,7 +626,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     (legacyId to book.id).takeIf { legacyId != book.id }
                 }.toMap()
             }.orEmpty()
-            val legacyIdAliases = legacyDesktopIdAliases + legacyLocalLibraryIdAliases(result.books)
+            val legacyIdAliases = legacyDesktopIdAliases +
+                identityReconciliation.idAliases +
+                legacyLocalLibraryIdAliases(localBooks)
             var hiddenIds = remapLibraryIds(libraryPreferenceStore.loadHiddenIds(), legacyIdAliases)
             var favoriteIds = remapLibraryIds(libraryPreferenceStore.loadFavoriteIds(), legacyIdAliases)
             var readIds = remapLibraryIds(libraryPreferenceStore.loadReadIds(), legacyIdAliases)
@@ -626,15 +654,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 removalTimes = localSeriesRemovalTimes,
                 books = cloudBooks,
             )
-            val customSeries = seriesMerge.assignments
-            var customTitles = remapLibraryIdKeys(libraryPreferenceStore.loadCustomTitles(), legacyIdAliases)
-            var favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames()
-            val rawBooks = result.books + cloudBooks
+            val rawBooks = localBooks + cloudBooks
             val knownSyncableIds = rawBooks.asSequence()
                 .filter { it.syncId != null }
                 .mapTo(hashSetOf(), LibraryBook::id)
             val librarySnapshotComplete = result.errors.isEmpty() &&
                 (profile == null || cloudResult?.isSuccess == true)
+            val knownBookIds = rawBooks.mapTo(hashSetOf(), LibraryBook::id)
+            val customSeries = if (librarySnapshotComplete) {
+                seriesMerge.assignments.filterKeys { it in knownBookIds }
+            } else {
+                seriesMerge.assignments
+            }
+            val seriesRemovalTimes = if (librarySnapshotComplete) {
+                seriesMerge.removalTimes.filterKeys { it in knownBookIds }
+            } else {
+                seriesMerge.removalTimes
+            }
+            pendingSeriesSyncIds += seriesMerge.localWinnerIds.filter { it in knownSyncableIds }
+            var customTitles = remapLibraryIdKeys(libraryPreferenceStore.loadCustomTitles(), legacyIdAliases)
+            var favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames()
             if (librarySnapshotComplete) {
                 pendingBookStateIds = pendingBookStateIds.filterTo(linkedSetOf()) {
                     it in knownSyncableIds
@@ -644,8 +683,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 pending = pendingSeriesSyncIds,
                 knownSyncableIds = knownSyncableIds,
                 librarySnapshotComplete = librarySnapshotComplete,
-                assignments = seriesMerge.assignments,
-                removalTimes = seriesMerge.removalTimes,
+                assignments = customSeries,
+                removalTimes = seriesRemovalTimes,
             )
             val remoteBySyncId = cloudBooks.mapNotNull { remote ->
                 remote.syncId?.lowercase()?.let { it to remote }
@@ -666,13 +705,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
-            if (legacyIdAliases.isNotEmpty() || cloudBooks.any(LibraryBook::hasSyncedSeriesState)) {
+            if (
+                legacyIdAliases.isNotEmpty() ||
+                cloudBooks.any(LibraryBook::hasSyncedSeriesState) ||
+                customSeries != localSeries ||
+                seriesRemovalTimes != localSeriesRemovalTimes
+            ) {
                 libraryPreferenceStore.saveHiddenIds(hiddenIds)
                 libraryPreferenceStore.saveFavoriteIds(favoriteIds)
                 libraryPreferenceStore.saveReadIds(readIds)
                 libraryPreferenceStore.saveProgress(progress)
                 libraryPreferenceStore.saveCustomSeries(customSeries)
-                libraryPreferenceStore.saveSeriesRemovalTimes(seriesMerge.removalTimes)
+                libraryPreferenceStore.saveSeriesRemovalTimes(seriesRemovalTimes)
                 libraryPreferenceStore.savePendingSeriesSyncIds(pendingSeriesSyncIds)
                 libraryPreferenceStore.savePendingBookStateSyncIds(pendingBookStateIds)
                 libraryPreferenceStore.saveCustomTitles(customTitles)
@@ -683,7 +727,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // visible as "대기" forever.
             libraryPreferenceStore.savePendingSeriesSyncIds(pendingSeriesSyncIds)
             libraryPreferenceStore.savePendingBookStateSyncIds(pendingBookStateIds)
-            val allBooks = (result.books + cloudBooks).map { book ->
+            val allBooks = (localBooks + cloudBooks).map { book ->
                     val customTitle = customTitles[book.id]
                     if (customTitle != null) book.copy(title = customTitle, originalTitle = customTitle)
                     else book.copy(title = preferredLocalizedTitle(book.originalTitle))
@@ -714,18 +758,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else uiState.libraryLastSyncedAt,
                 librarySyncError = cloudError,
             )
-            val seriesSyncIds = seriesMerge.localWinnerIds + pendingSeriesSyncIds
-            if (profile != null && seriesSyncIds.isNotEmpty()) {
-                syncSeriesUpdates(
-                    profile = profile,
-                    books = allBooks,
-                    assignments = customSeries,
-                    removalTimes = seriesMerge.removalTimes,
-                    ids = seriesSyncIds,
-                )
-            }
-            if (profile != null && pendingBookStateIds.isNotEmpty()) {
-                syncBookStateUpdates(profile, allBooks, pendingBookStateIds)
+            if (profile != null && (pendingSeriesSyncIds.isNotEmpty() || pendingBookStateIds.isNotEmpty())) {
+                flushPendingLibrarySync(profile, allBooks)
             }
             if (uiState.isLibrarySyncing) {
                 val remaining = pendingLibrarySyncCount()
@@ -884,6 +918,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun assignLibrarySeries(bookIds: Set<String>, seriesName: String) {
         val name = seriesName.trim()
         if (name.isEmpty()) return
+        if (!ensureValidSeriesName(name)) return
         val modifiedAt = System.currentTimeMillis()
         val affectedNames = bookIds.mapNotNullTo(linkedSetOf()) { id ->
             uiState.customSeriesByBookId[id]?.name?.takeIf { it != name }
@@ -902,7 +937,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         val assignments = touchSeriesAssignments(
-            reindexSeriesAssignments(uiState.customSeriesByBookId + additions),
+            reindexSeriesAssignments(uiState.customSeriesByBookId + additions, affectedNames),
             affectedNames,
             modifiedAt,
         )
@@ -1003,21 +1038,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun moveLibrarySeriesBook(bookId: String, offset: Int) {
-        val assignment = uiState.customSeriesByBookId[bookId] ?: return
-        val orderedIds = uiState.customSeriesByBookId
-            .filterValues { it.name == assignment.name }
-            .entries.sortedWith(compareBy({ it.value.order }, { it.key }))
+    fun reorderLibrarySeriesBooks(orderedBookIds: List<String>) {
+        val requestedIds = orderedBookIds.distinct()
+        val seriesName = requestedIds.firstNotNullOfOrNull { id ->
+            uiState.customSeriesByBookId[id]?.name
+        } ?: return
+        val knownIds = uiState.libraryBooks.mapTo(hashSetOf(), LibraryBook::id)
+        val currentIds = uiState.customSeriesByBookId.entries.asSequence()
+            .filter { (id, assignment) -> id in knownIds && assignment.name == seriesName }
+            .sortedWith(compareBy({ it.value.order }, { it.key }))
             .map { it.key }
-            .toMutableList()
-        val from = orderedIds.indexOf(bookId)
-        val to = (from + offset).coerceIn(0, orderedIds.lastIndex)
-        if (from < 0 || from == to) return
-        val moved = orderedIds.removeAt(from)
-        orderedIds.add(to, moved)
+            .toList()
+        val movableIds = requestedIds.filter { id ->
+            id in currentIds && uiState.customSeriesByBookId[id]?.name == seriesName
+        }
+        if (movableIds.size < 2) return
+        val movableSet = movableIds.toHashSet()
+        val replacements = movableIds.iterator()
+        val reorderedIds = currentIds.map { id ->
+            if (id in movableSet) replacements.next() else id
+        }
+        if (reorderedIds == currentIds) return
         val assignments = uiState.customSeriesByBookId.toMutableMap()
         val modifiedAt = System.currentTimeMillis()
-        orderedIds.forEachIndexed { order, id ->
+        reorderedIds.forEachIndexed { order, id ->
             assignments[id] = assignments.getValue(id).copy(
                 order = order,
                 modifiedAt = modifiedAt,
@@ -1143,6 +1187,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun renameLibrarySeries(oldName: String, newName: String) {
         val normalized = newName.trim()
         if (normalized.isEmpty() || oldName == normalized) return
+        if (!ensureValidSeriesName(normalized)) return
         val modifiedAt = System.currentTimeMillis()
         val renamed = uiState.customSeriesByBookId.mapValues { (_, assignment) ->
             if (assignment.name == oldName) {
@@ -1165,6 +1210,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val names = seriesNames.distinct()
         val name = mergedName.trim()
         if (names.size < 2 || name.isEmpty()) return
+        if (!ensureValidSeriesName(name)) return
         val modifiedAt = System.currentTimeMillis()
         val selectedEntries = names.flatMap { sourceName ->
             uiState.customSeriesByBookId.entries
@@ -1229,8 +1275,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun reindexSeriesAssignments(
         assignments: Map<String, CustomSeriesAssignment>,
+        names: Set<String>? = null,
     ): Map<String, CustomSeriesAssignment> = buildMap {
+        if (names != null) {
+            assignments.filterValues { it.name !in names }.forEach(::put)
+        }
         assignments.entries.groupBy { it.value.name }.forEach { (name, entries) ->
+            if (names != null && name !in names) return@forEach
             val modifiedAt = entries.maxOfOrNull { it.value.modifiedAt } ?: 0L
             entries.sortedWith(compareBy({ it.value.order }, { it.key })).forEachIndexed { index, entry ->
                 put(entry.key, CustomSeriesAssignment(name, index, modifiedAt))
@@ -1252,6 +1303,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         libraryPreferenceStore.saveProgress(progress)
         uiState = uiState.copy(libraryProgress = progress)
         enqueueBookStateSync(setOf(bookId))
+    }
+
+    private fun ensureValidSeriesName(name: String): Boolean {
+        if (name.length <= MAX_SERIES_NAME_LENGTH) return true
+        uiState = uiState.copy(
+            message = "시리즈 이름은 ${MAX_SERIES_NAME_LENGTH}자 이하로 입력해 주세요.",
+            isError = true,
+        )
+        return false
     }
 
     fun updateOnlineReaderProgress(galleryId: Long, page: Int) {
@@ -1301,6 +1361,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             try {
                 val downloads = sortDownloadQueueNewest(client.getDownloads(profile))
+                val completedIds = downloads.asSequence()
+                    .filter { it.status == DownloadStatus.COMPLETED }
+                    .mapTo(hashSetOf(), DownloadQueueItem::id)
+                val hasNewCompletion = completedIds.any { it !in observedCompletedDownloadIds }
+                observedCompletedDownloadIds.clear()
+                observedCompletedDownloadIds += completedIds
                 uiState = uiState.copy(
                     downloadQueue = downloads,
                     downloadQueueError = null,
@@ -1312,6 +1378,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     },
                 )
                 notifyOnDownloadReconnect = false
+                if (hasNewCompletion) requestImportantLibraryRefresh()
             } catch (error: Exception) {
                 if (!silent) {
                     uiState = uiState.copy(
@@ -1729,10 +1796,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 libraryPreferenceStore.loadPendingSeriesSyncIds() + syncableIds,
             )
         }
-        val profile = selectedProfile() ?: return
-        viewModelScope.launch {
-            syncSeriesUpdates(profile, uiState.libraryBooks, assignments, removalTimes, changedIds)
-        }
+        scheduleLibrarySync()
     }
 
     private fun pendingLibrarySyncCount(): Int =
@@ -1746,10 +1810,95 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (syncableIds.isEmpty()) return
         val pending = libraryPreferenceStore.loadPendingBookStateSyncIds() + syncableIds
         libraryPreferenceStore.savePendingBookStateSyncIds(pending)
+        if (addHistory) pendingHistoryBookIds += syncableIds
         uiState = uiState.copy(librarySyncPendingCount = pendingLibrarySyncCount())
-        val profile = selectedProfile() ?: return
-        viewModelScope.launch {
-            syncBookStateUpdates(profile, uiState.libraryBooks, syncableIds, addHistory)
+        scheduleLibrarySync()
+    }
+
+    fun onAppForegrounded() {
+        if (!hasEnteredForeground) {
+            hasEnteredForeground = true
+            scheduleLibrarySync(0L)
+            return
+        }
+        if (uiState.isLibraryScanning) {
+            scheduleLibrarySync(0L)
+        } else {
+            refreshLibrary()
+        }
+    }
+
+    fun onAppBackgrounded() {
+        librarySyncDebounceJob?.cancel()
+        librarySyncDebounceJob = viewModelScope.launch { flushPendingLibrarySync() }
+    }
+
+    private fun requestImportantLibraryRefresh() {
+        importantLibraryRefreshJob?.cancel()
+        importantLibraryRefreshJob = viewModelScope.launch {
+            while (uiState.isLibraryScanning || uiState.isLibrarySyncing) {
+                delay(IMPORTANT_LIBRARY_REFRESH_RETRY_MS)
+            }
+            syncLibraryNow()
+        }
+    }
+
+    private fun scheduleLibrarySync(delayMs: Long = LIBRARY_SYNC_DEBOUNCE_MS) {
+        uiState = uiState.copy(librarySyncPendingCount = pendingLibrarySyncCount())
+        if (pendingLibrarySyncCount() == 0) return
+        librarySyncDebounceJob?.cancel()
+        librarySyncDebounceJob = viewModelScope.launch {
+            delay(delayMs)
+            flushPendingLibrarySync()
+        }
+    }
+
+    private suspend fun flushPendingLibrarySync(
+        profileOverride: DesktopProfile? = null,
+        booksOverride: List<LibraryBook>? = null,
+    ) = librarySyncFlushMutex.withLock {
+        val profile = profileOverride ?: selectedProfile() ?: return@withLock
+        if (uiState.isLibraryScanning && booksOverride == null) {
+            scheduleLibrarySync(LIBRARY_SYNC_SCAN_RETRY_MS)
+            return@withLock
+        }
+        val books = booksOverride ?: uiState.libraryBooks
+        val pendingSeriesIds = libraryPreferenceStore.loadPendingSeriesSyncIds()
+        val pendingBookIds = libraryPreferenceStore.loadPendingBookStateSyncIds()
+        val uploadFailures = uploadMissingLocalBooks(profile, books, pendingSeriesIds + pendingBookIds)
+        if (uploadFailures.isNotEmpty()) {
+            uiState = uiState.copy(
+                librarySyncError = uploadFailures.joinToString("\n"),
+                message = "${uploadFailures.size}개 로컬 파일을 데스크톱으로 전송하지 못했습니다.",
+                isError = true,
+            )
+        }
+        if (pendingSeriesIds.isNotEmpty()) {
+            syncSeriesUpdates(
+                profile = profile,
+                books = books,
+                assignments = libraryPreferenceStore.loadCustomSeries(),
+                removalTimes = libraryPreferenceStore.loadSeriesRemovalTimes(),
+                ids = pendingSeriesIds,
+                uploadLocalBooks = false,
+            )
+        }
+        if (pendingBookIds.isNotEmpty()) {
+            val historyIds = pendingBookIds.filterTo(linkedSetOf()) { it in pendingHistoryBookIds }
+            if (historyIds.isNotEmpty()) {
+                syncBookStateUpdates(
+                    profile,
+                    books,
+                    historyIds,
+                    addHistory = true,
+                    uploadLocalBooks = false,
+                )
+                pendingHistoryBookIds -= historyIds
+            }
+            val remainingIds = libraryPreferenceStore.loadPendingBookStateSyncIds()
+            if (remainingIds.isNotEmpty()) {
+                syncBookStateUpdates(profile, books, remainingIds, uploadLocalBooks = false)
+            }
         }
     }
 
@@ -1758,8 +1907,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         books: List<LibraryBook>,
         ids: Set<String>,
         addHistory: Boolean = false,
+        uploadLocalBooks: Boolean = true,
     ) = bookStateSyncMutex.withLock {
-        uploadMissingLocalBooks(profile, books, ids)
+        if (uploadLocalBooks) uploadMissingLocalBooks(profile, books, ids)
         val customTitles = libraryPreferenceStore.loadCustomTitles()
         val updates = books.asSequence()
             .filter { it.id in ids }
@@ -1836,8 +1986,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch {
+            librarySyncDebounceJob?.cancel()
             uiState = uiState.copy(isLibrarySyncing = true, librarySyncError = null)
-            val failures = uploadMissingLocalBooks(profile, uiState.libraryBooks)
+            val queuedIds = libraryPreferenceStore.loadPendingSeriesSyncIds() +
+                libraryPreferenceStore.loadPendingBookStateSyncIds()
+            flushPendingLibrarySync(profile, uiState.libraryBooks)
+            val remainingIds = uiState.libraryBooks.asSequence()
+                .mapTo(linkedSetOf(), LibraryBook::id) - queuedIds
+            val failures = uploadMissingLocalBooks(profile, uiState.libraryBooks, remainingIds)
             if (failures.isNotEmpty()) {
                 uiState = uiState.copy(
                     isLibrarySyncing = false,
@@ -1856,8 +2012,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         assignments: Map<String, CustomSeriesAssignment>,
         removalTimes: Map<String, Long>,
         ids: Set<String>,
+        uploadLocalBooks: Boolean = true,
     ) = seriesSyncMutex.withLock {
-        val uploadFailures = uploadMissingLocalBooks(profile, books, ids)
+        val uploadFailures = if (uploadLocalBooks) {
+            uploadMissingLocalBooks(profile, books, ids)
+        } else {
+            emptyList()
+        }
         if (uploadFailures.isNotEmpty()) {
             uiState = uiState.copy(
                 librarySyncError = uploadFailures.joinToString("\n"),
@@ -1883,9 +2044,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (updates.isEmpty()) return@withLock
 
         val failed = mutableListOf<SeriesSyncUpdate>()
+        val failureMessages = linkedSetOf<String>()
         updates.chunked(MAX_SERIES_SYNC_ASSIGNMENTS).forEach { batch ->
-            val outcome = syncSeriesBatchWithRetry(profile, batch)
+            val outcome = syncSeriesBatchResilient(profile, batch)
             failed += outcome.failed
+            outcome.errorMessage?.let(failureMessages::add)
             settleSeriesPendingBatch(
                 books = books,
                 attempted = batch,
@@ -1894,8 +2057,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         if (failed.isNotEmpty()) {
+            val details = failureMessages.joinToString("\n").takeIf(String::isNotBlank)
             uiState = uiState.copy(
-                message = "시리즈 ${failed.size}개 항목을 데스크톱에 저장하지 못했습니다. 연결 상태와 데스크톱 데이터를 확인한 뒤 다시 시도하세요.",
+                librarySyncError = details ?: "시리즈 ${failed.size}개 항목을 데스크톱에 저장하지 못했습니다.",
+                message = buildString {
+                    append("시리즈 ${failed.size}개 항목을 데스크톱에 저장하지 못했습니다.")
+                    if (details != null) append(" ").append(details.lineSequence().first())
+                },
                 isError = true,
             )
         }
@@ -1985,7 +2153,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private data class SeriesBatchOutcome(
         val failed: List<SeriesSyncUpdate>,
         val remoteWinnerSyncIds: Set<String>,
+        val errorMessage: String? = null,
+        val rejectedByClientError: Boolean = false,
     )
+
+    private suspend fun syncSeriesBatchResilient(
+        profile: DesktopProfile,
+        updates: List<SeriesSyncUpdate>,
+    ): SeriesBatchOutcome {
+        val outcome = syncSeriesBatchWithRetry(profile, updates)
+        if (!outcome.rejectedByClientError || updates.size == 1) return outcome
+        val midpoint = updates.size / 2
+        val left = syncSeriesBatchResilient(profile, updates.subList(0, midpoint))
+        val right = syncSeriesBatchResilient(profile, updates.subList(midpoint, updates.size))
+        return SeriesBatchOutcome(
+            failed = left.failed + right.failed,
+            remoteWinnerSyncIds = left.remoteWinnerSyncIds + right.remoteWinnerSyncIds,
+            errorMessage = listOfNotNull(left.errorMessage, right.errorMessage)
+                .distinct()
+                .joinToString("\n")
+                .takeIf(String::isNotBlank),
+            rejectedByClientError = left.rejectedByClientError || right.rejectedByClientError,
+        )
+    }
 
     private suspend fun syncSeriesBatchWithRetry(
         profile: DesktopProfile,
@@ -1993,8 +2183,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ): SeriesBatchOutcome {
         var pending = updates
         val remoteWinnerSyncIds = linkedSetOf<String>()
+        var lastError: Throwable? = null
         repeat(SERIES_SYNC_MAX_RETRIES + 1) { attempt ->
             val saveResult = runCatching { client.saveLibrarySeries(profile, pending) }
+            lastError = saveResult.exceptionOrNull() ?: lastError
             saveResult.getOrNull()?.let { results ->
                 remoteWinnerSyncIds += applySeriesSyncConflicts(results)
                 val bySyncId = results.associateBy { it.bookSyncId.lowercase() }
@@ -2007,6 +2199,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (pending.isEmpty()) {
                     return SeriesBatchOutcome(emptyList(), remoteWinnerSyncIds)
                 }
+            }
+
+            val apiError = saveResult.exceptionOrNull() as? CompanionApiException
+            if (apiError?.statusCode?.let { it in 400..499 } == true) {
+                return SeriesBatchOutcome(
+                    failed = pending,
+                    remoteWinnerSyncIds = remoteWinnerSyncIds,
+                    errorMessage = apiError.message,
+                    rejectedByClientError = true,
+                )
             }
 
             val remoteBooks = if (saveResult.isFailure) {
@@ -2023,7 +2225,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 delay(SERIES_SYNC_RETRY_BASE_DELAY_MS shl attempt)
             }
         }
-        return SeriesBatchOutcome(pending, remoteWinnerSyncIds)
+        return SeriesBatchOutcome(
+            failed = pending,
+            remoteWinnerSyncIds = remoteWinnerSyncIds,
+            errorMessage = lastError?.message,
+        )
     }
 
     private fun applySeriesSyncConflicts(results: List<SeriesSyncResult>): Set<String> {
@@ -2077,6 +2283,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val MAX_KNOWN_FILTER_TOKENS = 20_000
         const val MAX_VIEWED_GALLERIES = 50_000
         const val MAX_SERIES_SYNC_ASSIGNMENTS = 25
+        const val MAX_SERIES_NAME_LENGTH = 500
+        const val LIBRARY_SYNC_DEBOUNCE_MS = 15_000L
+        const val LIBRARY_SYNC_SCAN_RETRY_MS = 1_000L
+        const val IMPORTANT_LIBRARY_REFRESH_RETRY_MS = 250L
         const val SERIES_SYNC_MAX_RETRIES = 3
         const val SERIES_SYNC_RETRY_BASE_DELAY_MS = 500L
         const val FILE_UPLOAD_MAX_RETRIES = 3

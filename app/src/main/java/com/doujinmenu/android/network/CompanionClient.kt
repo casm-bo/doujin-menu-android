@@ -476,10 +476,13 @@ class CompanionClient {
             val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
             val rawResponse = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             val response = runCatching { JSONObject(rawResponse) }.getOrElse {
-                throw CompanionApiException("서버가 올바른 JSON을 반환하지 않았습니다. (HTTP $statusCode)")
+                throw CompanionApiException(
+                    "서버가 올바른 JSON을 반환하지 않았습니다. (HTTP $statusCode)",
+                    statusCode,
+                )
             }
             if (statusCode !in 200..299) {
-                throw CompanionApiException(response.errorMessage("HTTP $statusCode"))
+                throw CompanionApiException(response.errorMessage("HTTP $statusCode"), statusCode)
             }
             response
         } finally {
@@ -664,4 +667,4 @@ private fun org.json.JSONArray?.toStringList(): List<String> = buildList {
     }
 }
 
-class CompanionApiException(message: String) : Exception(message)
+class CompanionApiException(message: String, val statusCode: Int? = null) : Exception(message)

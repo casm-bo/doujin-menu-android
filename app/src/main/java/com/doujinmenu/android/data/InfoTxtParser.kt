@@ -24,10 +24,10 @@ object InfoTxtParser {
             title = values["제목"],
             uuid = uuid,
             metadata = LibraryMetadata(
-                hitomiId = values["갤러리 넘버"],
+                hitomiId = values["갤러리 넘버"] ?: values["갤러리 번호"],
                 artists = list("작가"),
                 groups = list("그룹"),
-                galleryType = values["타입"],
+                galleryType = values["타입"] ?: values["종류"],
                 series = list("시리즈"),
                 characters = list("캐릭터"),
                 tags = list("태그"),

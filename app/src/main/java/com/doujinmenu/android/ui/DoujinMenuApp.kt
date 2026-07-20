@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +47,9 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -68,7 +72,20 @@ private enum class MainDestination(
 @Composable
 fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     val navController = rememberNavController()
+    val lifecycleOwner = LocalLifecycleOwner.current
     var lastMainDestination by rememberSaveable { mutableStateOf(MainDestination.Browser.route) }
+
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> viewModel.onAppForegrounded()
+                Lifecycle.Event.ON_STOP -> viewModel.onAppBackgrounded()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
@@ -157,6 +174,8 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     book = book,
                     initialPage = if (requestedPage >= 0) requestedPage
                         else book?.let { viewModel.uiState.libraryProgress[it.id] } ?: 0,
+                    isLoading = viewModel.uiState.isLibraryBookLoading,
+                    error = viewModel.uiState.libraryScanError,
                     favorite = book?.id in viewModel.uiState.libraryFavoriteIds,
                     preferences = viewModel.uiState.viewerPreferences,
                     onBack = navController::popBackStack,
@@ -493,7 +512,7 @@ private fun MainTabContent(
                 onMarkRead = viewModel::markLibraryBooksRead,
                 onMarkUnread = viewModel::markLibraryBooksUnread,
                 onAssignSeries = viewModel::assignLibrarySeries,
-                onMoveSeriesBook = viewModel::moveLibrarySeriesBook,
+                onReorderSeriesBooks = viewModel::reorderLibrarySeriesBooks,
                 onSetBooksHidden = viewModel::setLibraryBooksHidden,
                 onDeleteBooks = viewModel::deleteLibraryBooks,
                 onRenameBook = viewModel::renameLibraryBook,
