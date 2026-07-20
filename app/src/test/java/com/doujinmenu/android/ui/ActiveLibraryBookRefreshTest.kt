@@ -1,0 +1,103 @@
+package com.doujinmenu.android.ui
+
+import com.doujinmenu.android.model.LibraryBook
+import com.doujinmenu.android.model.LibraryPage
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ActiveLibraryBookRefreshTest {
+    @Test
+    fun refreshPreservesPreparedArchivePagesWhenSourceIsUnchanged() {
+        val prepared = archiveBook(
+            modifiedAt = 100L,
+            pages = listOf(
+                LibraryPage("file:///cache/001.jpg", "001.jpg", ARCHIVE_URI, "001.jpg"),
+                LibraryPage("file:///cache/002.jpg", "002.jpg", ARCHIVE_URI, "002.jpg"),
+            ),
+        )
+        val refreshed = archiveBook(
+            modifiedAt = 100L,
+            pages = listOf(
+                LibraryPage("file:///cover.jpg", "001.jpg", ARCHIVE_URI, "001.jpg"),
+                LibraryPage("", "002.jpg", ARCHIVE_URI, "002.jpg"),
+            ),
+        )
+
+        val result = refreshed.withPreservedReaderPages(prepared)
+
+        assertTrue(result.hasResolvedReaderPages())
+        assertEquals(prepared.pages, result.pages)
+    }
+
+    @Test
+    fun refreshPreservesPreparedDesktopPagesWhenSourceIsUnchanged() {
+        val prepared = cloudBook(
+            modifiedAt = 100L,
+            pages = listOf(
+                LibraryPage("http://desktop/pages/1", "1"),
+                LibraryPage("http://desktop/pages/2", "2"),
+            ),
+        )
+        val refreshed = cloudBook(
+            modifiedAt = 100L,
+            pages = listOf(
+                LibraryPage("http://desktop/cover", "1"),
+                LibraryPage("", "2"),
+            ),
+        )
+
+        assertEquals(prepared.pages, refreshed.withPreservedReaderPages(prepared).pages)
+    }
+
+    @Test
+    fun changedSourceDoesNotReuseStalePreparedPages() {
+        val prepared = archiveBook(
+            modifiedAt = 100L,
+            pages = listOf(
+                LibraryPage("file:///cache/001.jpg", "001.jpg", ARCHIVE_URI, "001.jpg"),
+                LibraryPage("file:///cache/002.jpg", "002.jpg", ARCHIVE_URI, "002.jpg"),
+            ),
+        )
+        val refreshed = archiveBook(
+            modifiedAt = 200L,
+            pages = listOf(
+                LibraryPage("file:///cover.jpg", "001.jpg", ARCHIVE_URI, "001.jpg"),
+                LibraryPage("", "002.jpg", ARCHIVE_URI, "002.jpg"),
+            ),
+        )
+
+        val result = refreshed.withPreservedReaderPages(prepared)
+
+        assertFalse(result.hasResolvedReaderPages())
+        assertEquals(refreshed.pages, result.pages)
+    }
+
+    private fun archiveBook(modifiedAt: Long, pages: List<LibraryPage>) = LibraryBook(
+        id = "archive-book",
+        title = "Archive",
+        locationUri = "content://library",
+        locationName = "Library",
+        folderUri = ARCHIVE_URI,
+        pages = pages,
+        modifiedAt = modifiedAt,
+    )
+
+    private fun cloudBook(modifiedAt: Long, pages: List<LibraryPage>) = LibraryBook(
+        id = "cloud-book",
+        title = "Cloud",
+        locationUri = "desktop:library",
+        locationName = "Desktop",
+        folderUri = "C:/library/book.zip",
+        pages = pages,
+        modifiedAt = modifiedAt,
+        isCloud = true,
+        remoteBookId = 42L,
+        cloudToken = "token",
+    )
+
+    private companion object {
+        const val ARCHIVE_URI = "content://library/book.zip"
+    }
+}

@@ -153,6 +153,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var downloadRefreshJob: Job? = null
     private var librarySyncDebounceJob: Job? = null
     private var importantLibraryRefreshJob: Job? = null
+    private var reconnectLibraryRefreshJob: Job? = null
+    private var activeBookPreparationJob: Job? = null
     private var hasEnteredForeground = false
     private var notifyOnDownloadReconnect = false
     private val observedCompletedDownloadIds = mutableSetOf<Long>()
@@ -440,12 +442,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val status = runCatching { client.getStatus(profile.baseUrl) }.getOrNull()
                 val connected = status != null
-                if (
-                    connected && !wasConnected &&
-                    (libraryPreferenceStore.loadPendingSeriesSyncIds().isNotEmpty() ||
-                        libraryPreferenceStore.loadPendingBookStateSyncIds().isNotEmpty())
-                ) {
-                    refreshLibrary()
+                if (connected && !wasConnected) {
+                    val hasPendingSync =
+                        libraryPreferenceStore.loadPendingSeriesSyncIds().isNotEmpty() ||
+                            libraryPreferenceStore.loadPendingBookStateSyncIds().isNotEmpty()
+                    if (
+                        hasPendingSync || uiState.librarySyncError != null ||
+                        uiState.libraryBooks.none(LibraryBook::isCloud)
+                    ) {
+                        requestReconnectLibraryRefresh()
+                    }
                 }
                 if (status != null) {
                     when {
@@ -732,8 +738,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (customTitle != null) book.copy(title = customTitle, originalTitle = customTitle)
                     else book.copy(title = preferredLocalizedTitle(book.originalTitle))
                 }
+            val previousActiveBook = uiState.activeLibraryBook
+            val savedActiveBookId = previousActiveBook?.id ?: libraryPreferenceStore.loadActiveBookId()
+            val refreshedActiveBook = savedActiveBookId?.let { savedId ->
+                val activeId = legacyIdAliases[savedId] ?: savedId
+                allBooks.firstOrNull { it.id == activeId }
+                    ?.withPreservedReaderPages(previousActiveBook)
+            }
+            if (refreshedActiveBook != null && refreshedActiveBook.id != savedActiveBookId) {
+                libraryPreferenceStore.saveActiveBookId(refreshedActiveBook.id)
+            } else if (savedActiveBookId != null && refreshedActiveBook == null && librarySnapshotComplete) {
+                libraryPreferenceStore.saveActiveBookId(null)
+            }
+            val readerReadyBooks = refreshedActiveBook?.let { active ->
+                allBooks.map { if (it.id == active.id) active else it }
+            } ?: allBooks
             uiState = uiState.copy(
-                libraryBooks = allBooks,
+                libraryBooks = readerReadyBooks,
                 libraryHiddenIds = hiddenIds,
                 libraryFavoriteIds = favoriteIds,
                 libraryReadIds = readIds,
@@ -744,10 +765,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     StorageLocation(book.locationUri, book.locationName, isCloud = true)
                 },
                 desktopDownloadPath = desktopDownloadPath,
-                activeLibraryBook = uiState.activeLibraryBook?.let { active ->
-                    val activeId = legacyIdAliases[active.id] ?: active.id
-                    allBooks.firstOrNull { it.id == activeId }
-                },
+                activeLibraryBook = refreshedActiveBook,
+                isLibraryBookLoading = refreshedActiveBook?.hasResolvedReaderPages() == false,
                 isLibraryScanning = false,
                 libraryScanError = (result.errors + listOfNotNull(cloudError))
                     .takeIf { it.isNotEmpty() }
@@ -758,8 +777,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else uiState.libraryLastSyncedAt,
                 librarySyncError = cloudError,
             )
+            refreshedActiveBook
+                ?.takeUnless(LibraryBook::hasResolvedReaderPages)
+                ?.let(::prepareActiveLibraryBook)
             if (profile != null && (pendingSeriesSyncIds.isNotEmpty() || pendingBookStateIds.isNotEmpty())) {
-                flushPendingLibrarySync(profile, allBooks)
+                flushPendingLibrarySync(profile, readerReadyBooks)
             }
             if (uiState.isLibrarySyncing) {
                 val remaining = pendingLibrarySyncCount()
@@ -811,57 +833,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
         val readIds = uiState.libraryReadIds + bookId
         libraryPreferenceStore.saveReadIds(readIds)
+        libraryPreferenceStore.saveActiveBookId(bookId)
         uiState = uiState.copy(
             activeLibraryBook = book,
             libraryReadIds = readIds,
-            isLibraryBookLoading = book.isCloud || book.pages.any { it.uri.isBlank() },
+            isLibraryBookLoading = !book.hasResolvedReaderPages(),
             libraryScanError = null,
         )
         enqueueBookStateSync(setOf(bookId), addHistory = true)
-        if (book.isCloud) {
-            val profile = selectedProfile() ?: return
-            val remoteId = book.remoteBookId ?: return
-            viewModelScope.launch {
-                runCatching { client.getLibraryBookPages(profile, remoteId) }
-                    .onSuccess { urls ->
-                        val prepared = book.copy(
-                            pages = urls.mapIndexed { index, url -> LibraryPage(url, "${index + 1}") },
-                            coverUriOverride = urls.firstOrNull() ?: book.coverUri,
-                        )
-                        uiState = uiState.copy(
-                            activeLibraryBook = prepared,
-                            libraryBooks = uiState.libraryBooks.map {
-                                if (it.id == prepared.id) prepared else it
-                            },
-                            isLibraryBookLoading = false,
-                        )
-                    }
-                    .onFailure { error ->
-                        uiState = uiState.copy(
-                            isLibraryBookLoading = false,
-                            libraryScanError = error.message ?: "데스크톱 페이지를 불러올 수 없습니다.",
-                        )
-                    }
+        prepareActiveLibraryBook(book)
+    }
+
+    private fun prepareActiveLibraryBook(book: LibraryBook) {
+        if (book.hasResolvedReaderPages()) {
+            if (uiState.activeLibraryBook?.id == book.id) {
+                uiState = uiState.copy(isLibraryBookLoading = false)
             }
-        } else if (book.pages.any { it.uri.isBlank() }) {
-            viewModelScope.launch {
-                runCatching { libraryArchiveExtractor.materialize(book) }
-                    .onSuccess { prepared ->
-                        uiState = uiState.copy(
-                            activeLibraryBook = prepared,
-                            libraryBooks = uiState.libraryBooks.map {
-                                if (it.id == prepared.id) prepared else it
-                            },
-                            isLibraryBookLoading = false,
-                        )
-                    }
-                    .onFailure { error ->
-                        uiState = uiState.copy(
-                            isLibraryBookLoading = false,
-                            libraryScanError = error.message ?: "압축파일을 열 수 없습니다.",
-                        )
-                    }
+            return
+        }
+        val preparation: suspend () -> LibraryBook = if (book.isCloud) {
+            val profile = selectedProfile()
+            val remoteId = book.remoteBookId
+            if (profile == null || remoteId == null) {
+                if (uiState.activeLibraryBook?.id == book.id) {
+                    uiState = uiState.copy(
+                        isLibraryBookLoading = false,
+                        libraryScanError = "데스크톱 연결을 복구한 뒤 다시 시도해 주세요.",
+                    )
+                }
+                return
             }
+            suspend {
+                val urls = client.getLibraryBookPages(profile, remoteId)
+                book.copy(
+                    pages = urls.mapIndexed { index, url -> LibraryPage(url, "${index + 1}") },
+                    coverUriOverride = urls.firstOrNull() ?: book.coverUri,
+                )
+            }
+        } else {
+            suspend { libraryArchiveExtractor.materialize(book) }
+        }
+        activeBookPreparationJob?.cancel()
+        activeBookPreparationJob = viewModelScope.launch {
+            runCatching { preparation() }
+                .onSuccess { prepared ->
+                    val activeMatches = uiState.activeLibraryBook?.id == prepared.id
+                    uiState = uiState.copy(
+                        activeLibraryBook = if (activeMatches) prepared else uiState.activeLibraryBook,
+                        libraryBooks = uiState.libraryBooks.map {
+                            if (it.id == prepared.id) prepared else it
+                        },
+                        isLibraryBookLoading = if (activeMatches) false else uiState.isLibraryBookLoading,
+                        libraryScanError = if (activeMatches) null else uiState.libraryScanError,
+                    )
+                }
+                .onFailure { error ->
+                    if (uiState.activeLibraryBook?.id == book.id) {
+                        uiState = uiState.copy(
+                            isLibraryBookLoading = false,
+                            libraryScanError = error.message ?: if (book.isCloud) {
+                                "데스크톱 페이지를 불러올 수 없습니다."
+                            } else {
+                                "압축파일을 열 수 없습니다."
+                            },
+                        )
+                    }
+                }
         }
     }
 
@@ -1074,6 +1111,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setLibraryBooksHidden(bookIds: Set<String>, hidden: Boolean) {
         val updated = if (hidden) uiState.libraryHiddenIds + bookIds else uiState.libraryHiddenIds - bookIds
         libraryPreferenceStore.saveHiddenIds(updated)
+        if (hidden && uiState.activeLibraryBook?.id in bookIds) {
+            libraryPreferenceStore.saveActiveBookId(null)
+            activeBookPreparationJob?.cancel()
+        }
         uiState = uiState.copy(
             libraryHiddenIds = updated,
             activeLibraryBook = uiState.activeLibraryBook?.takeUnless { hidden && it.id in bookIds },
@@ -1124,6 +1165,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun removeDeletedLibraryState(bookIds: Set<String>) {
+        if (uiState.activeLibraryBook?.id in bookIds) {
+            libraryPreferenceStore.saveActiveBookId(null)
+            activeBookPreparationJob?.cancel()
+        }
         val hidden = uiState.libraryHiddenIds - bookIds
         libraryPreferenceStore.saveHiddenIds(hidden)
         val favorites = uiState.libraryFavoriteIds - bookIds
@@ -1816,6 +1861,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onAppForegrounded() {
+        startConnectionMonitoring()
         if (!hasEnteredForeground) {
             hasEnteredForeground = true
             scheduleLibrarySync(0L)
@@ -1829,6 +1875,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onAppBackgrounded() {
+        stopConnectionMonitoring()
+        reconnectLibraryRefreshJob?.cancel()
         librarySyncDebounceJob?.cancel()
         librarySyncDebounceJob = viewModelScope.launch { flushPendingLibrarySync() }
     }
@@ -1840,6 +1888,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 delay(IMPORTANT_LIBRARY_REFRESH_RETRY_MS)
             }
             syncLibraryNow()
+        }
+    }
+
+    private fun requestReconnectLibraryRefresh() {
+        reconnectLibraryRefreshJob?.cancel()
+        reconnectLibraryRefreshJob = viewModelScope.launch {
+            while (uiState.isLibraryScanning) {
+                delay(IMPORTANT_LIBRARY_REFRESH_RETRY_MS)
+            }
+            refreshLibrary()
         }
     }
 
@@ -2335,6 +2393,26 @@ internal fun legacyLocalLibraryIdAliases(
     .filterNot(LibraryBook::isCloud)
     .filter { it.folderUri.isNotBlank() && it.folderUri != it.id }
     .associate { it.folderUri to it.id }
+
+internal fun LibraryBook.hasResolvedReaderPages(): Boolean =
+    pages.isNotEmpty() && pages.all { it.uri.isNotBlank() }
+
+internal fun LibraryBook.withPreservedReaderPages(previous: LibraryBook?): LibraryBook {
+    if (hasResolvedReaderPages() || previous?.hasResolvedReaderPages() != true) return this
+    val sameSource = if (isCloud) {
+        previous.isCloud && remoteBookId == previous.remoteBookId
+    } else {
+        !previous.isCloud && folderUri == previous.folderUri
+    }
+    val unchanged = sameSource &&
+        pages.size == previous.pages.size &&
+        modifiedAt == previous.modifiedAt
+    if (!unchanged) return this
+    return copy(
+        pages = previous.pages,
+        coverUriOverride = previous.coverUriOverride ?: coverUriOverride,
+    )
+}
 
 internal fun pendingSeriesSyncUpdates(
     updates: List<SeriesSyncUpdate>,

@@ -178,6 +178,15 @@ class LibraryPreferenceStore(context: Context) {
         preferences.edit().putString(KEY_ONLINE_PROGRESS, json.toString()).apply()
     }
 
+    fun loadActiveBookId(): String? =
+        preferences.getString(KEY_ACTIVE_BOOK_ID, null)?.takeIf(String::isNotBlank)
+
+    fun saveActiveBookId(bookId: String?) {
+        preferences.edit().apply {
+            if (bookId == null) remove(KEY_ACTIVE_BOOK_ID) else putString(KEY_ACTIVE_BOOK_ID, bookId)
+        }.apply()
+    }
+
     private inline fun <reified T : Enum<T>> enumPreference(key: String, fallback: T): T =
         runCatching { enumValueOf<T>(preferences.getString(key, null).orEmpty()) }.getOrDefault(fallback)
 
@@ -198,6 +207,7 @@ class LibraryPreferenceStore(context: Context) {
         const val KEY_READ = "read_book_ids"
         const val KEY_PROGRESS = "book_progress"
         const val KEY_ONLINE_PROGRESS = "online_gallery_progress"
+        const val KEY_ACTIVE_BOOK_ID = "active_library_book_id"
         const val KEY_CUSTOM_SERIES = "custom_book_series"
         const val KEY_SERIES_REMOVAL_TIMES = "series_removal_times"
         const val KEY_PENDING_SERIES_SYNC = "pending_series_sync_ids"
