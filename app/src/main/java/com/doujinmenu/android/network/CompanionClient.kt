@@ -1,6 +1,7 @@
 package com.doujinmenu.android.network
 
 import com.doujinmenu.android.model.CompanionStatus
+import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.DownloadStatus
@@ -13,10 +14,78 @@ import com.doujinmenu.android.model.PairingResult
 import com.doujinmenu.android.model.SearchResult
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+import java.io.File
+import java.io.FileInputStream
+import java.time.Instant
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+
+data class SeriesSyncUpdate(
+    val bookSyncId: String,
+    val assignment: CustomSeriesAssignment?,
+    val modifiedAt: Long,
+    val baseVersion: Long? = null,
+    val mutationId: String = UUID.randomUUID().toString(),
+)
+
+internal fun SeriesSyncUpdate.toJsonObject(): JSONObject = JSONObject()
+    .put("mutationId", mutationId)
+    .put("bookSyncId", bookSyncId)
+    .put("name", assignment?.name ?: JSONObject.NULL)
+    .put("order", assignment?.order ?: 0)
+    .put("modifiedAt", modifiedAt)
+    .also { payload -> baseVersion?.let { payload.put("baseVersion", it) } }
+
+data class BookStateSyncUpdate(
+    val mutationId: String = UUID.randomUUID().toString(),
+    val bookSyncId: String,
+    val baseVersion: Long,
+    val modifiedAt: Long,
+    val currentPage: Int,
+    val isFavorite: Boolean,
+    val isRead: Boolean,
+    val isHidden: Boolean,
+    val customTitle: String?,
+    val seriesFavorite: Boolean,
+    val historyEventId: String? = null,
+    val historyViewedAt: String? = null,
+)
+
+data class BookStateSyncResult(
+    val mutationId: String,
+    val status: String,
+    val conflict: Boolean,
+    val version: Long,
+    val state: SyncedBookState? = null,
+)
+
+data class SyncedBookState(
+    val bookSyncId: String,
+    val currentPage: Int,
+    val isFavorite: Boolean,
+    val isRead: Boolean,
+    val isHidden: Boolean,
+    val customTitle: String?,
+    val seriesFavorite: Boolean,
+    val version: Long,
+    val modifiedAt: Long,
+)
+
+data class BookStateSyncChange(
+    val cursor: Long,
+    val deviceId: String,
+    val state: SyncedBookState,
+)
+
+data class BookStateSyncChangesPage(
+    val cursor: Long,
+    val hasMore: Boolean,
+    val changes: List<BookStateSyncChange>,
+)
 
 class CompanionClient {
     suspend fun getStatus(baseUrl: String): CompanionStatus = withContext(Dispatchers.IO) {
@@ -26,6 +95,7 @@ class CompanionClient {
             service = data.optString("service", "unknown"),
             version = data.optInt("version", 0),
             pairingAvailable = data.optBoolean("pairingAvailable", false),
+            syncGeneration = data.optLong("syncGeneration", 0L),
         )
     }
 
@@ -59,13 +129,7 @@ class CompanionClient {
             token = profile.token,
             body = body,
         ).requireSuccess()
-        val ids = data.getJSONArray("data")
-        SearchResult(
-            galleryIds = buildList(ids.length()) {
-                repeat(ids.length()) { index -> add(ids.getLong(index)) }
-            },
-            hasNextPage = data.optBoolean("hasNextPage", false),
-        )
+        parseHitomiSearchResult(data)
     }
 
     suspend fun getGallery(profile: DesktopProfile, galleryId: Long): GallerySummary =
@@ -74,40 +138,7 @@ class CompanionClient {
                 url = "${profile.baseUrl}/v1/hitomi/gallery/$galleryId",
                 token = profile.token,
             ).requireSuccess()
-            val title = data.optJSONObject("title")?.optString("display")
-                ?.takeIf { it.isNotBlank() }
-                ?: "Gallery #$galleryId"
-            val languageName = data.optJSONObject("languageName")
-            val tagsArray = data.optJSONArray("tags")
-            val tags = buildList {
-                if (tagsArray != null) {
-                    repeat(tagsArray.length()) { index ->
-                        val item = tagsArray.optJSONObject(index) ?: return@repeat
-                        val name = item.optString("name").takeIf { it.isNotBlank() }
-                            ?: return@repeat
-                        add(
-                            GalleryTag(
-                                type = item.optString("type", "tag"),
-                                name = name,
-                                isNegative = item.optBoolean("isNegative", false),
-                            ),
-                        )
-                    }
-                }
-            }
-            GallerySummary(
-                id = data.optLong("id", galleryId),
-                title = title,
-                artists = data.optJSONArray("artists").toStringList(),
-                series = data.optJSONArray("series").toStringList(),
-                galleryType = data.optString("type").takeIf { it.isNotBlank() },
-                tags = tags,
-                thumbnailUrl = data.optString("thumbnailUrl").takeIf { it.isNotBlank() },
-                pageCount = data.optJSONArray("files")?.length() ?: 0,
-                language = languageName?.optString("local")?.takeIf { it.isNotBlank() }
-                    ?: languageName?.optString("english")?.takeIf { it.isNotBlank() },
-                publishedDate = data.nullableString("publishedDate"),
-            )
+            parseHitomiGallery(data, galleryId)
         }
 
     suspend fun getGalleryPages(profile: DesktopProfile, galleryId: Long): List<String> =
@@ -126,23 +157,52 @@ class CompanionClient {
 
     suspend fun getLibraryBooks(profile: DesktopProfile): List<LibraryBook> =
         withContext(Dispatchers.IO) {
-            val books = request(
-                url = "${profile.baseUrl}/v1/library/books",
-                token = profile.token,
-            ).requireDataArray()
-            buildList {
+            val collected = mutableListOf<LibraryBook>()
+            var cursor: Long? = null
+            do {
+                val query = buildString {
+                    append("?limit=$LIBRARY_PAGE_SIZE")
+                    cursor?.let { append("&cursor=$it") }
+                }
+                val root = request(
+                    url = "${profile.baseUrl}/v1/library/books$query",
+                    token = profile.token,
+                )
+                if (!root.optBoolean("success", false)) {
+                    throw CompanionApiException(root.errorMessage("라이브러리 목록 요청에 실패했습니다."))
+                }
+                val data = root.opt("data")
+                val books = when (data) {
+                    is JSONArray -> data
+                    is JSONObject -> data.optJSONArray("books")
+                    else -> null
+                } ?: throw CompanionApiException("라이브러리 응답에 책 목록이 없습니다.")
                 repeat(books.length()) { index ->
                     val item = books.optJSONObject(index) ?: return@repeat
                     val id = item.optLong("id")
+                    val syncId = item.nullableString("syncId") ?: item.nullableString("sync_id")
+                    val hasSyncedSeriesState = item.has("seriesCollection")
+                    val syncedSeriesObject = item.optJSONObject("seriesCollection")
+                    val syncedSeriesModifiedAt = syncedSeriesObject?.optLong("modifiedAt", 0L) ?: 0L
+                    val syncedSeries = syncedSeriesObject?.let { series ->
+                        series.nullableString("name")?.let {
+                            CustomSeriesAssignment(
+                                name = it,
+                                order = series.optInt("order", 0).coerceAtLeast(0),
+                                modifiedAt = syncedSeriesModifiedAt,
+                            )
+                        }
+                    }
                     val pageCount = item.optInt("pageCount", item.optInt("page_count", 0))
                     val sourcePath = item.nullableString("libraryPath")
                         ?: item.nullableString("library_path")
                         ?: "데스크톱 라이브러리"
                     val coverUrl = absoluteUrl(profile.baseUrl, item.nullableString("coverUrl"))
                         ?: "${profile.baseUrl}/v1/library/books/$id/cover"
-                    add(
+                    collected.add(
                         LibraryBook(
-                            id = "desktop:${profile.id}:$id",
+                            id = syncId?.let { "desktop:${profile.id}:${it.lowercase()}" }
+                                ?: "desktop:${profile.id}:$id",
                             title = item.optString("title", "Gallery #$id"),
                             locationUri = "desktop:${profile.id}:$sourcePath",
                             locationName = sourcePath.substringAfterLast('\\').substringAfterLast('/'),
@@ -164,12 +224,39 @@ class CompanionClient {
                                     ?: item.nullableString("language_name_english"),
                             ),
                             isCloud = true,
+                            syncId = syncId,
+                            syncStateVersion = item.optLong("stateVersion", 0L),
+                            syncedStateModifiedAt = item.nullableString("stateUpdatedAt").toEpochMillis(),
+                            syncedFavorite = item.optBoolean("isFavorite", false),
+                            syncedRead = item.optBoolean("isRead", false),
+                            syncedHidden = item.optBoolean("isHidden", false),
+                            syncedProgress = item.optInt("currentPage", 0).coerceAtLeast(0),
+                            syncedCustomTitle = item.nullableString("customTitle"),
+                            syncedSeriesFavorite = item.optBoolean("seriesFavorite", false),
+                            syncedSeries = syncedSeries,
+                            syncedSeriesModifiedAt = syncedSeriesModifiedAt,
+                            hasSyncedSeriesState = hasSyncedSeriesState,
                             remoteBookId = id,
                             coverUriOverride = coverUrl,
                             cloudToken = profile.token,
                         ),
                     )
                 }
+                val page = data as? JSONObject
+                cursor = page?.optLong("nextCursor", 0L)?.takeIf { it > 0L }
+                val hasMore = page?.optBoolean("hasMore", false) == true
+                if (!hasMore || cursor == null) break
+            } while (true)
+
+            val duplicateSyncIds = collected.mapNotNull(LibraryBook::syncId)
+                .groupingBy(String::lowercase)
+                .eachCount()
+                .filterValues { it > 1 }
+                .keys
+            collected.map { book ->
+                if (book.syncId?.lowercase() in duplicateSyncIds) {
+                    book.copy(id = "${book.id}:${book.remoteBookId}")
+                } else book
             }
         }
 
@@ -198,6 +285,168 @@ class CompanionClient {
                 token = profile.token,
             ).requireSuccess()
         }
+
+    suspend fun saveLibrarySeries(
+        profile: DesktopProfile,
+        assignments: List<SeriesSyncUpdate>,
+    ): List<SeriesSyncResult> = withContext(Dispatchers.IO) {
+        val body = JSONObject().put(
+            "assignments",
+            JSONArray().apply {
+                assignments.forEach { update ->
+                    put(update.toJsonObject())
+                }
+            },
+        )
+        val data = request(
+            url = "${profile.baseUrl}/v1/library/series",
+            method = "POST",
+            token = profile.token,
+            body = body,
+            readTimeoutMs = SERIES_SYNC_READ_TIMEOUT_MS,
+        ).requireSuccess()
+        val results = data.optJSONArray("results")
+            ?: throw CompanionApiException("시리즈 동기화 응답에 항목별 결과가 없습니다.")
+        buildList(results.length()) {
+            repeat(results.length()) { index ->
+                val item = results.optJSONObject(index) ?: return@repeat
+                add(
+                    SeriesSyncResult(
+                        mutationId = item.nullableString("mutationId"),
+                        bookSyncId = item.nullableString("bookSyncId").orEmpty(),
+                        status = item.optString("status"),
+                        version = item.optLong("version", 0L),
+                        modifiedAt = item.optLong("modifiedAt", 0L),
+                        name = item.nullableString("name"),
+                        order = item.optInt("order", 0),
+                    ),
+                )
+            }
+        }
+    }
+
+    suspend fun getBookStateChanges(
+        profile: DesktopProfile,
+        afterCursor: Long,
+    ): BookStateSyncChangesPage = withContext(Dispatchers.IO) {
+        val data = request(
+            url = "${profile.baseUrl}/v1/sync/changes?cursor=$afterCursor&limit=$SYNC_CHANGE_PAGE_SIZE",
+            token = profile.token,
+        ).requireSuccess()
+        val changes = data.optJSONArray("changes") ?: JSONArray()
+        BookStateSyncChangesPage(
+            cursor = data.optLong("cursor", afterCursor),
+            hasMore = data.optBoolean("hasMore", false),
+            changes = buildList(changes.length()) {
+                repeat(changes.length()) { index ->
+                    val item = changes.optJSONObject(index) ?: return@repeat
+                    val state = item.optJSONObject("state") ?: return@repeat
+                    add(
+                        BookStateSyncChange(
+                            cursor = item.optLong("cursor", 0L),
+                            deviceId = item.optString("deviceId"),
+                            state = state.toSyncedBookState(),
+                        ),
+                    )
+                }
+            },
+        )
+    }
+
+    suspend fun uploadLibraryArchive(
+        profile: DesktopProfile,
+        archive: File,
+        fileName: String,
+        syncId: String,
+    ): LibraryImportResult = withContext(Dispatchers.IO) {
+        val connection = URL("${profile.baseUrl}/v1/library/import").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = CONNECT_TIMEOUT_MS
+            connection.readTimeout = UPLOAD_READ_TIMEOUT_MS
+            connection.doOutput = true
+            connection.setFixedLengthStreamingMode(archive.length())
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Content-Type", "application/zip")
+            connection.setRequestProperty("Authorization", "Bearer ${profile.token}")
+            connection.setRequestProperty("X-File-Name", URLEncoder.encode(fileName, Charsets.UTF_8.name()))
+            connection.setRequestProperty("X-Sync-Id", syncId)
+            FileInputStream(archive).buffered().use { input ->
+                connection.outputStream.buffered().use(input::copyTo)
+            }
+            val statusCode = connection.responseCode
+            val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
+            val raw = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            val root = runCatching { JSONObject(raw) }.getOrElse {
+                throw CompanionApiException("파일 업로드 응답이 올바른 JSON이 아닙니다. (HTTP $statusCode)")
+            }
+            if (statusCode !in 200..299) throw CompanionApiException(root.errorMessage("HTTP $statusCode"))
+            val data = root.requireSuccess()
+            LibraryImportResult(
+                status = data.optString("status"),
+                remoteBookId = data.optLong("id"),
+                syncId = data.nullableString("syncId") ?: syncId,
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    suspend fun saveBookStates(
+        profile: DesktopProfile,
+        updates: List<BookStateSyncUpdate>,
+    ): List<BookStateSyncResult> = withContext(Dispatchers.IO) {
+        val body = JSONObject().put(
+            "mutations",
+            JSONArray().apply {
+                updates.forEach { update ->
+                    val mutation = JSONObject()
+                            .put("mutationId", update.mutationId)
+                            .put("bookSyncId", update.bookSyncId)
+                            .put("baseVersion", update.baseVersion)
+                            .put("modifiedAt", update.modifiedAt)
+                            .put("currentPage", update.currentPage)
+                            .put("isFavorite", update.isFavorite)
+                            .put("isRead", update.isRead)
+                            .put("isHidden", update.isHidden)
+                            .put("customTitle", update.customTitle ?: JSONObject.NULL)
+                            .put("seriesFavorite", update.seriesFavorite)
+                    if (update.historyEventId != null && update.historyViewedAt != null) {
+                        mutation.put(
+                            "historyEvent",
+                            JSONObject()
+                                .put("eventId", update.historyEventId)
+                                .put("viewedAt", update.historyViewedAt)
+                                .put("currentPage", update.currentPage),
+                        )
+                    }
+                    put(mutation)
+                }
+            },
+        )
+        val data = request(
+            url = "${profile.baseUrl}/v1/sync/changes",
+            method = "POST",
+            token = profile.token,
+            body = body,
+        ).requireSuccess()
+        val results = data.optJSONArray("results")
+            ?: throw CompanionApiException("책 상태 동기화 응답에 항목별 결과가 없습니다.")
+        buildList(results.length()) {
+            repeat(results.length()) { index ->
+                val item = results.optJSONObject(index) ?: return@repeat
+                add(
+                    BookStateSyncResult(
+                        mutationId = item.optString("mutationId"),
+                        status = item.optString("status"),
+                        conflict = item.optBoolean("conflict", false),
+                        version = item.optJSONObject("state")?.optLong("version", 0L) ?: 0L,
+                        state = item.optJSONObject("state")?.toSyncedBookState(),
+                    ),
+                )
+            }
+        }
+    }
 
     suspend fun requestDownload(profile: DesktopProfile, galleryId: Long): DownloadQueueItem =
         withContext(Dispatchers.IO) {
@@ -262,12 +511,13 @@ class CompanionClient {
         method: String = "GET",
         token: String? = null,
         body: JSONObject? = null,
+        readTimeoutMs: Int = READ_TIMEOUT_MS,
     ): JSONObject {
         val connection = URL(url).openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = method
             connection.connectTimeout = CONNECT_TIMEOUT_MS
-            connection.readTimeout = READ_TIMEOUT_MS
+            connection.readTimeout = readTimeoutMs
             connection.setRequestProperty("Accept", "application/json")
             if (token != null) {
                 connection.setRequestProperty("Authorization", "Bearer $token")
@@ -284,10 +534,13 @@ class CompanionClient {
             val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
             val rawResponse = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             val response = runCatching { JSONObject(rawResponse) }.getOrElse {
-                throw CompanionApiException("서버가 올바른 JSON을 반환하지 않았습니다. (HTTP $statusCode)")
+                throw CompanionApiException(
+                    "서버가 올바른 JSON을 반환하지 않았습니다. (HTTP $statusCode)",
+                    statusCode,
+                )
             }
             if (statusCode !in 200..299) {
-                throw CompanionApiException(response.errorMessage("HTTP $statusCode"))
+                throw CompanionApiException(response.errorMessage("HTTP $statusCode"), statusCode)
             }
             response
         } finally {
@@ -322,13 +575,123 @@ class CompanionClient {
     private companion object {
         const val CONNECT_TIMEOUT_MS = 5_000
         const val READ_TIMEOUT_MS = 15_000
+        const val SERIES_SYNC_READ_TIMEOUT_MS = 60_000
+        const val UPLOAD_READ_TIMEOUT_MS = 120_000
+        const val LIBRARY_PAGE_SIZE = 200
+        const val SYNC_CHANGE_PAGE_SIZE = 200
     }
 }
+
+data class SeriesSyncResult(
+    val mutationId: String?,
+    val bookSyncId: String,
+    val status: String,
+    val version: Long,
+    val modifiedAt: Long,
+    val name: String?,
+    val order: Int,
+)
+
+private fun JSONObject.toSyncedBookState(): SyncedBookState = SyncedBookState(
+    bookSyncId = optString("syncId"),
+    currentPage = optInt("currentPage", 0).coerceAtLeast(0),
+    isFavorite = optBoolean("isFavorite", false),
+    isRead = optBoolean("isRead", false),
+    isHidden = optBoolean("isHidden", false),
+    customTitle = nullableString("customTitle"),
+    seriesFavorite = optBoolean("seriesFavorite", false),
+    version = optLong("version", 0L),
+    modifiedAt = nullableString("updatedAt").toEpochMillis(),
+)
+
+private fun String?.toEpochMillis(): Long = this?.let { value ->
+    runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
+} ?: 0L
+
+data class LibraryImportResult(
+    val status: String,
+    val remoteBookId: Long,
+    val syncId: String,
+)
 
 private fun absoluteUrl(baseUrl: String, value: String?): String? {
     if (value.isNullOrBlank()) return null
     return if (value.startsWith("http://") || value.startsWith("https://")) value
     else baseUrl.trimEnd('/') + "/" + value.trimStart('/')
+}
+
+internal fun parseHitomiSearchResult(data: JSONObject): SearchResult {
+    val items = data.optJSONArray("data")
+        ?: throw CompanionApiException("검색 응답에 갤러리 목록이 없습니다.")
+    val galleryIds = buildList(items.length()) {
+        repeat(items.length()) { index ->
+            val id = when (val item = items.opt(index)) {
+                is Number -> item.toLong()
+                is JSONObject -> item.optLong("id", 0L)
+                else -> item?.toString()?.toLongOrNull() ?: 0L
+            }
+            if (id > 0L) add(id)
+        }
+    }
+    return SearchResult(
+        galleryIds = galleryIds,
+        hasNextPage = data.optBoolean("hasNextPage", false),
+    )
+}
+
+internal fun parseHitomiGallery(data: JSONObject, fallbackId: Long): GallerySummary {
+    val titleValue = data.opt("title")
+    val title = when (titleValue) {
+        is JSONObject -> titleValue.nullableString("display")
+            ?: titleValue.nullableString("japanese")
+        is String -> titleValue.trim().takeIf(String::isNotEmpty)
+        else -> null
+    } ?: "Gallery #$fallbackId"
+
+    val languageName = data.optJSONObject("languageName")
+    val legacyLanguage = data.optJSONObject("language")
+    val language = languageName?.nullableString("local")
+        ?: languageName?.nullableString("english")
+        ?: legacyLanguage?.nullableString("localName")
+        ?: legacyLanguage?.nullableString("name")
+        ?: (data.opt("language") as? String)?.trim()?.takeIf(String::isNotEmpty)
+    val tags = buildList {
+        val source = data.optJSONArray("tags") ?: return@buildList
+        repeat(source.length()) { index ->
+            when (val item = source.opt(index)) {
+                is JSONObject -> {
+                    val name = item.nullableString("name") ?: return@repeat
+                    add(
+                        GalleryTag(
+                            type = item.nullableString("type") ?: "tag",
+                            name = name,
+                            isNegative = item.optBoolean("isNegative", false),
+                        ),
+                    )
+                }
+                is String -> item.trim().takeIf(String::isNotEmpty)?.let {
+                    add(GalleryTag(type = "tag", name = it))
+                }
+            }
+        }
+    }
+
+    return GallerySummary(
+        id = data.optLong("id", fallbackId),
+        title = title,
+        artists = data.optJSONArray("artists").metadataNames(),
+        series = data.optJSONArray("series").metadataNames(),
+        galleryType = data.nullableString("type"),
+        tags = tags,
+        thumbnailUrl = data.nullableString("thumbnailUrl")
+            ?: data.nullableString("thumbnail"),
+        pageCount = data.optJSONArray("files")?.length()
+            ?: data.optJSONArray("images")?.length()
+            ?: 0,
+        language = language,
+        publishedDate = data.nullableString("publishedDate")
+            ?: data.nullableString("publishedAt"),
+    )
 }
 
 private fun JSONArray?.metadataNames(): List<String> = buildList {
@@ -379,4 +742,4 @@ private fun org.json.JSONArray?.toStringList(): List<String> = buildList {
     }
 }
 
-class CompanionApiException(message: String) : Exception(message)
+class CompanionApiException(message: String, val statusCode: Int? = null) : Exception(message)

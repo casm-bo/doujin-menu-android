@@ -8,9 +8,20 @@ import com.doujinmenu.android.model.LibraryVisibilityFilter
 import com.doujinmenu.android.model.LibraryMetadata
 import com.doujinmenu.android.model.CustomSeriesAssignment
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class LibraryFilterTest {
+    @Test
+    fun `filter signature changes only for list conditions`() {
+        val base = MainUiState()
+
+        assertNotEquals(libraryFilterSignature(base), libraryFilterSignature(base.copy(libraryQuery = "tag:test")))
+        assertNotEquals(libraryFilterSignature(base), libraryFilterSignature(base.copy(libraryFavoritesOnly = true)))
+        assertNotEquals(libraryFilterSignature(base), libraryFilterSignature(base.copy(librarySort = LibrarySort.NEWEST)))
+        assertEquals(libraryFilterSignature(base), libraryFilterSignature(base.copy(message = "unrelated")))
+    }
+
     private val books = listOf(
         book("a", "Zeta", "one", 10),
         book("b", "Alpha", "two", 30),

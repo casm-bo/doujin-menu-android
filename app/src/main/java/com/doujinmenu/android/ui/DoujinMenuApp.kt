@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -28,8 +29,10 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +47,9 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -66,7 +72,20 @@ private enum class MainDestination(
 @Composable
 fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     val navController = rememberNavController()
+    val lifecycleOwner = LocalLifecycleOwner.current
     var lastMainDestination by rememberSaveable { mutableStateOf(MainDestination.Browser.route) }
+
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> viewModel.onAppForegrounded()
+                Lifecycle.Event.ON_STOP -> viewModel.onAppBackgrounded()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
@@ -155,6 +174,8 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     book = book,
                     initialPage = if (requestedPage >= 0) requestedPage
                         else book?.let { viewModel.uiState.libraryProgress[it.id] } ?: 0,
+                    isLoading = viewModel.uiState.isLibraryBookLoading,
+                    error = viewModel.uiState.libraryScanError,
                     favorite = book?.id in viewModel.uiState.libraryFavoriteIds,
                     preferences = viewModel.uiState.viewerPreferences,
                     onBack = navController::popBackStack,
@@ -202,19 +223,23 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 arguments = listOf(
                     navArgument("startPage") {
                         type = NavType.IntType
-                        defaultValue = 0
+                        defaultValue = -1
                     },
                 ),
             ) { entry ->
                 val galleryId = entry.arguments?.getString("galleryId")?.toLongOrNull()
                     ?: return@composable
-                val startPage = entry.arguments?.getInt("startPage") ?: 0
+                val requestedPage = entry.arguments?.getInt("startPage") ?: -1
                 ReaderScreen(
                     galleryId = galleryId,
-                    initialPage = startPage,
+                    initialPage = if (requestedPage >= 0) requestedPage
+                        else viewModel.uiState.onlineReaderProgress[galleryId] ?: 0,
                     state = viewModel.uiState,
+                    preferences = viewModel.uiState.viewerPreferences,
                     onLoad = viewModel::loadReader,
                     onBack = navController::popBackStack,
+                    onProgress = { page -> viewModel.updateOnlineReaderProgress(galleryId, page) },
+                    onPreferencesChange = viewModel::updateViewerPreferences,
                 )
             }
         }
@@ -277,6 +302,38 @@ private fun MainShell(
             onNavigate = navigate,
         )
     }
+    val topBar: @Composable () -> Unit = {
+        TopAppBar(
+            title = { Text(selected.label) },
+            actions = {
+                if (selected == MainDestination.Library) {
+                    TextButton(
+                        onClick = viewModel::syncLibraryNow,
+                        enabled = !viewModel.uiState.isLibrarySyncing &&
+                            viewModel.uiState.selectedProfileId != null,
+                    ) {
+                        if (viewModel.uiState.isLibrarySyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        }
+                        val pending = viewModel.uiState.librarySyncPendingCount
+                        Text(
+                            text = when {
+                                viewModel.uiState.isLibrarySyncing -> "동기화 중"
+                                pending > 0 -> "동기화 · $pending"
+                                else -> "동기화"
+                            },
+                            modifier = Modifier.padding(
+                                start = if (viewModel.uiState.isLibrarySyncing) 7.dp else 0.dp,
+                            ),
+                        )
+                    }
+                }
+            },
+        )
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth >= 700.dp) {
@@ -293,12 +350,12 @@ private fun MainShell(
                 }
                 Scaffold(
                     modifier = Modifier.weight(1f),
-                    topBar = { TopAppBar(title = { Text(selected.label) }) },
+                    topBar = topBar,
                 ) { padding -> content(padding) }
             }
         } else {
             Scaffold(
-                topBar = { TopAppBar(title = { Text(selected.label) }) },
+                topBar = topBar,
                 bottomBar = {
                     NavigationBar {
                         MainDestination.entries.forEach { destination ->
@@ -455,7 +512,7 @@ private fun MainTabContent(
                 onMarkRead = viewModel::markLibraryBooksRead,
                 onMarkUnread = viewModel::markLibraryBooksUnread,
                 onAssignSeries = viewModel::assignLibrarySeries,
-                onMoveSeriesBook = viewModel::moveLibrarySeriesBook,
+                onReorderSeriesBooks = viewModel::reorderLibrarySeriesBooks,
                 onSetBooksHidden = viewModel::setLibraryBooksHidden,
                 onDeleteBooks = viewModel::deleteLibraryBooks,
                 onRenameBook = viewModel::renameLibraryBook,
@@ -503,8 +560,6 @@ private fun MainTabContent(
                 onClearDownloadLocation = viewModel::clearDownloadLocation,
                 openConnectionRequested = connectionSettingsRequested,
                 onConnectionRequestHandled = { connectionSettingsRequested = false },
-                onStartConnectionMonitoring = viewModel::startConnectionMonitoring,
-                onStopConnectionMonitoring = viewModel::stopConnectionMonitoring,
             )
         }
         }

@@ -30,7 +30,6 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,8 +70,6 @@ fun SettingsScreen(
     onClearDownloadLocation: () -> Unit,
     openConnectionRequested: Boolean,
     onConnectionRequestHandled: () -> Unit,
-    onStartConnectionMonitoring: () -> Unit,
-    onStopConnectionMonitoring: () -> Unit,
 ) {
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.HOME.name) }
     val section = SettingsSection.valueOf(sectionName)
@@ -86,13 +83,6 @@ fun SettingsScreen(
         if (openConnectionRequested) {
             openSection(SettingsSection.CONNECTION)
             onConnectionRequestHandled()
-        }
-    }
-
-    DisposableEffect(section) {
-        if (section == SettingsSection.CONNECTION) onStartConnectionMonitoring()
-        onDispose {
-            if (section == SettingsSection.CONNECTION) onStopConnectionMonitoring()
         }
     }
 

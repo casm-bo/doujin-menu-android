@@ -58,6 +58,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -80,6 +81,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.LocalContentColor
@@ -180,7 +182,7 @@ fun LibraryScreen(
     onMarkRead: (Set<String>) -> Unit,
     onMarkUnread: (Set<String>) -> Unit,
     onAssignSeries: (Set<String>, String) -> Unit,
-    onMoveSeriesBook: (String, Int) -> Unit,
+    onReorderSeriesBooks: (List<String>) -> Unit,
     onSetBooksHidden: (Set<String>, Boolean) -> Unit,
     onDeleteBooks: (Set<String>) -> Unit,
     onRenameBook: (String, String) -> Unit,
@@ -241,8 +243,26 @@ fun LibraryScreen(
     ) { state.libraryBooksInVisibility() }
     val shownBooks = books.filterBySeries(selectedSeries, state.customSeriesByBookId)
     val pullToRefreshState = rememberPullToRefreshState()
+    val mainGridState = rememberLazyGridState()
+    val mainListState = rememberLazyListState()
+    val seriesBooksGridState = rememberLazyGridState()
+    val seriesBooksListState = rememberLazyListState()
     val seriesOverviewGridState = rememberLazyGridState()
     val seriesOverviewListState = rememberLazyListState()
+    val filterSignature = libraryFilterSignature(state)
+    var previousFilterSignature by rememberSaveable { mutableStateOf(filterSignature) }
+
+    LaunchedEffect(filterSignature) {
+        if (filterSignature != previousFilterSignature) {
+            mainGridState.scrollToItem(0)
+            mainListState.scrollToItem(0)
+            seriesBooksGridState.scrollToItem(0)
+            seriesBooksListState.scrollToItem(0)
+            seriesOverviewGridState.scrollToItem(0)
+            seriesOverviewListState.scrollToItem(0)
+        }
+        previousFilterSignature = filterSignature
+    }
 
     BackHandler {
         when {
@@ -268,13 +288,13 @@ fun LibraryScreen(
     }
 
     PullToRefreshBox(
-        isRefreshing = state.isLibraryScanning,
+        isRefreshing = state.isLibraryPullRefreshing,
         onRefresh = { if (!editingSeriesOrder) onRefresh() },
         state = pullToRefreshState,
         indicator = {
             if (!editingSeriesOrder) {
                 PullToRefreshDefaults.Indicator(
-                    isRefreshing = state.isLibraryScanning,
+                    isRefreshing = state.isLibraryPullRefreshing,
                     state = pullToRefreshState,
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
@@ -486,12 +506,13 @@ fun LibraryScreen(
                 editingSeriesOrder && selectedSeries != null -> LibrarySeriesOrderEditor(
                     books = shownBooks,
                     customSeries = state.customSeriesByBookId,
-                    onMove = onMoveSeriesBook,
+                    onReorder = onReorderSeriesBooks,
                 )
                 !seriesMode && viewMode == LibraryViewMode.GRID -> LibraryMixedGrid(
                     books = books,
                     state = state,
                     columns = gridColumns,
+                    gridState = mainGridState,
                     selectedIds = selectedIds,
                     selectionMode = selectionMode,
                     onOpenBook = onOpenBook,
@@ -525,6 +546,7 @@ fun LibraryScreen(
                 !seriesMode -> LibraryMixedList(
                     books = books,
                     state = state,
+                    listState = mainListState,
                     selectedIds = selectedIds,
                     selectionMode = selectionMode,
                     onOpenBook = onOpenBook,
@@ -559,6 +581,7 @@ fun LibraryScreen(
                     books = shownBooks,
                     columns = gridColumns,
                     state = state,
+                    gridState = seriesBooksGridState,
                     onOpenBook = onOpenBook,
                     onToggleFavorite = onToggleFavorite,
                     onToggleRead = onToggleRead,
@@ -577,6 +600,7 @@ fun LibraryScreen(
                 else -> LibraryList(
                     books = shownBooks,
                     state = state,
+                    listState = seriesBooksListState,
                     onOpenBook = onOpenBook,
                     onToggleFavorite = onToggleFavorite,
                     onToggleRead = onToggleRead,
@@ -600,6 +624,15 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxWidth().padding(12.dp),
                 )
             }
+            state.librarySyncError
+                ?.takeIf { it != state.libraryScanError }
+                ?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    )
+                }
         }
     }
 
@@ -800,14 +833,6 @@ private fun LibraryToolbar(
                     Text(
                         text = if (state.isAutoCreatingSeries) "분석 중" else "자동생성",
                         modifier = Modifier.padding(start = if (state.isAutoCreatingSeries) 7.dp else 0.dp),
-                    )
-                }
-                state.seriesAutoCreateStatus?.let { status ->
-                    Text(
-                        text = status,
-                        modifier = Modifier.align(Alignment.CenterVertically),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelMedium,
                     )
                 }
             }
@@ -1143,6 +1168,7 @@ private fun LibraryGrid(
     books: List<LibraryBook>,
     columns: Int,
     state: MainUiState,
+    gridState: LazyGridState,
     onOpenBook: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
@@ -1153,6 +1179,7 @@ private fun LibraryGrid(
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
+        state = gridState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1182,6 +1209,7 @@ private fun LibraryGrid(
 private fun LibraryList(
     books: List<LibraryBook>,
     state: MainUiState,
+    listState: LazyListState,
     onOpenBook: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
@@ -1191,6 +1219,7 @@ private fun LibraryList(
     onLongPress: (String) -> Unit,
 ) {
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1219,6 +1248,7 @@ private fun LibraryMixedGrid(
     books: List<LibraryBook>,
     state: MainUiState,
     columns: Int,
+    gridState: LazyGridState,
     selectedIds: Set<String>,
     selectionMode: Boolean,
     onOpenBook: (String) -> Unit,
@@ -1243,6 +1273,7 @@ private fun LibraryMixedGrid(
     }
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
+        state = gridState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1293,6 +1324,7 @@ private fun LibraryMixedGrid(
 private fun LibraryMixedList(
     books: List<LibraryBook>,
     state: MainUiState,
+    listState: LazyListState,
     selectedIds: Set<String>,
     selectionMode: Boolean,
     onOpenBook: (String) -> Unit,
@@ -1316,6 +1348,7 @@ private fun LibraryMixedList(
         libraryMainEntries(books, state.libraryBooksInVisibility(), state.customSeriesByBookId, state.librarySort)
     }
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1960,13 +1993,19 @@ private fun SeriesText(name: String, books: List<LibraryBook>, modifier: Modifie
 private fun LibrarySeriesOrderEditor(
     books: List<LibraryBook>,
     customSeries: Map<String, CustomSeriesAssignment>,
-    onMove: (String, Int) -> Unit,
+    onReorder: (List<String>) -> Unit,
 ) {
     val context = LocalContext.current
-    val orderedBooks = books.sortedWith(
-        compareBy<LibraryBook> { customSeries[it.id]?.order ?: Int.MAX_VALUE }
-            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
-    )
+    val booksById = remember(books) { books.associateBy(LibraryBook::id) }
+    val itemHeights = remember { mutableMapOf<String, Int>() }
+    var orderedBooks by remember(books, customSeries) {
+        mutableStateOf(
+            books.sortedWith(
+                compareBy<LibraryBook> { customSeries[it.id]?.order ?: Int.MAX_VALUE }
+                    .thenBy(LibraryBook::id),
+            ),
+        )
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
@@ -1977,7 +2016,9 @@ private fun LibrarySeriesOrderEditor(
             val index = orderedBooks.indexOf(book)
             var accumulatedDrag by remember(book.id) { mutableFloatStateOf(0f) }
             var dragging by remember(book.id) { mutableStateOf(false) }
-            val currentIndex by rememberUpdatedState(index)
+            var dragStartOrder by remember(book.id) { mutableStateOf<List<String>?>(null) }
+            var dragOrder by remember(book.id) { mutableStateOf<List<String>?>(null) }
+            val currentOrderedBooks by rememberUpdatedState(orderedBooks)
             val dragScale by animateFloatAsState(
                 targetValue = if (dragging) 1.025f else 1f,
                 animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
@@ -1991,6 +2032,7 @@ private fun LibrarySeriesOrderEditor(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .onSizeChanged { itemHeights[book.id] = it.height }
                     .zIndex(if (dragging) 1f else 0f)
                     .animateItem(
                         placementSpec = spring(dampingRatio = 0.78f, stiffness = 430f),
@@ -2003,33 +2045,65 @@ private fun LibrarySeriesOrderEditor(
                     }
                     .pointerInput(book.id, movable) {
                     if (movable) {
-                        val reorderThreshold = 56.dp.toPx()
+                        val fallbackHeight = 56.dp.toPx()
+                        val itemSpacing = 8.dp.toPx()
                         detectDragGesturesAfterLongPress(
                             onDragStart = {
                                 accumulatedDrag = 0f
                                 dragging = true
+                                val ids = currentOrderedBooks.map(LibraryBook::id)
+                                dragStartOrder = ids
+                                dragOrder = ids
                                 context.performLightHaptic()
                             },
                             onDragEnd = {
                                 dragging = false
+                                val finalOrder = dragOrder
+                                if (finalOrder != null && finalOrder != dragStartOrder) {
+                                    onReorder(finalOrder)
+                                }
+                                dragStartOrder = null
+                                dragOrder = null
                             },
                             onDragCancel = {
                                 dragging = false
+                                dragStartOrder?.let { ids ->
+                                    orderedBooks = ids.mapNotNull(booksById::get)
+                                }
+                                dragStartOrder = null
+                                dragOrder = null
                             },
                             onDrag = { change, dragAmount ->
                                 change.consume()
                                 accumulatedDrag += dragAmount.y
-                                when {
-                                    accumulatedDrag > reorderThreshold && currentIndex < orderedBooks.lastIndex -> {
-                                        context.performLightHaptic()
-                                        onMove(book.id, 1)
-                                        accumulatedDrag -= reorderThreshold
+                                var ids = dragOrder ?: currentOrderedBooks.map(LibraryBook::id)
+                                var moved = false
+                                while (true) {
+                                    val from = ids.indexOf(book.id)
+                                    val direction = when {
+                                        accumulatedDrag > 0f -> 1
+                                        accumulatedDrag < 0f -> -1
+                                        else -> 0
                                     }
-                                    accumulatedDrag < -reorderThreshold && currentIndex > 0 -> {
-                                        context.performLightHaptic()
-                                        onMove(book.id, -1)
-                                        accumulatedDrag += reorderThreshold
-                                    }
+                                    val to = from + direction
+                                    if (direction == 0 || from < 0 || to !in ids.indices) break
+                                    val neighborId = ids[to]
+                                    val crossingDistance = (
+                                        (itemHeights[book.id] ?: fallbackHeight.toInt()) +
+                                            (itemHeights[neighborId] ?: fallbackHeight.toInt())
+                                        ) / 2f + itemSpacing
+                                    if (kotlin.math.abs(accumulatedDrag) < crossingDistance) break
+                                    val reordered = ids.toMutableList()
+                                    reordered.removeAt(from)
+                                    reordered.add(to, book.id)
+                                    ids = reordered
+                                    accumulatedDrag -= direction * crossingDistance
+                                    moved = true
+                                    context.performLightHaptic()
+                                }
+                                if (moved) {
+                                    dragOrder = ids
+                                    orderedBooks = ids.mapNotNull(booksById::get)
                                 }
                             },
                         )
@@ -2145,6 +2219,16 @@ internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
         LibrarySort.NEWEST -> filtered.sortedByDescending(LibraryBook::modifiedAt)
         LibrarySort.OLDEST -> filtered.sortedBy(LibraryBook::modifiedAt)
     }
+}
+
+internal fun libraryFilterSignature(state: MainUiState): String = buildString {
+    append(state.libraryQuery.length).append(':').append(state.libraryQuery)
+    append('|').append(state.libraryFavoritesOnly)
+    append('|').append(state.libraryReadFilter.name)
+    append('|').append(state.libraryVisibilityFilter.name)
+    append('|').append(state.librarySort.name)
+    append('|').append(state.selectedLibraryLocationUri.orEmpty())
+    append('|').append(state.selectedLibraryLocationUris?.sorted()?.joinToString("\u0001").orEmpty())
 }
 
 private fun MainUiState.libraryBooksInVisibility(): List<LibraryBook> = libraryBooks.filter { book ->

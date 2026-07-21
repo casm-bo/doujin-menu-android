@@ -11,7 +11,10 @@ import java.util.zip.ZipInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class LibraryScanner(private val context: Context) {
+class LibraryScanner(
+    private val context: Context,
+    private val identityStore: LibraryIdentityStore = LibraryIdentityStore(context),
+) {
     private val contentResolver = context.contentResolver
     suspend fun scan(locations: List<StorageLocation>): ScanResult = withContext(Dispatchers.IO) {
         val books = mutableListOf<LibraryBook>()
@@ -45,11 +48,18 @@ class LibraryScanner(private val context: Context) {
             .toList()
 
         if (imagePages.isNotEmpty()) {
-            val info = children.firstOrNull { !it.isDirectory && it.name.equals("info.txt", true) }
+            val parsedInfo = children.firstOrNull { !it.isDirectory && it.name.equals("info.txt", true) }
                 ?.let { readInfo(it.uri) } ?: ParsedInfoTxt()
             val folderUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId).toString()
+            val identity = identityStore.resolve(
+                sourceKey = "folder:$folderUri",
+                sourceUri = folderUri,
+                parsedInfo = parsedInfo,
+                modifiedAt = children.maxOfOrNull(DocumentEntry::modifiedAt) ?: 0L,
+            )
+            val info = identity.info
             books += LibraryBook(
-                id = folderUri,
+                id = LibraryIdentityStore.stableFileId(identity.syncId),
                 title = info.title ?: directoryName.ifBlank { location.displayName },
                 locationUri = location.uri,
                 locationName = location.displayName,
@@ -57,11 +67,17 @@ class LibraryScanner(private val context: Context) {
                 pages = imagePages,
                 modifiedAt = children.maxOfOrNull(DocumentEntry::modifiedAt) ?: 0L,
                 metadata = info.metadata,
+                syncId = identity.syncId,
             )
         }
 
         children.filter { !it.isDirectory && isArchive(it.name) }.forEach { archive ->
-            scanArchive(archive, location)?.let(books::add)
+            val sidecar = children.firstOrNull { candidate ->
+                !candidate.isDirectory &&
+                    (candidate.name.equals("${archive.name}.info.txt", true) ||
+                        candidate.name.equals("${archive.name.substringBeforeLast('.')}.info.txt", true))
+            }
+            scanArchive(archive, location, sidecar)?.let(books::add)
         }
 
         children.filter(DocumentEntry::isDirectory).forEach { child ->
@@ -69,9 +85,13 @@ class LibraryScanner(private val context: Context) {
         }
     }
 
-    private fun scanArchive(entry: DocumentEntry, location: StorageLocation): LibraryBook? {
+    private fun scanArchive(
+        entry: DocumentEntry,
+        location: StorageLocation,
+        sidecar: DocumentEntry?,
+    ): LibraryBook? {
         val pageEntries = mutableListOf<String>()
-        var info = ParsedInfoTxt()
+        var info = sidecar?.let { readInfo(it.uri) } ?: ParsedInfoTxt()
         var coverUri = ""
         contentResolver.openInputStream(entry.uri)?.buffered()?.use { input ->
             ZipInputStream(input).use { zip ->
@@ -80,14 +100,27 @@ class LibraryScanner(private val context: Context) {
                     if (!item.isDirectory && isSupportedImage("", item.name)) {
                         pageEntries += item.name
                         if (coverUri.isEmpty()) coverUri = cacheArchiveCover(entry, item.name, zip)
-                    } else if (!item.isDirectory && item.name.equals("info.txt", true)) {
-                        info = InfoTxtParser.parse(zip.readBytes().toString(Charsets.UTF_8))
+                    } else if (
+                        !item.isDirectory &&
+                        item.name.substringAfterLast('/').equals("info.txt", true)
+                    ) {
+                        info = mergeParsedInfo(
+                            preferred = info,
+                            fallback = InfoTxtParser.parse(zip.readBytes().toString(Charsets.UTF_8)),
+                        )
                     }
                     zip.closeEntry()
                 }
             }
         }
         if (pageEntries.isEmpty()) return null
+        val identity = identityStore.resolve(
+            sourceKey = "archive:${entry.uri}",
+            sourceUri = entry.uri.toString(),
+            parsedInfo = info,
+            modifiedAt = entry.modifiedAt,
+        )
+        info = identity.info
         val sorted = pageEntries.sortedBy(::naturalSortKey)
         val pages = sorted.mapIndexed { index, name ->
             LibraryPage(
@@ -98,7 +131,7 @@ class LibraryScanner(private val context: Context) {
             )
         }
         return LibraryBook(
-            id = entry.uri.toString(),
+            id = LibraryIdentityStore.stableFileId(identity.syncId),
             title = info.title ?: entry.name.substringBeforeLast('.'),
             locationUri = location.uri,
             locationName = location.displayName,
@@ -106,6 +139,7 @@ class LibraryScanner(private val context: Context) {
             pages = pages,
             modifiedAt = entry.modifiedAt,
             metadata = info.metadata,
+            syncId = identity.syncId,
             coverUriOverride = coverUri,
         )
     }

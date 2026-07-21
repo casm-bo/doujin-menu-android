@@ -10,8 +10,11 @@ import androidx.lifecycle.viewModelScope
 import com.doujinmenu.android.data.LibraryScanner
 import com.doujinmenu.android.data.LibraryArchiveExtractor
 import com.doujinmenu.android.data.LibraryFileDeleter
+import com.doujinmenu.android.data.LibraryIdentityStore
+import com.doujinmenu.android.data.LibraryUploadPreparer
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.DownloadQueueItem
+import com.doujinmenu.android.model.DownloadStatus
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.CustomSeriesAssignment
@@ -23,9 +26,14 @@ import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.model.StorageLocation
 import com.doujinmenu.android.model.ViewerPreferences
 import com.doujinmenu.android.network.CompanionClient
+import com.doujinmenu.android.network.CompanionApiException
+import com.doujinmenu.android.network.BookStateSyncUpdate
+import com.doujinmenu.android.network.SyncedBookState
 import com.doujinmenu.android.network.EndpointNormalizer
 import com.doujinmenu.android.network.FilterSuggestion
 import com.doujinmenu.android.network.HitomiSuggestionClient
+import com.doujinmenu.android.network.SeriesSyncUpdate
+import com.doujinmenu.android.network.SeriesSyncResult
 import com.doujinmenu.android.security.BrowserPreferenceStore
 import com.doujinmenu.android.security.LibraryPreferenceStore
 import com.doujinmenu.android.security.SecureProfileStore
@@ -34,6 +42,7 @@ import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.UUID
+import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -41,7 +50,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
@@ -70,6 +81,7 @@ data class MainUiState(
     val libraryFavoriteSeriesNames: Set<String> = emptySet(),
     val libraryReadIds: Set<String> = emptySet(),
     val libraryProgress: Map<String, Int> = emptyMap(),
+    val onlineReaderProgress: Map<Long, Int> = emptyMap(),
     val customSeriesByBookId: Map<String, CustomSeriesAssignment> = emptyMap(),
     val libraryQuery: String = "",
     val libraryFavoritesOnly: Boolean = false,
@@ -81,8 +93,12 @@ data class MainUiState(
     val librarySeriesMode: Boolean = false,
     val selectedLibrarySeries: String? = null,
     val isAutoCreatingSeries: Boolean = false,
-    val seriesAutoCreateStatus: String? = null,
     val isLibraryScanning: Boolean = false,
+    val isLibraryPullRefreshing: Boolean = false,
+    val isLibrarySyncing: Boolean = false,
+    val librarySyncPendingCount: Int = 0,
+    val libraryLastSyncedAt: Long? = null,
+    val librarySyncError: String? = null,
     val libraryScanError: String? = null,
     val isLibraryBookLoading: Boolean = false,
     val viewerPreferences: ViewerPreferences = ViewerPreferences(),
@@ -128,14 +144,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val profileStore = SecureProfileStore(application)
     private val browserPreferenceStore = BrowserPreferenceStore(application)
     private val libraryPreferenceStore = LibraryPreferenceStore(application)
-    private val libraryScanner = LibraryScanner(application)
+    private val libraryIdentityStore = LibraryIdentityStore(application)
+    private val libraryScanner = LibraryScanner(application, libraryIdentityStore)
     private val libraryArchiveExtractor = LibraryArchiveExtractor(application)
     private val libraryFileDeleter = LibraryFileDeleter(application)
+    private val libraryUploadPreparer = LibraryUploadPreparer(application)
     private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
     private var suggestionJob: Job? = null
     private var connectionMonitorJob: Job? = null
     private var downloadRefreshJob: Job? = null
+    private var librarySyncDebounceJob: Job? = null
+    private var importantLibraryRefreshJob: Job? = null
+    private var reconnectLibraryRefreshJob: Job? = null
+    private var activeBookPreparationJob: Job? = null
+    private var hasEnteredForeground = false
+    private var monitoredProfileId: String? = null
+    private var wasDesktopConnected = false
+    private var lastDesktopSyncGeneration = 0L
+    private var hasDesktopSyncGenerationBaseline = false
     private var notifyOnDownloadReconnect = false
+    private val observedCompletedDownloadIds = mutableSetOf<Long>()
+    private val pendingHistoryBookIds = mutableSetOf<String>()
+    private val seriesSyncMutex = Mutex()
+    private val bookStateSyncMutex = Mutex()
+    private val bookStateChangeMutex = Mutex()
+    private val librarySyncFlushMutex = Mutex()
 
     var uiState by mutableStateOf(MainUiState())
         private set
@@ -156,11 +189,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             libraryFavoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames(),
             libraryReadIds = libraryPreferenceStore.loadReadIds(),
             libraryProgress = libraryPreferenceStore.loadProgress(),
+            onlineReaderProgress = libraryPreferenceStore.loadOnlineProgress(),
             customSeriesByBookId = libraryPreferenceStore.loadCustomSeries(),
+            librarySyncPendingCount = pendingLibrarySyncCount(),
             viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
         )
-        refreshLibrary()
+        refreshLibrarySilently()
     }
 
     fun setHost(value: String) = update { copy(host = value) }
@@ -318,7 +353,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     message = "${profile.name} 페어링 완료 · 토큰을 Keystore로 보호해 저장했습니다.",
                     isError = false,
                 )
-                refreshLibrary()
+                refreshLibrarySilently()
             }
         }
     }
@@ -338,7 +373,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isDownloadConnectionUnavailable = false,
             desktopConnectionState = DesktopConnectionState.CONNECTING,
         )
-        refreshLibrary()
+        refreshLibrarySilently()
     }
 
     fun removeProfile(id: String) {
@@ -390,20 +425,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun startConnectionMonitoring() {
         if (connectionMonitorJob?.isActive == true) return
         connectionMonitorJob = viewModelScope.launch {
-            var monitoredProfileId: String? = null
             while (true) {
                 val profile = selectedProfile()
                 if (profile == null) {
                     monitoredProfileId = null
+                    wasDesktopConnected = false
+                    lastDesktopSyncGeneration = 0L
+                    hasDesktopSyncGenerationBaseline = false
                     uiState = uiState.copy(desktopConnectionState = DesktopConnectionState.IDLE)
                     delay(CONNECTION_MONITOR_INTERVAL_MS)
                     continue
                 }
                 if (monitoredProfileId != profile.id) {
                     monitoredProfileId = profile.id
+                    wasDesktopConnected = false
+                    lastDesktopSyncGeneration = 0L
+                    hasDesktopSyncGenerationBaseline = false
                     uiState = uiState.copy(desktopConnectionState = DesktopConnectionState.CONNECTING)
                 }
-                val connected = runCatching { client.getStatus(profile.baseUrl) }.isSuccess
+                val status = runCatching { client.getStatus(profile.baseUrl) }.getOrNull()
+                val connected = status != null
+                if (connected && !wasDesktopConnected) {
+                    val hasPendingSync =
+                        libraryPreferenceStore.loadPendingSeriesSyncIds().isNotEmpty() ||
+                            libraryPreferenceStore.loadPendingBookStateSyncIds().isNotEmpty()
+                    if (
+                        hasPendingSync || uiState.librarySyncError != null ||
+                        uiState.libraryBooks.none(LibraryBook::isCloud)
+                    ) {
+                        requestReconnectLibraryRefresh()
+                    }
+                }
+                if (status != null) {
+                    when {
+                        !hasDesktopSyncGenerationBaseline ||
+                            status.syncGeneration < lastDesktopSyncGeneration -> {
+                            lastDesktopSyncGeneration = status.syncGeneration
+                            hasDesktopSyncGenerationBaseline = true
+                        }
+                        status.syncGeneration > lastDesktopSyncGeneration -> {
+                            lastDesktopSyncGeneration = status.syncGeneration
+                            requestImportantLibraryRefresh()
+                        }
+                    }
+                    drainBookStateChanges(profile)
+                }
+                wasDesktopConnected = connected
                 uiState = uiState.copy(
                     desktopConnectionState = if (connected) {
                         DesktopConnectionState.CONNECTED
@@ -522,7 +589,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val locations = (uiState.libraryLocations + location).distinctBy { it.uri }
         browserPreferenceStore.saveLibraryLocations(locations)
         uiState = uiState.copy(libraryLocations = locations)
-        refreshLibrary()
+        refreshLibrarySilently()
     }
 
     fun removeLibraryLocation(uri: String) {
@@ -537,43 +604,239 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     uiState.desktopLibraryLocations.any { it.uri == selected }
             },
         )
-        refreshLibrary()
+        refreshLibrarySilently()
     }
 
-    fun refreshLibrary() {
+    fun refreshLibrary() = refreshLibrary(showPullFeedback = true)
+
+    private fun refreshLibrarySilently() = refreshLibrary(showPullFeedback = false)
+
+    private fun refreshLibrary(showPullFeedback: Boolean) {
         if (uiState.isLibraryScanning) return
         val scannedLocations = uiState.libraryLocations
         val profile = selectedProfile()
         viewModelScope.launch {
-            uiState = uiState.copy(isLibraryScanning = true, libraryScanError = null)
+            uiState = uiState.copy(
+                isLibraryScanning = true,
+                isLibraryPullRefreshing = showPullFeedback,
+                libraryScanError = null,
+            )
             val result = libraryScanner.scan(scannedLocations)
-            val cloudBooks = profile?.let {
-                runCatching { client.getLibraryBooks(it) }.getOrDefault(emptyList())
-            }.orEmpty()
+            val cloudResult = profile?.let { runCatching { client.getLibraryBooks(it) } }
+            val cloudBooks = when {
+                profile == null -> emptyList()
+                cloudResult?.isSuccess == true -> cloudResult.getOrThrow()
+                else -> uiState.libraryBooks.filter(LibraryBook::isCloud)
+            }
+            val identityReconciliation = withContext(Dispatchers.IO) {
+                libraryIdentityStore.reconcileWithDesktop(result.books, cloudBooks)
+            }
+            val localBooks = identityReconciliation.books
+            val cloudError = cloudResult?.exceptionOrNull()?.let { error ->
+                "데스크톱 라이브러리를 불러오지 못했습니다: ${error.message ?: "알 수 없는 오류"}"
+            }
             val desktopDownloadPath = profile?.let {
                 runCatching { client.getDesktopDownloadPath(it) }.getOrNull()
             }
-            val hiddenIds = libraryPreferenceStore.loadHiddenIds()
-            val customTitles = libraryPreferenceStore.loadCustomTitles()
-            val allBooks = (result.books + cloudBooks).map { book ->
+            val legacyDesktopIdAliases = profile?.let { selected ->
+                cloudBooks.mapNotNull { book ->
+                    val remoteId = book.remoteBookId ?: return@mapNotNull null
+                    val legacyId = "desktop:${selected.id}:$remoteId"
+                    (legacyId to book.id).takeIf { legacyId != book.id }
+                }.toMap()
+            }.orEmpty()
+            val legacyIdAliases = legacyDesktopIdAliases +
+                identityReconciliation.idAliases +
+                legacyLocalLibraryIdAliases(localBooks)
+            var hiddenIds = remapLibraryIds(libraryPreferenceStore.loadHiddenIds(), legacyIdAliases)
+            var favoriteIds = remapLibraryIds(libraryPreferenceStore.loadFavoriteIds(), legacyIdAliases)
+            var readIds = remapLibraryIds(libraryPreferenceStore.loadReadIds(), legacyIdAliases)
+            var progress = remapLibraryIdKeys(libraryPreferenceStore.loadProgress(), legacyIdAliases)
+            var pendingBookStateIds = remapLibraryIds(
+                libraryPreferenceStore.loadPendingBookStateSyncIds(),
+                legacyIdAliases,
+            )
+            var bookStateModifiedTimes = remapLibraryIdKeys(
+                libraryPreferenceStore.loadBookStateModifiedTimes(),
+                legacyIdAliases,
+            )
+            var pendingSeriesSyncIds = remapLibraryIds(
+                libraryPreferenceStore.loadPendingSeriesSyncIds(),
+                legacyIdAliases,
+            )
+            val localSeries = remapLibraryIdKeys(
+                libraryPreferenceStore.loadCustomSeries(),
+                legacyIdAliases,
+            )
+            val localSeriesRemovalTimes = remapLibraryIdKeys(
+                libraryPreferenceStore.loadSeriesRemovalTimes(),
+                legacyIdAliases,
+            )
+            val seriesMerge = mergeSyncedSeries(
+                local = localSeries,
+                removalTimes = localSeriesRemovalTimes,
+                books = cloudBooks,
+            )
+            val rawBooks = localBooks + cloudBooks
+            val knownSyncableIds = rawBooks.asSequence()
+                .filter { it.syncId != null }
+                .mapTo(hashSetOf(), LibraryBook::id)
+            val librarySnapshotComplete = result.errors.isEmpty() &&
+                (profile == null || cloudResult?.isSuccess == true)
+            val knownBookIds = rawBooks.mapTo(hashSetOf(), LibraryBook::id)
+            val customSeries = if (librarySnapshotComplete) {
+                seriesMerge.assignments.filterKeys { it in knownBookIds }
+            } else {
+                seriesMerge.assignments
+            }
+            val seriesRemovalTimes = if (librarySnapshotComplete) {
+                seriesMerge.removalTimes.filterKeys { it in knownBookIds }
+            } else {
+                seriesMerge.removalTimes
+            }
+            pendingSeriesSyncIds += seriesMerge.localWinnerIds.filter { it in knownSyncableIds }
+            var customTitles = remapLibraryIdKeys(libraryPreferenceStore.loadCustomTitles(), legacyIdAliases)
+            var favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames()
+            if (librarySnapshotComplete) {
+                pendingBookStateIds = pendingBookStateIds.filterTo(linkedSetOf()) {
+                    it in knownSyncableIds
+                }
+            }
+            pendingSeriesSyncIds = sanitizePendingSeriesSyncIds(
+                pending = pendingSeriesSyncIds,
+                knownSyncableIds = knownSyncableIds,
+                librarySnapshotComplete = librarySnapshotComplete,
+                assignments = customSeries,
+                removalTimes = seriesRemovalTimes,
+            )
+            val remoteBySyncId = cloudBooks.mapNotNull { remote ->
+                remote.syncId?.lowercase()?.let { it to remote }
+            }.toMap()
+            rawBooks.forEach { book ->
+                val remote = book.syncId?.lowercase()?.let(remoteBySyncId::get) ?: return@forEach
+                val localModifiedAt = bookStateModifiedTimes[book.id] ?: 0L
+                if (isLocalBookStateNewer(localModifiedAt, remote.syncedStateModifiedAt)) {
+                    pendingBookStateIds += book.id
+                    return@forEach
+                }
+                pendingBookStateIds -= book.id
+                hiddenIds = hiddenIds.withMembership(book.id, remote.syncedHidden)
+                favoriteIds = favoriteIds.withMembership(book.id, remote.syncedFavorite)
+                readIds = readIds.withMembership(book.id, remote.syncedRead)
+                progress = progress + (book.id to remote.syncedProgress)
+                customTitles = if (remote.syncedCustomTitle == null) customTitles - book.id
+                else customTitles + (book.id to remote.syncedCustomTitle)
+                bookStateModifiedTimes = bookStateModifiedTimes +
+                    (book.id to remote.syncedStateModifiedAt)
+                remote.syncedSeries?.name?.let { seriesName ->
+                    favoriteSeriesNames = favoriteSeriesNames.withMembership(
+                        seriesName,
+                        remote.syncedSeriesFavorite,
+                    )
+                }
+            }
+            if (
+                legacyIdAliases.isNotEmpty() ||
+                cloudBooks.any(LibraryBook::hasSyncedSeriesState) ||
+                customSeries != localSeries ||
+                seriesRemovalTimes != localSeriesRemovalTimes
+            ) {
+                libraryPreferenceStore.saveHiddenIds(hiddenIds)
+                libraryPreferenceStore.saveFavoriteIds(favoriteIds)
+                libraryPreferenceStore.saveReadIds(readIds)
+                libraryPreferenceStore.saveProgress(progress)
+                libraryPreferenceStore.saveCustomSeries(customSeries)
+                libraryPreferenceStore.saveSeriesRemovalTimes(seriesRemovalTimes)
+                libraryPreferenceStore.savePendingSeriesSyncIds(pendingSeriesSyncIds)
+                libraryPreferenceStore.savePendingBookStateSyncIds(pendingBookStateIds)
+                libraryPreferenceStore.saveBookStateModifiedTimes(bookStateModifiedTimes)
+                libraryPreferenceStore.saveCustomTitles(customTitles)
+                libraryPreferenceStore.saveFavoriteSeriesNames(favoriteSeriesNames)
+            }
+            // Pending IDs can outlive deleted or migrated books. Persist the sanitized queues
+            // even when no other library preference changed so an impossible item cannot stay
+            // visible as "대기" forever.
+            libraryPreferenceStore.savePendingSeriesSyncIds(pendingSeriesSyncIds)
+            libraryPreferenceStore.savePendingBookStateSyncIds(pendingBookStateIds)
+            libraryPreferenceStore.saveBookStateModifiedTimes(bookStateModifiedTimes)
+            val allBooks = (localBooks + cloudBooks).map { book ->
                     val customTitle = customTitles[book.id]
                     if (customTitle != null) book.copy(title = customTitle, originalTitle = customTitle)
                     else book.copy(title = preferredLocalizedTitle(book.originalTitle))
                 }
+            val previousActiveBook = uiState.activeLibraryBook
+            val savedActiveBookId = previousActiveBook?.id ?: libraryPreferenceStore.loadActiveBookId()
+            val refreshedActiveBook = savedActiveBookId?.let { savedId ->
+                val activeId = legacyIdAliases[savedId] ?: savedId
+                allBooks.firstOrNull { it.id == activeId }
+                    ?.withPreservedReaderPages(previousActiveBook)
+            }
+            if (refreshedActiveBook != null && refreshedActiveBook.id != savedActiveBookId) {
+                libraryPreferenceStore.saveActiveBookId(refreshedActiveBook.id)
+            } else if (savedActiveBookId != null && refreshedActiveBook == null && librarySnapshotComplete) {
+                libraryPreferenceStore.saveActiveBookId(null)
+            }
+            val readerReadyBooks = refreshedActiveBook?.let { active ->
+                allBooks.map { if (it.id == active.id) active else it }
+            } ?: allBooks
             uiState = uiState.copy(
-                libraryBooks = allBooks,
+                libraryBooks = readerReadyBooks,
                 libraryHiddenIds = hiddenIds,
+                libraryFavoriteIds = favoriteIds,
+                libraryReadIds = readIds,
+                libraryProgress = progress,
+                customSeriesByBookId = customSeries,
+                libraryFavoriteSeriesNames = favoriteSeriesNames,
                 desktopLibraryLocations = cloudBooks.distinctBy(LibraryBook::locationUri).map { book ->
                     StorageLocation(book.locationUri, book.locationName, isCloud = true)
                 },
                 desktopDownloadPath = desktopDownloadPath,
-                activeLibraryBook = uiState.activeLibraryBook?.let { active ->
-                    allBooks.firstOrNull { it.id == active.id }
-                },
+                activeLibraryBook = refreshedActiveBook,
+                isLibraryBookLoading = refreshedActiveBook?.hasResolvedReaderPages() == false,
                 isLibraryScanning = false,
-                libraryScanError = result.errors.takeIf { it.isNotEmpty() }?.joinToString("\n"),
+                isLibraryPullRefreshing = false,
+                libraryScanError = (result.errors + listOfNotNull(cloudError))
+                    .takeIf { it.isNotEmpty() }
+                    ?.joinToString("\n"),
+                librarySyncPendingCount = pendingSeriesSyncIds.size + pendingBookStateIds.size,
+                libraryLastSyncedAt = if (profile != null && cloudError == null) {
+                    System.currentTimeMillis()
+                } else uiState.libraryLastSyncedAt,
+                librarySyncError = cloudError,
             )
-            if (uiState.libraryLocations != scannedLocations) refreshLibrary()
+            refreshedActiveBook
+                ?.takeUnless(LibraryBook::hasResolvedReaderPages)
+                ?.let(::prepareActiveLibraryBook)
+            if (profile != null && (pendingSeriesSyncIds.isNotEmpty() || pendingBookStateIds.isNotEmpty())) {
+                flushPendingLibrarySync(profile, readerReadyBooks)
+            }
+            if (uiState.isLibrarySyncing) {
+                val remaining = pendingLibrarySyncCount()
+                uiState = uiState.copy(
+                    isLibrarySyncing = false,
+                    librarySyncPendingCount = remaining,
+                    libraryLastSyncedAt = if (remaining == 0) {
+                        System.currentTimeMillis()
+                    } else uiState.libraryLastSyncedAt,
+                    message = if (remaining == 0) {
+                        "라이브러리 동기화를 완료했습니다."
+                    } else {
+                        "동기화되지 않은 변경사항이 ${remaining}개 남아 있습니다."
+                    },
+                    isError = remaining > 0,
+                )
+            } else if (showPullFeedback) {
+                val refreshError = uiState.libraryScanError
+                uiState = uiState.copy(
+                    message = if (refreshError == null) {
+                        "라이브러리를 새로고침했습니다."
+                    } else {
+                        "라이브러리 새로고침을 완료했지만 일부 항목을 불러오지 못했습니다."
+                    },
+                    isError = refreshError != null,
+                )
+            }
+            if (uiState.libraryLocations != scannedLocations) refreshLibrarySilently()
         }
     }
 
@@ -607,56 +870,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
         val readIds = uiState.libraryReadIds + bookId
         libraryPreferenceStore.saveReadIds(readIds)
+        libraryPreferenceStore.saveActiveBookId(bookId)
         uiState = uiState.copy(
             activeLibraryBook = book,
             libraryReadIds = readIds,
-            isLibraryBookLoading = book.isCloud || book.pages.any { it.uri.isBlank() },
+            isLibraryBookLoading = !book.hasResolvedReaderPages(),
             libraryScanError = null,
         )
-        if (book.isCloud) {
-            val profile = selectedProfile() ?: return
-            val remoteId = book.remoteBookId ?: return
-            viewModelScope.launch {
-                runCatching { client.getLibraryBookPages(profile, remoteId) }
-                    .onSuccess { urls ->
-                        val prepared = book.copy(
-                            pages = urls.mapIndexed { index, url -> LibraryPage(url, "${index + 1}") },
-                            coverUriOverride = urls.firstOrNull() ?: book.coverUri,
-                        )
-                        uiState = uiState.copy(
-                            activeLibraryBook = prepared,
-                            libraryBooks = uiState.libraryBooks.map {
-                                if (it.id == prepared.id) prepared else it
-                            },
-                            isLibraryBookLoading = false,
-                        )
-                    }
-                    .onFailure { error ->
-                        uiState = uiState.copy(
-                            isLibraryBookLoading = false,
-                            libraryScanError = error.message ?: "데스크톱 페이지를 불러올 수 없습니다.",
-                        )
-                    }
+        enqueueBookStateSync(setOf(bookId), addHistory = true)
+        prepareActiveLibraryBook(book)
+    }
+
+    private fun prepareActiveLibraryBook(book: LibraryBook) {
+        if (book.hasResolvedReaderPages()) {
+            if (uiState.activeLibraryBook?.id == book.id) {
+                uiState = uiState.copy(isLibraryBookLoading = false)
             }
-        } else if (book.pages.any { it.uri.isBlank() }) {
-            viewModelScope.launch {
-                runCatching { libraryArchiveExtractor.materialize(book) }
-                    .onSuccess { prepared ->
-                        uiState = uiState.copy(
-                            activeLibraryBook = prepared,
-                            libraryBooks = uiState.libraryBooks.map {
-                                if (it.id == prepared.id) prepared else it
-                            },
-                            isLibraryBookLoading = false,
-                        )
-                    }
-                    .onFailure { error ->
-                        uiState = uiState.copy(
-                            isLibraryBookLoading = false,
-                            libraryScanError = error.message ?: "압축파일을 열 수 없습니다.",
-                        )
-                    }
+            return
+        }
+        val preparation: suspend () -> LibraryBook = if (book.isCloud) {
+            val profile = selectedProfile()
+            val remoteId = book.remoteBookId
+            if (profile == null || remoteId == null) {
+                if (uiState.activeLibraryBook?.id == book.id) {
+                    uiState = uiState.copy(
+                        isLibraryBookLoading = false,
+                        libraryScanError = "데스크톱 연결을 복구한 뒤 다시 시도해 주세요.",
+                    )
+                }
+                return
             }
+            suspend {
+                val urls = client.getLibraryBookPages(profile, remoteId)
+                book.copy(
+                    pages = urls.mapIndexed { index, url -> LibraryPage(url, "${index + 1}") },
+                    coverUriOverride = urls.firstOrNull() ?: book.coverUri,
+                )
+            }
+        } else {
+            suspend { libraryArchiveExtractor.materialize(book) }
+        }
+        activeBookPreparationJob?.cancel()
+        activeBookPreparationJob = viewModelScope.launch {
+            runCatching { preparation() }
+                .onSuccess { prepared ->
+                    val activeMatches = uiState.activeLibraryBook?.id == prepared.id
+                    uiState = uiState.copy(
+                        activeLibraryBook = if (activeMatches) prepared else uiState.activeLibraryBook,
+                        libraryBooks = uiState.libraryBooks.map {
+                            if (it.id == prepared.id) prepared else it
+                        },
+                        isLibraryBookLoading = if (activeMatches) false else uiState.isLibraryBookLoading,
+                        libraryScanError = if (activeMatches) null else uiState.libraryScanError,
+                    )
+                }
+                .onFailure { error ->
+                    if (uiState.activeLibraryBook?.id == book.id) {
+                        uiState = uiState.copy(
+                            isLibraryBookLoading = false,
+                            libraryScanError = error.message ?: if (book.isCloud) {
+                                "데스크톱 페이지를 불러올 수 없습니다."
+                            } else {
+                                "압축파일을 열 수 없습니다."
+                            },
+                        )
+                    }
+                }
         }
     }
 
@@ -666,6 +945,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         libraryPreferenceStore.saveFavoriteIds(ids)
         uiState = uiState.copy(libraryFavoriteIds = ids)
+        enqueueBookStateSync(setOf(bookId))
     }
 
     fun toggleLibrarySeriesFavorite(seriesName: String) {
@@ -674,6 +954,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         libraryPreferenceStore.saveFavoriteSeriesNames(names)
         uiState = uiState.copy(libraryFavoriteSeriesNames = names)
+        enqueueBookStateSync(
+            uiState.customSeriesByBookId.filterValues { it.name == seriesName }.keys,
+        )
     }
 
     fun toggleLibraryRead(bookId: String) {
@@ -682,29 +965,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         libraryPreferenceStore.saveReadIds(ids)
         uiState = uiState.copy(libraryReadIds = ids)
+        enqueueBookStateSync(setOf(bookId))
     }
 
     fun addLibraryFavorites(bookIds: Set<String>) {
         val ids = uiState.libraryFavoriteIds + bookIds
         libraryPreferenceStore.saveFavoriteIds(ids)
         uiState = uiState.copy(libraryFavoriteIds = ids)
+        enqueueBookStateSync(bookIds)
     }
 
     fun markLibraryBooksRead(bookIds: Set<String>) {
         val ids = uiState.libraryReadIds + bookIds
         libraryPreferenceStore.saveReadIds(ids)
         uiState = uiState.copy(libraryReadIds = ids)
+        enqueueBookStateSync(bookIds)
     }
 
     fun markLibraryBooksUnread(bookIds: Set<String>) {
         val ids = uiState.libraryReadIds - bookIds
         libraryPreferenceStore.saveReadIds(ids)
         uiState = uiState.copy(libraryReadIds = ids)
+        enqueueBookStateSync(bookIds)
     }
 
     fun assignLibrarySeries(bookIds: Set<String>, seriesName: String) {
         val name = seriesName.trim()
         if (name.isEmpty()) return
+        if (!ensureValidSeriesName(name)) return
         val modifiedAt = System.currentTimeMillis()
         val affectedNames = bookIds.mapNotNullTo(linkedSetOf()) { id ->
             uiState.customSeriesByBookId[id]?.name?.takeIf { it != name }
@@ -723,11 +1011,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         val assignments = touchSeriesAssignments(
-            reindexSeriesAssignments(uiState.customSeriesByBookId + additions),
+            reindexSeriesAssignments(uiState.customSeriesByBookId + additions, affectedNames),
             affectedNames,
             modifiedAt,
         )
-        libraryPreferenceStore.saveCustomSeries(assignments)
+        persistCustomSeries(assignments)
         uiState = uiState.copy(customSeriesByBookId = assignments)
     }
 
@@ -738,14 +1026,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (candidates.size < 2) {
             uiState = uiState.copy(
-                seriesAutoCreateStatus = "자동 생성할 미분류 갤러리가 부족합니다.",
+                message = "자동 생성할 미분류 갤러리가 부족합니다.",
                 isError = false,
             )
             return
         }
         uiState = uiState.copy(
             isAutoCreatingSeries = true,
-            seriesAutoCreateStatus = "미분류 갤러리 ${candidates.size}개를 분석하는 중…",
+            message = null,
             isError = false,
         )
         viewModelScope.launch {
@@ -786,7 +1074,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 if (groups.isEmpty()) {
                     uiState = uiState.copy(
-                        seriesAutoCreateStatus = "같은 작가와 유사한 제목을 가진 갤러리를 찾지 못했습니다.",
+                        message = "같은 작가와 유사한 제목을 가진 갤러리를 찾지 못했습니다.",
                         isError = false,
                     )
                     return@launch
@@ -807,16 +1095,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                 }
                 val indexed = reindexSeriesAssignments(assignments)
-                libraryPreferenceStore.saveCustomSeries(indexed)
+                persistCustomSeries(indexed)
                 uiState = uiState.copy(
                     customSeriesByBookId = indexed,
-                    seriesAutoCreateStatus = "${groups.size}개 시리즈를 자동 생성했습니다.",
+                    message = "${groups.size}개 시리즈를 자동 생성했습니다.",
                     isError = false,
                 )
             } catch (error: Exception) {
                 uiState = uiState.copy(
-                    seriesAutoCreateStatus = "자동 생성에 실패했습니다: ${error.message ?: "알 수 없는 오류"}",
-                    isError = false,
+                    message = "자동 생성에 실패했습니다: ${error.message ?: "알 수 없는 오류"}",
+                    isError = true,
                 )
             } finally {
                 uiState = uiState.copy(isAutoCreatingSeries = false)
@@ -824,39 +1112,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun moveLibrarySeriesBook(bookId: String, offset: Int) {
-        val assignment = uiState.customSeriesByBookId[bookId] ?: return
-        val orderedIds = uiState.customSeriesByBookId
-            .filterValues { it.name == assignment.name }
-            .entries.sortedWith(compareBy({ it.value.order }, { it.key }))
+    fun reorderLibrarySeriesBooks(orderedBookIds: List<String>) {
+        val requestedIds = orderedBookIds.distinct()
+        val seriesName = requestedIds.firstNotNullOfOrNull { id ->
+            uiState.customSeriesByBookId[id]?.name
+        } ?: return
+        val knownIds = uiState.libraryBooks.mapTo(hashSetOf(), LibraryBook::id)
+        val currentIds = uiState.customSeriesByBookId.entries.asSequence()
+            .filter { (id, assignment) -> id in knownIds && assignment.name == seriesName }
+            .sortedWith(compareBy({ it.value.order }, { it.key }))
             .map { it.key }
-            .toMutableList()
-        val from = orderedIds.indexOf(bookId)
-        val to = (from + offset).coerceIn(0, orderedIds.lastIndex)
-        if (from < 0 || from == to) return
-        val moved = orderedIds.removeAt(from)
-        orderedIds.add(to, moved)
+            .toList()
+        val movableIds = requestedIds.filter { id ->
+            id in currentIds && uiState.customSeriesByBookId[id]?.name == seriesName
+        }
+        if (movableIds.size < 2) return
+        val movableSet = movableIds.toHashSet()
+        val replacements = movableIds.iterator()
+        val reorderedIds = currentIds.map { id ->
+            if (id in movableSet) replacements.next() else id
+        }
+        if (reorderedIds == currentIds) return
         val assignments = uiState.customSeriesByBookId.toMutableMap()
         val modifiedAt = System.currentTimeMillis()
-        orderedIds.forEachIndexed { order, id ->
+        reorderedIds.forEachIndexed { order, id ->
             assignments[id] = assignments.getValue(id).copy(
                 order = order,
                 modifiedAt = modifiedAt,
             )
         }
-        libraryPreferenceStore.saveCustomSeries(assignments)
+        persistCustomSeries(assignments)
         uiState = uiState.copy(customSeriesByBookId = assignments)
     }
 
     fun setLibraryBooksHidden(bookIds: Set<String>, hidden: Boolean) {
         val updated = if (hidden) uiState.libraryHiddenIds + bookIds else uiState.libraryHiddenIds - bookIds
         libraryPreferenceStore.saveHiddenIds(updated)
+        if (hidden && uiState.activeLibraryBook?.id in bookIds) {
+            libraryPreferenceStore.saveActiveBookId(null)
+            activeBookPreparationJob?.cancel()
+        }
         uiState = uiState.copy(
             libraryHiddenIds = updated,
             activeLibraryBook = uiState.activeLibraryBook?.takeUnless { hidden && it.id in bookIds },
             message = if (hidden) "선택한 갤러리를 숨겼습니다." else "선택한 갤러리의 숨김을 해제했습니다.",
             isError = false,
         )
+        enqueueBookStateSync(bookIds)
     }
 
     fun deleteLibraryBooks(bookIds: Set<String>) {
@@ -900,6 +1202,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun removeDeletedLibraryState(bookIds: Set<String>) {
+        if (uiState.activeLibraryBook?.id in bookIds) {
+            libraryPreferenceStore.saveActiveBookId(null)
+            activeBookPreparationJob?.cancel()
+        }
         val hidden = uiState.libraryHiddenIds - bookIds
         libraryPreferenceStore.saveHiddenIds(hidden)
         val favorites = uiState.libraryFavoriteIds - bookIds
@@ -910,6 +1216,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         libraryPreferenceStore.saveProgress(progress)
         val series = uiState.customSeriesByBookId - bookIds
         libraryPreferenceStore.saveCustomSeries(series)
+        libraryPreferenceStore.saveSeriesRemovalTimes(
+            libraryPreferenceStore.loadSeriesRemovalTimes() - bookIds,
+        )
+        libraryPreferenceStore.savePendingSeriesSyncIds(
+            libraryPreferenceStore.loadPendingSeriesSyncIds() - bookIds,
+        )
+        libraryPreferenceStore.savePendingBookStateSyncIds(
+            libraryPreferenceStore.loadPendingBookStateSyncIds() - bookIds,
+        )
         val titles = libraryPreferenceStore.loadCustomTitles() - bookIds
         libraryPreferenceStore.saveCustomTitles(titles)
         uiState = uiState.copy(
@@ -936,6 +1251,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (it.id == bookId) it.copy(title = normalized, originalTitle = normalized) else it
             },
         )
+        enqueueBookStateSync(setOf(bookId))
     }
 
     fun removeLibraryBooksFromSeries(bookIds: Set<String>) {
@@ -946,13 +1262,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             affectedNames,
             modifiedAt,
         )
-        libraryPreferenceStore.saveCustomSeries(assignments)
+        persistCustomSeries(assignments)
         uiState = uiState.copy(customSeriesByBookId = assignments)
     }
 
     fun renameLibrarySeries(oldName: String, newName: String) {
         val normalized = newName.trim()
         if (normalized.isEmpty() || oldName == normalized) return
+        if (!ensureValidSeriesName(normalized)) return
         val modifiedAt = System.currentTimeMillis()
         val renamed = uiState.customSeriesByBookId.mapValues { (_, assignment) ->
             if (assignment.name == oldName) {
@@ -960,7 +1277,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else assignment
         }
         val assignments = reindexSeriesAssignments(renamed)
-        libraryPreferenceStore.saveCustomSeries(assignments)
+        persistCustomSeries(assignments)
         val favorites = uiState.libraryFavoriteSeriesNames.toMutableSet().apply {
             if (remove(oldName)) add(normalized)
         }
@@ -975,6 +1292,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val names = seriesNames.distinct()
         val name = mergedName.trim()
         if (names.size < 2 || name.isEmpty()) return
+        if (!ensureValidSeriesName(name)) return
         val modifiedAt = System.currentTimeMillis()
         val selectedEntries = names.flatMap { sourceName ->
             uiState.customSeriesByBookId.entries
@@ -995,7 +1313,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             setOf(name),
             modifiedAt,
         )
-        libraryPreferenceStore.saveCustomSeries(indexed)
+        persistCustomSeries(indexed)
         val keepFavorite = names.firstOrNull() in uiState.libraryFavoriteSeriesNames
         val favorites = uiState.libraryFavoriteSeriesNames.toMutableSet().apply {
             removeAll(names.toSet())
@@ -1012,7 +1330,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val assignments = reindexSeriesAssignments(
             uiState.customSeriesByBookId.filterValues { it.name !in names },
         )
-        libraryPreferenceStore.saveCustomSeries(assignments)
+        persistCustomSeries(assignments)
         val favorites = uiState.libraryFavoriteSeriesNames - names
         libraryPreferenceStore.saveFavoriteSeriesNames(favorites)
         uiState = uiState.copy(
@@ -1039,8 +1357,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun reindexSeriesAssignments(
         assignments: Map<String, CustomSeriesAssignment>,
+        names: Set<String>? = null,
     ): Map<String, CustomSeriesAssignment> = buildMap {
+        if (names != null) {
+            assignments.filterValues { it.name !in names }.forEach(::put)
+        }
         assignments.entries.groupBy { it.value.name }.forEach { (name, entries) ->
+            if (names != null && name !in names) return@forEach
             val modifiedAt = entries.maxOfOrNull { it.value.modifiedAt } ?: 0L
             entries.sortedWith(compareBy({ it.value.order }, { it.key })).forEachIndexed { index, entry ->
                 put(entry.key, CustomSeriesAssignment(name, index, modifiedAt))
@@ -1061,6 +1384,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val progress = uiState.libraryProgress + (bookId to page.coerceAtLeast(0))
         libraryPreferenceStore.saveProgress(progress)
         uiState = uiState.copy(libraryProgress = progress)
+        enqueueBookStateSync(setOf(bookId))
+    }
+
+    private fun ensureValidSeriesName(name: String): Boolean {
+        if (name.length <= MAX_SERIES_NAME_LENGTH) return true
+        uiState = uiState.copy(
+            message = "시리즈 이름은 ${MAX_SERIES_NAME_LENGTH}자 이하로 입력해 주세요.",
+            isError = true,
+        )
+        return false
+    }
+
+    fun updateOnlineReaderProgress(galleryId: Long, page: Int) {
+        if (uiState.onlineReaderProgress[galleryId] == page) return
+        val progress = uiState.onlineReaderProgress + (galleryId to page.coerceAtLeast(0))
+        libraryPreferenceStore.saveOnlineProgress(progress)
+        uiState = uiState.copy(onlineReaderProgress = progress)
     }
 
     fun updateViewerPreferences(value: ViewerPreferences) {
@@ -1103,6 +1443,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             try {
                 val downloads = sortDownloadQueueNewest(client.getDownloads(profile))
+                val completedIds = downloads.asSequence()
+                    .filter { it.status == DownloadStatus.COMPLETED }
+                    .mapTo(hashSetOf(), DownloadQueueItem::id)
+                val hasNewCompletion = completedIds.any { it !in observedCompletedDownloadIds }
+                observedCompletedDownloadIds.clear()
+                observedCompletedDownloadIds += completedIds
                 uiState = uiState.copy(
                     downloadQueue = downloads,
                     downloadQueueError = null,
@@ -1114,6 +1460,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     },
                 )
                 notifyOnDownloadReconnect = false
+                if (hasNewCompletion) requestImportantLibraryRefresh()
             } catch (error: Exception) {
                 if (!silent) {
                     uiState = uiState.copy(
@@ -1511,6 +1858,623 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return cache
     }
 
+    private fun persistCustomSeries(assignments: Map<String, CustomSeriesAssignment>) {
+        libraryPreferenceStore.saveCustomSeries(assignments)
+        val changedIds = (uiState.customSeriesByBookId.keys + assignments.keys).filterTo(linkedSetOf()) {
+            uiState.customSeriesByBookId[it] != assignments[it]
+        }
+        if (changedIds.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val removalTimes = libraryPreferenceStore.loadSeriesRemovalTimes().toMutableMap()
+        changedIds.forEach { id ->
+            if (id in assignments) removalTimes.remove(id) else removalTimes[id] = now
+        }
+        libraryPreferenceStore.saveSeriesRemovalTimes(removalTimes)
+        val syncableIds = uiState.libraryBooks.asSequence()
+            .filter { it.id in changedIds && it.syncId != null }
+            .mapTo(linkedSetOf(), LibraryBook::id)
+        if (syncableIds.isNotEmpty()) {
+            libraryPreferenceStore.savePendingSeriesSyncIds(
+                libraryPreferenceStore.loadPendingSeriesSyncIds() + syncableIds,
+            )
+        }
+        scheduleLibrarySync()
+    }
+
+    private fun pendingLibrarySyncCount(): Int =
+        libraryPreferenceStore.loadPendingSeriesSyncIds().size +
+            libraryPreferenceStore.loadPendingBookStateSyncIds().size
+
+    private fun enqueueBookStateSync(changedIds: Set<String>, addHistory: Boolean = false) {
+        val syncableIds = uiState.libraryBooks.asSequence()
+            .filter { it.id in changedIds && it.syncId != null }
+            .mapTo(linkedSetOf(), LibraryBook::id)
+        if (syncableIds.isEmpty()) return
+        val modifiedAt = System.currentTimeMillis()
+        libraryPreferenceStore.saveBookStateModifiedTimes(
+            libraryPreferenceStore.loadBookStateModifiedTimes() +
+                syncableIds.associateWith { modifiedAt },
+        )
+        val pending = libraryPreferenceStore.loadPendingBookStateSyncIds() + syncableIds
+        libraryPreferenceStore.savePendingBookStateSyncIds(pending)
+        if (addHistory) pendingHistoryBookIds += syncableIds
+        uiState = uiState.copy(librarySyncPendingCount = pendingLibrarySyncCount())
+        scheduleLibrarySync()
+    }
+
+    fun onAppForegrounded() {
+        startConnectionMonitoring()
+        if (!hasEnteredForeground) {
+            hasEnteredForeground = true
+        }
+        scheduleLibrarySync(0L)
+    }
+
+    fun onAppBackgrounded() {
+        stopConnectionMonitoring()
+        reconnectLibraryRefreshJob?.cancel()
+        librarySyncDebounceJob?.cancel()
+        librarySyncDebounceJob = viewModelScope.launch { flushPendingLibrarySync() }
+    }
+
+    private fun requestImportantLibraryRefresh() {
+        importantLibraryRefreshJob?.cancel()
+        importantLibraryRefreshJob = viewModelScope.launch {
+            while (uiState.isLibraryScanning || uiState.isLibrarySyncing) {
+                delay(IMPORTANT_LIBRARY_REFRESH_RETRY_MS)
+            }
+            refreshLibrarySilently()
+        }
+    }
+
+    private fun requestReconnectLibraryRefresh() {
+        reconnectLibraryRefreshJob?.cancel()
+        reconnectLibraryRefreshJob = viewModelScope.launch {
+            while (uiState.isLibraryScanning) {
+                delay(IMPORTANT_LIBRARY_REFRESH_RETRY_MS)
+            }
+            refreshLibrarySilently()
+        }
+    }
+
+    private fun scheduleLibrarySync(delayMs: Long = LIBRARY_SYNC_DEBOUNCE_MS) {
+        uiState = uiState.copy(librarySyncPendingCount = pendingLibrarySyncCount())
+        if (pendingLibrarySyncCount() == 0) return
+        librarySyncDebounceJob?.cancel()
+        librarySyncDebounceJob = viewModelScope.launch {
+            delay(delayMs)
+            flushPendingLibrarySync()
+        }
+    }
+
+    private suspend fun flushPendingLibrarySync(
+        profileOverride: DesktopProfile? = null,
+        booksOverride: List<LibraryBook>? = null,
+    ) = librarySyncFlushMutex.withLock {
+        val profile = profileOverride ?: selectedProfile() ?: return@withLock
+        if (uiState.isLibraryScanning && booksOverride == null) {
+            scheduleLibrarySync(LIBRARY_SYNC_SCAN_RETRY_MS)
+            return@withLock
+        }
+        val books = booksOverride ?: uiState.libraryBooks
+        val pendingSeriesIds = libraryPreferenceStore.loadPendingSeriesSyncIds()
+        val pendingBookIds = libraryPreferenceStore.loadPendingBookStateSyncIds()
+        val uploadFailures = uploadMissingLocalBooks(profile, books, pendingSeriesIds + pendingBookIds)
+        if (uploadFailures.isNotEmpty()) {
+            uiState = uiState.copy(
+                librarySyncError = uploadFailures.joinToString("\n"),
+                message = "${uploadFailures.size}개 로컬 파일을 데스크톱으로 전송하지 못했습니다.",
+                isError = true,
+            )
+        }
+        if (pendingSeriesIds.isNotEmpty()) {
+            syncSeriesUpdates(
+                profile = profile,
+                books = books,
+                assignments = libraryPreferenceStore.loadCustomSeries(),
+                removalTimes = libraryPreferenceStore.loadSeriesRemovalTimes(),
+                ids = pendingSeriesIds,
+                uploadLocalBooks = false,
+            )
+        }
+        if (pendingBookIds.isNotEmpty()) {
+            val historyIds = pendingBookIds.filterTo(linkedSetOf()) { it in pendingHistoryBookIds }
+            if (historyIds.isNotEmpty()) {
+                syncBookStateUpdates(
+                    profile,
+                    books,
+                    historyIds,
+                    addHistory = true,
+                    uploadLocalBooks = false,
+                )
+                pendingHistoryBookIds -= historyIds
+            }
+            val remainingIds = libraryPreferenceStore.loadPendingBookStateSyncIds()
+            if (remainingIds.isNotEmpty()) {
+                syncBookStateUpdates(profile, books, remainingIds, uploadLocalBooks = false)
+            }
+        }
+    }
+
+    private suspend fun syncBookStateUpdates(
+        profile: DesktopProfile,
+        books: List<LibraryBook>,
+        ids: Set<String>,
+        addHistory: Boolean = false,
+        uploadLocalBooks: Boolean = true,
+    ) = bookStateSyncMutex.withLock {
+        if (uploadLocalBooks) uploadMissingLocalBooks(profile, books, ids)
+        val customTitles = libraryPreferenceStore.loadCustomTitles()
+        val modifiedTimes = libraryPreferenceStore.loadBookStateModifiedTimes()
+        val updates = books.asSequence()
+            .filter { it.id in ids }
+            .mapNotNull { book ->
+                val syncId = book.syncId ?: return@mapNotNull null
+                val seriesName = uiState.customSeriesByBookId[book.id]?.name
+                BookStateSyncUpdate(
+                    bookSyncId = syncId,
+                    baseVersion = book.syncStateVersion,
+                    modifiedAt = modifiedTimes[book.id] ?: 0L,
+                    currentPage = uiState.libraryProgress[book.id] ?: 0,
+                    isFavorite = book.id in uiState.libraryFavoriteIds,
+                    isRead = book.id in uiState.libraryReadIds,
+                    isHidden = book.id in uiState.libraryHiddenIds,
+                    customTitle = customTitles[book.id],
+                    seriesFavorite = seriesName in uiState.libraryFavoriteSeriesNames,
+                    historyEventId = if (addHistory) UUID.randomUUID().toString() else null,
+                    historyViewedAt = if (addHistory) Instant.now().toString() else null,
+                )
+            }
+            .distinctBy { it.bookSyncId.lowercase() }
+            .toList()
+        if (updates.isEmpty()) return@withLock
+
+        var pending = updates
+        var conflictCount = 0
+        for (attempt in 0..BOOK_STATE_SYNC_MAX_RETRIES) {
+            val result = runCatching { client.saveBookStates(profile, pending) }.getOrNull()
+            if (result != null) {
+                conflictCount += result.count { it.conflict }
+                applyBookStateSyncConflicts(result, books)
+                val completedMutationIds = result.asSequence()
+                    .filter {
+                        it.status == "applied" || it.status == "duplicate" ||
+                            (it.status == "conflict" && it.state != null)
+                    }
+                    .mapTo(hashSetOf()) { it.mutationId }
+                pending = pending.filterNot { it.mutationId in completedMutationIds }
+                if (pending.isEmpty()) break
+            }
+            if (attempt < BOOK_STATE_SYNC_MAX_RETRIES) {
+                delay(BOOK_STATE_SYNC_RETRY_BASE_DELAY_MS shl attempt)
+            }
+        }
+
+        val failedSyncIds = pending.mapTo(hashSetOf()) { it.bookSyncId.lowercase() }
+        val attemptedIds = books.asSequence()
+            .filter { it.id in ids && it.syncId != null }
+            .mapTo(linkedSetOf(), LibraryBook::id)
+        val failedIds = books.asSequence()
+            .filter { it.id in attemptedIds && it.syncId?.lowercase() in failedSyncIds }
+            .mapTo(linkedSetOf(), LibraryBook::id)
+        val savedPending = (libraryPreferenceStore.loadPendingBookStateSyncIds() - attemptedIds) + failedIds
+        libraryPreferenceStore.savePendingBookStateSyncIds(savedPending)
+        uiState = uiState.copy(
+            librarySyncPendingCount = savedPending.size +
+                libraryPreferenceStore.loadPendingSeriesSyncIds().size,
+            librarySyncError = if (pending.isEmpty()) null
+            else "책 상태 ${pending.size}개를 동기화하지 못했습니다.",
+            message = when {
+                pending.isNotEmpty() -> "책 상태 ${pending.size}개를 동기화하지 못했습니다."
+                conflictCount > 0 -> "다른 기기의 변경 ${conflictCount}건을 확인하고 최신 상태로 저장했습니다."
+                else -> uiState.message
+            },
+            isError = pending.isNotEmpty(),
+        )
+    }
+
+    private fun applyBookStateSyncConflicts(
+        results: List<com.doujinmenu.android.network.BookStateSyncResult>,
+        books: List<LibraryBook>,
+    ) {
+        val remoteStates = results.mapNotNull { result ->
+            result.state?.takeIf { result.status == "conflict" }
+        }
+        applySyncedBookStates(remoteStates, books)
+    }
+
+    private suspend fun drainBookStateChanges(profile: DesktopProfile) =
+        bookStateChangeMutex.withLock {
+            var cursor = libraryPreferenceStore.loadBookStateSyncCursor(profile.id)
+            do {
+                val page = runCatching { client.getBookStateChanges(profile, cursor) }
+                    .getOrNull() ?: return@withLock
+                val remoteStates = page.changes.asSequence()
+                    .filterNot { it.deviceId == profile.id }
+                    .map { it.state }
+                    .toList()
+                applySyncedBookStates(remoteStates, uiState.libraryBooks)
+                cursor = page.cursor.coerceAtLeast(cursor)
+                libraryPreferenceStore.saveBookStateSyncCursor(profile.id, cursor)
+            } while (page.hasMore)
+        }
+
+    private fun applySyncedBookStates(
+        remoteStates: List<SyncedBookState>,
+        books: List<LibraryBook>,
+    ) {
+        if (remoteStates.isEmpty()) return
+
+        var favoriteIds = libraryPreferenceStore.loadFavoriteIds()
+        var readIds = libraryPreferenceStore.loadReadIds()
+        var hiddenIds = libraryPreferenceStore.loadHiddenIds()
+        var progress = libraryPreferenceStore.loadProgress()
+        var customTitles = libraryPreferenceStore.loadCustomTitles()
+        var favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames()
+        var modifiedTimes = libraryPreferenceStore.loadBookStateModifiedTimes()
+        var pendingIds = libraryPreferenceStore.loadPendingBookStateSyncIds()
+        val booksBySyncId = books.groupBy { it.syncId?.lowercase() }
+        val acceptedStatesByBookId = mutableMapOf<String, SyncedBookState>()
+        remoteStates.forEach { state ->
+            booksBySyncId[state.bookSyncId.lowercase()].orEmpty().forEach { book ->
+                val localModifiedAt = modifiedTimes[book.id] ?: 0L
+                if (isLocalBookStateNewer(localModifiedAt, state.modifiedAt)) {
+                    pendingIds += book.id
+                    return@forEach
+                }
+                pendingIds -= book.id
+                acceptedStatesByBookId[book.id] = state
+                favoriteIds = favoriteIds.withMembership(book.id, state.isFavorite)
+                readIds = readIds.withMembership(book.id, state.isRead)
+                hiddenIds = hiddenIds.withMembership(book.id, state.isHidden)
+                progress = progress + (book.id to state.currentPage)
+                customTitles = if (state.customTitle == null) customTitles - book.id
+                else customTitles + (book.id to state.customTitle)
+                modifiedTimes = modifiedTimes + (book.id to state.modifiedAt)
+                uiState.customSeriesByBookId[book.id]?.name?.let { seriesName ->
+                    favoriteSeriesNames = favoriteSeriesNames.withMembership(
+                        seriesName,
+                        state.seriesFavorite,
+                    )
+                }
+            }
+        }
+        libraryPreferenceStore.saveFavoriteIds(favoriteIds)
+        libraryPreferenceStore.saveReadIds(readIds)
+        libraryPreferenceStore.saveHiddenIds(hiddenIds)
+        libraryPreferenceStore.saveProgress(progress)
+        libraryPreferenceStore.saveCustomTitles(customTitles)
+        libraryPreferenceStore.saveFavoriteSeriesNames(favoriteSeriesNames)
+        libraryPreferenceStore.saveBookStateModifiedTimes(modifiedTimes)
+        libraryPreferenceStore.savePendingBookStateSyncIds(pendingIds)
+        fun LibraryBook.withSyncedState(): LibraryBook {
+            val state = acceptedStatesByBookId[id] ?: return this
+            return copy(
+                title = state.customTitle ?: title,
+                syncStateVersion = state.version,
+                syncedStateModifiedAt = state.modifiedAt,
+                syncedFavorite = state.isFavorite,
+                syncedRead = state.isRead,
+                syncedHidden = state.isHidden,
+                syncedProgress = state.currentPage,
+                syncedCustomTitle = state.customTitle,
+                syncedSeriesFavorite = state.seriesFavorite,
+            )
+        }
+        uiState = uiState.copy(
+            libraryBooks = uiState.libraryBooks.map(LibraryBook::withSyncedState),
+            activeLibraryBook = uiState.activeLibraryBook?.withSyncedState(),
+            libraryFavoriteIds = favoriteIds,
+            libraryReadIds = readIds,
+            libraryHiddenIds = hiddenIds,
+            libraryProgress = progress,
+            libraryFavoriteSeriesNames = favoriteSeriesNames,
+            librarySyncPendingCount = pendingIds.size +
+                libraryPreferenceStore.loadPendingSeriesSyncIds().size,
+        )
+        if (pendingIds.isNotEmpty()) scheduleLibrarySync()
+    }
+
+    fun syncLibraryNow() {
+        val profile = selectedProfile()
+        if (profile == null || uiState.isLibrarySyncing) {
+            if (profile == null) {
+                uiState = uiState.copy(
+                    librarySyncError = "먼저 데스크톱과 연결하세요.",
+                    message = "먼저 데스크톱과 연결하세요.",
+                    isError = true,
+                )
+            }
+            return
+        }
+        viewModelScope.launch {
+            librarySyncDebounceJob?.cancel()
+            uiState = uiState.copy(isLibrarySyncing = true, librarySyncError = null)
+            val queuedIds = libraryPreferenceStore.loadPendingSeriesSyncIds() +
+                libraryPreferenceStore.loadPendingBookStateSyncIds()
+            flushPendingLibrarySync(profile, uiState.libraryBooks)
+            val remainingIds = uiState.libraryBooks.asSequence()
+                .mapTo(linkedSetOf(), LibraryBook::id) - queuedIds
+            val failures = uploadMissingLocalBooks(profile, uiState.libraryBooks, remainingIds)
+            if (failures.isNotEmpty()) {
+                uiState = uiState.copy(
+                    isLibrarySyncing = false,
+                    librarySyncError = failures.joinToString("\n"),
+                    message = "${failures.size}개 파일을 데스크톱으로 전송하지 못했습니다.",
+                    isError = true,
+                )
+            }
+            refreshLibrarySilently()
+        }
+    }
+
+    private suspend fun syncSeriesUpdates(
+        profile: DesktopProfile,
+        books: List<LibraryBook>,
+        assignments: Map<String, CustomSeriesAssignment>,
+        removalTimes: Map<String, Long>,
+        ids: Set<String>,
+        uploadLocalBooks: Boolean = true,
+    ) = seriesSyncMutex.withLock {
+        val uploadFailures = if (uploadLocalBooks) {
+            uploadMissingLocalBooks(profile, books, ids)
+        } else {
+            emptyList()
+        }
+        if (uploadFailures.isNotEmpty()) {
+            uiState = uiState.copy(
+                librarySyncError = uploadFailures.joinToString("\n"),
+                message = "시리즈를 저장하기 전에 ${uploadFailures.size}개 로컬 파일을 전송하지 못했습니다.",
+                isError = true,
+            )
+        }
+        val updates = books.asSequence()
+            .filter { it.id in ids }
+            .mapNotNull { book ->
+                val syncId = book.syncId ?: return@mapNotNull null
+                val assignment = assignments[book.id]
+                val modifiedAt = assignment?.modifiedAt ?: removalTimes[book.id] ?: return@mapNotNull null
+                SeriesSyncUpdate(
+                    bookSyncId = syncId,
+                    assignment = assignment,
+                    modifiedAt = modifiedAt,
+                )
+            }
+            .groupBy { it.bookSyncId.lowercase() }
+            .map { (_, candidates) -> candidates.maxBy(SeriesSyncUpdate::modifiedAt) }
+            .toList()
+        if (updates.isEmpty()) return@withLock
+
+        val failed = mutableListOf<SeriesSyncUpdate>()
+        val failureMessages = linkedSetOf<String>()
+        updates.chunked(MAX_SERIES_SYNC_ASSIGNMENTS).forEach { batch ->
+            val outcome = syncSeriesBatchResilient(profile, batch)
+            failed += outcome.failed
+            outcome.errorMessage?.let(failureMessages::add)
+            settleSeriesPendingBatch(
+                books = books,
+                attempted = batch,
+                failed = outcome.failed,
+                remoteWinnerSyncIds = outcome.remoteWinnerSyncIds,
+            )
+        }
+        if (failed.isNotEmpty()) {
+            val details = failureMessages.joinToString("\n").takeIf(String::isNotBlank)
+            uiState = uiState.copy(
+                librarySyncError = details ?: "시리즈 ${failed.size}개 항목을 데스크톱에 저장하지 못했습니다.",
+                message = buildString {
+                    append("시리즈 ${failed.size}개 항목을 데스크톱에 저장하지 못했습니다.")
+                    if (details != null) append(" ").append(details.lineSequence().first())
+                },
+                isError = true,
+            )
+        }
+        uiState = uiState.copy(
+            librarySyncPendingCount = pendingLibrarySyncCount(),
+        )
+    }
+
+    private fun settleSeriesPendingBatch(
+        books: List<LibraryBook>,
+        attempted: List<SeriesSyncUpdate>,
+        failed: List<SeriesSyncUpdate>,
+        remoteWinnerSyncIds: Set<String>,
+    ) {
+        val attemptedBySyncId = attempted.associateBy { it.bookSyncId.lowercase() }
+        val failedSyncIds = failed.mapTo(hashSetOf()) { it.bookSyncId.lowercase() }
+        val currentAssignments = libraryPreferenceStore.loadCustomSeries()
+        val currentRemovals = libraryPreferenceStore.loadSeriesRemovalTimes()
+        val completedIds = books.asSequence().mapNotNull { book ->
+            val syncId = book.syncId?.lowercase() ?: return@mapNotNull null
+            val update = attemptedBySyncId[syncId] ?: return@mapNotNull null
+            if (syncId in failedSyncIds) return@mapNotNull null
+            val currentAssignment = currentAssignments[book.id]
+            val stillSameLocalRevision = if (update.assignment == null) {
+                currentAssignment == null && currentRemovals[book.id] == update.modifiedAt
+            } else {
+                currentAssignment?.modifiedAt == update.modifiedAt &&
+                    currentAssignment.sameSeriesStateAs(update.assignment)
+            }
+            book.id.takeIf { stillSameLocalRevision || syncId in remoteWinnerSyncIds }
+        }.toSet()
+        libraryPreferenceStore.savePendingSeriesSyncIds(
+            libraryPreferenceStore.loadPendingSeriesSyncIds() - completedIds,
+        )
+        uiState = uiState.copy(librarySyncPendingCount = pendingLibrarySyncCount())
+    }
+
+    private suspend fun uploadMissingLocalBooks(
+        profile: DesktopProfile,
+        books: List<LibraryBook>,
+        ids: Set<String>? = null,
+    ): List<String> {
+        val remoteSyncIds = books.asSequence()
+            .filter(LibraryBook::isCloud)
+            .mapNotNull { it.syncId?.lowercase() }
+            .toHashSet()
+        val targets = books.asSequence()
+            .filterNot(LibraryBook::isCloud)
+            .filter { ids == null || it.id in ids }
+            .filter { book -> book.syncId?.lowercase()?.let { it !in remoteSyncIds } == true }
+            .distinctBy { it.syncId?.lowercase() }
+            .toList()
+        val failures = mutableListOf<String>()
+        targets.forEach { book ->
+            val prepared = runCatching { libraryUploadPreparer.prepare(book) }.getOrElse { error ->
+                failures += "${book.title}: ${error.message ?: "업로드 준비 실패"}"
+                return@forEach
+            }
+            var uploaded = false
+            var lastError: Throwable? = null
+            for (attempt in 0..FILE_UPLOAD_MAX_RETRIES) {
+                val result = runCatching {
+                    client.uploadLibraryArchive(
+                        profile = profile,
+                        archive = prepared.file,
+                        fileName = prepared.fileName,
+                        syncId = prepared.syncId,
+                    )
+                }
+                if (result.isSuccess) {
+                    uploaded = true
+                    break
+                }
+                lastError = result.exceptionOrNull()
+                if (attempt < FILE_UPLOAD_MAX_RETRIES) {
+                    delay(FILE_UPLOAD_RETRY_BASE_DELAY_MS shl attempt)
+                }
+            }
+            prepared.file.delete()
+            if (!uploaded) {
+                failures += "${book.title}: ${lastError?.message ?: "파일 업로드 실패"}"
+            }
+        }
+        return failures
+    }
+
+    private data class SeriesBatchOutcome(
+        val failed: List<SeriesSyncUpdate>,
+        val remoteWinnerSyncIds: Set<String>,
+        val errorMessage: String? = null,
+        val rejectedByClientError: Boolean = false,
+    )
+
+    private suspend fun syncSeriesBatchResilient(
+        profile: DesktopProfile,
+        updates: List<SeriesSyncUpdate>,
+    ): SeriesBatchOutcome {
+        val outcome = syncSeriesBatchWithRetry(profile, updates)
+        if (!outcome.rejectedByClientError || updates.size == 1) return outcome
+        val midpoint = updates.size / 2
+        val left = syncSeriesBatchResilient(profile, updates.subList(0, midpoint))
+        val right = syncSeriesBatchResilient(profile, updates.subList(midpoint, updates.size))
+        return SeriesBatchOutcome(
+            failed = left.failed + right.failed,
+            remoteWinnerSyncIds = left.remoteWinnerSyncIds + right.remoteWinnerSyncIds,
+            errorMessage = listOfNotNull(left.errorMessage, right.errorMessage)
+                .distinct()
+                .joinToString("\n")
+                .takeIf(String::isNotBlank),
+            rejectedByClientError = left.rejectedByClientError || right.rejectedByClientError,
+        )
+    }
+
+    private suspend fun syncSeriesBatchWithRetry(
+        profile: DesktopProfile,
+        updates: List<SeriesSyncUpdate>,
+    ): SeriesBatchOutcome {
+        var pending = updates
+        val remoteWinnerSyncIds = linkedSetOf<String>()
+        var lastError: Throwable? = null
+        repeat(SERIES_SYNC_MAX_RETRIES + 1) { attempt ->
+            val saveResult = runCatching { client.saveLibrarySeries(profile, pending) }
+            lastError = saveResult.exceptionOrNull() ?: lastError
+            saveResult.getOrNull()?.let { results ->
+                remoteWinnerSyncIds += applySeriesSyncConflicts(results)
+                val bySyncId = results.associateBy { it.bookSyncId.lowercase() }
+                pending = pending.filter { update ->
+                    when (bySyncId[update.bookSyncId.lowercase()]?.status) {
+                        "applied", "already_applied", "conflict" -> false
+                        else -> true
+                    }
+                }
+                if (pending.isEmpty()) {
+                    return SeriesBatchOutcome(emptyList(), remoteWinnerSyncIds)
+                }
+            }
+
+            val apiError = saveResult.exceptionOrNull() as? CompanionApiException
+            if (apiError?.statusCode?.let { it in 400..499 } == true) {
+                return SeriesBatchOutcome(
+                    failed = pending,
+                    remoteWinnerSyncIds = remoteWinnerSyncIds,
+                    errorMessage = apiError.message,
+                    rejectedByClientError = true,
+                )
+            }
+
+            val remoteBooks = if (saveResult.isFailure) {
+                runCatching { client.getLibraryBooks(profile) }.getOrNull()
+            } else null
+            if (remoteBooks != null) {
+                pending = pendingSeriesSyncUpdates(pending, remoteBooks)
+                if (pending.isEmpty()) {
+                    return SeriesBatchOutcome(emptyList(), remoteWinnerSyncIds)
+                }
+            }
+
+            if (attempt < SERIES_SYNC_MAX_RETRIES) {
+                delay(SERIES_SYNC_RETRY_BASE_DELAY_MS shl attempt)
+            }
+        }
+        return SeriesBatchOutcome(
+            failed = pending,
+            remoteWinnerSyncIds = remoteWinnerSyncIds,
+            errorMessage = lastError?.message,
+        )
+    }
+
+    private fun applySeriesSyncConflicts(results: List<SeriesSyncResult>): Set<String> {
+        val conflicts = results.filter { it.status == "conflict" }
+        if (conflicts.isEmpty()) return emptySet()
+        val assignments = uiState.customSeriesByBookId.toMutableMap()
+        val removals = libraryPreferenceStore.loadSeriesRemovalTimes().toMutableMap()
+        val booksBySyncId = uiState.libraryBooks.groupBy { it.syncId?.lowercase() }
+        val acceptedSyncIds = linkedSetOf<String>()
+        conflicts.forEach { result ->
+            val syncId = result.bookSyncId.lowercase()
+            val matchingBooks = booksBySyncId[syncId].orEmpty()
+            val newestLocalRevision = matchingBooks.maxOfOrNull { book ->
+                maxOf(assignments[book.id]?.modifiedAt ?: 0L, removals[book.id] ?: 0L)
+            } ?: 0L
+            if (newestLocalRevision > result.modifiedAt) return@forEach
+            acceptedSyncIds += syncId
+            matchingBooks.forEach { book ->
+                if (result.name == null) {
+                    assignments.remove(book.id)
+                    removals[book.id] = result.modifiedAt
+                } else {
+                    assignments[book.id] = CustomSeriesAssignment(
+                        name = result.name,
+                        order = result.order.coerceAtLeast(0),
+                        modifiedAt = result.modifiedAt,
+                    )
+                    removals.remove(book.id)
+                }
+            }
+        }
+        libraryPreferenceStore.saveCustomSeries(assignments)
+        libraryPreferenceStore.saveSeriesRemovalTimes(removals)
+        if (acceptedSyncIds.isNotEmpty()) {
+            uiState = uiState.copy(
+                customSeriesByBookId = assignments,
+                message = "다른 기기에서 먼저 변경된 시리즈 ${acceptedSyncIds.size}개는 데스크톱 상태를 적용했습니다.",
+                isError = false,
+            )
+        }
+        return acceptedSyncIds
+    }
+
     private companion object {
         const val PAIRING_CODE_LENGTH = 6
         const val GALLERY_DETAIL_CONCURRENCY = 4
@@ -1520,6 +2484,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val MAX_CACHED_GALLERIES = 200
         const val MAX_KNOWN_FILTER_TOKENS = 20_000
         const val MAX_VIEWED_GALLERIES = 50_000
+        const val MAX_SERIES_SYNC_ASSIGNMENTS = 25
+        const val MAX_SERIES_NAME_LENGTH = 500
+        const val LIBRARY_SYNC_DEBOUNCE_MS = 15_000L
+        const val LIBRARY_SYNC_SCAN_RETRY_MS = 1_000L
+        const val IMPORTANT_LIBRARY_REFRESH_RETRY_MS = 250L
+        const val SERIES_SYNC_MAX_RETRIES = 3
+        const val SERIES_SYNC_RETRY_BASE_DELAY_MS = 500L
+        const val FILE_UPLOAD_MAX_RETRIES = 3
+        const val FILE_UPLOAD_RETRY_BASE_DELAY_MS = 750L
+        const val BOOK_STATE_SYNC_MAX_RETRIES = 3
+        const val BOOK_STATE_SYNC_RETRY_BASE_DELAY_MS = 500L
         val FILTER_TYPES = listOf(
             "artist", "group", "type", "language", "series", "character", "male", "female", "tag",
         )
@@ -1540,6 +2515,118 @@ internal fun preferredLibraryBookForGalleryId(
     .filter { it.metadata.hitomiId?.toLongOrNull() == galleryId }
     .sortedBy(LibraryBook::isCloud)
     .firstOrNull()
+
+internal fun remapLibraryIds(
+    ids: Set<String>,
+    aliases: Map<String, String>,
+): Set<String> = ids.mapTo(linkedSetOf()) { aliases[it] ?: it }
+
+internal fun <T> remapLibraryIdKeys(
+    values: Map<String, T>,
+    aliases: Map<String, String>,
+): Map<String, T> = buildMap {
+    values.filterKeys { it !in aliases }.forEach(::put)
+    values.filterKeys { it in aliases }.forEach { (id, value) ->
+        putIfAbsent(aliases.getValue(id), value)
+    }
+}
+
+internal fun legacyLocalLibraryIdAliases(
+    books: List<LibraryBook>,
+): Map<String, String> = books.asSequence()
+    .filterNot(LibraryBook::isCloud)
+    .filter { it.folderUri.isNotBlank() && it.folderUri != it.id }
+    .associate { it.folderUri to it.id }
+
+internal fun LibraryBook.hasResolvedReaderPages(): Boolean =
+    pages.isNotEmpty() && pages.all { it.uri.isNotBlank() }
+
+internal fun LibraryBook.withPreservedReaderPages(previous: LibraryBook?): LibraryBook {
+    if (hasResolvedReaderPages() || previous?.hasResolvedReaderPages() != true) return this
+    val sameSource = if (isCloud) {
+        previous.isCloud && remoteBookId == previous.remoteBookId
+    } else {
+        !previous.isCloud && folderUri == previous.folderUri
+    }
+    val unchanged = sameSource &&
+        pages.size == previous.pages.size &&
+        modifiedAt == previous.modifiedAt
+    if (!unchanged) return this
+    return copy(
+        pages = previous.pages,
+        coverUriOverride = previous.coverUriOverride ?: coverUriOverride,
+    )
+}
+
+internal fun pendingSeriesSyncUpdates(
+    updates: List<SeriesSyncUpdate>,
+    remoteBooks: List<LibraryBook>,
+): List<SeriesSyncUpdate> {
+    val remoteBySyncId = remoteBooks.mapNotNull { book ->
+        book.syncId?.lowercase()?.let { it to book }
+    }.toMap()
+    return updates.filterNot { update ->
+        val remote = remoteBySyncId[update.bookSyncId.lowercase()] ?: return@filterNot false
+        remote.hasSyncedSeriesState &&
+            remote.syncedSeriesModifiedAt >= update.modifiedAt &&
+            remote.syncedSeries.sameSeriesStateAs(update.assignment)
+    }
+}
+
+internal fun isLocalBookStateNewer(localModifiedAt: Long, remoteModifiedAt: Long): Boolean =
+    localModifiedAt > remoteModifiedAt
+
+private fun CustomSeriesAssignment?.sameSeriesStateAs(
+    expected: CustomSeriesAssignment?,
+): Boolean = when {
+    this == null || expected == null -> this == null && expected == null
+    else -> name == expected.name && order == expected.order
+}
+
+private fun Set<String>.withMembership(value: String, included: Boolean): Set<String> =
+    if (included) this + value else this - value
+
+internal data class SeriesMergeResult(
+    val assignments: Map<String, CustomSeriesAssignment>,
+    val removalTimes: Map<String, Long>,
+    val localWinnerIds: Set<String>,
+)
+
+internal fun sanitizePendingSeriesSyncIds(
+    pending: Set<String>,
+    knownSyncableIds: Set<String>,
+    librarySnapshotComplete: Boolean,
+    assignments: Map<String, CustomSeriesAssignment>,
+    removalTimes: Map<String, Long>,
+): Set<String> = pending.filterTo(linkedSetOf()) { id ->
+    (!librarySnapshotComplete || id in knownSyncableIds) &&
+        (id in assignments || id in removalTimes)
+}
+
+internal fun mergeSyncedSeries(
+    local: Map<String, CustomSeriesAssignment>,
+    removalTimes: Map<String, Long>,
+    books: List<LibraryBook>,
+): SeriesMergeResult {
+    val merged = local.toMutableMap()
+    val mergedRemovalTimes = removalTimes.toMutableMap()
+    val localWinnerIds = linkedSetOf<String>()
+    books.filter(LibraryBook::hasSyncedSeriesState).forEach { book ->
+        val localModifiedAt = maxOf(
+            merged[book.id]?.modifiedAt ?: 0L,
+            mergedRemovalTimes[book.id] ?: 0L,
+        )
+        if (localModifiedAt > book.syncedSeriesModifiedAt) {
+            localWinnerIds += book.id
+        } else {
+            merged.remove(book.id)
+            mergedRemovalTimes.remove(book.id)
+            book.syncedSeries?.let { merged[book.id] = it }
+                ?: run { mergedRemovalTimes[book.id] = book.syncedSeriesModifiedAt }
+        }
+    }
+    return SeriesMergeResult(merged, mergedRemovalTimes, localWinnerIds)
+}
 
 private fun operationErrorMessage(error: Exception): String {
     val causes = generateSequence(error as Throwable?) { it.cause }.toList()

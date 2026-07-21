@@ -3,7 +3,11 @@ package com.doujinmenu.android.security
 import android.content.Context
 import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.ViewerPreferences
+import com.doujinmenu.android.model.ViewerPageTurnMode
+import com.doujinmenu.android.model.ViewerReadingDirection
 import com.doujinmenu.android.model.ViewerScale
+import com.doujinmenu.android.model.ViewerTapAction
+import com.doujinmenu.android.model.ViewerTapZones
 import org.json.JSONObject
 
 class LibraryPreferenceStore(context: Context) {
@@ -43,8 +47,11 @@ class LibraryPreferenceStore(context: Context) {
             json.keys().forEach { id ->
                 val value = json.opt(id)
                 if (value is JSONObject) {
-                    val name = value.optString("name").trim()
-                    if (name.isNotEmpty()) put(
+                    val name = value.takeUnless { it.isNull("name") }
+                        ?.optString("name")
+                        ?.trim()
+                        .orEmpty()
+                    if (name.isNotEmpty() && !name.equals("null", ignoreCase = true)) put(
                         id,
                         CustomSeriesAssignment(
                             name = name,
@@ -54,7 +61,7 @@ class LibraryPreferenceStore(context: Context) {
                     )
                 } else {
                     val name = value?.toString().orEmpty().trim()
-                    if (name.isNotEmpty()) {
+                    if (name.isNotEmpty() && !name.equals("null", ignoreCase = true)) {
                         val order = legacyOrders.getOrDefault(name, 0)
                         put(id, CustomSeriesAssignment(name, order))
                         legacyOrders[name] = order + 1
@@ -76,6 +83,63 @@ class LibraryPreferenceStore(context: Context) {
             )
         }
         preferences.edit().putString(KEY_CUSTOM_SERIES, json.toString()).apply()
+    }
+
+    fun loadSeriesRemovalTimes(): Map<String, Long> {
+        val json = runCatching {
+            JSONObject(preferences.getString(KEY_SERIES_REMOVAL_TIMES, "{}").orEmpty())
+        }.getOrNull() ?: return emptyMap()
+        return buildMap {
+            json.keys().forEach { id -> put(id, json.optLong(id, 0L)) }
+        }
+    }
+
+    fun saveSeriesRemovalTimes(times: Map<String, Long>) {
+        val json = JSONObject()
+        times.forEach { (id, modifiedAt) -> json.put(id, modifiedAt) }
+        preferences.edit().putString(KEY_SERIES_REMOVAL_TIMES, json.toString()).apply()
+    }
+
+    fun loadPendingSeriesSyncIds(): Set<String> =
+        preferences.getStringSet(KEY_PENDING_SERIES_SYNC, emptySet()).orEmpty().toSet()
+
+    fun savePendingSeriesSyncIds(ids: Set<String>) =
+        preferences.edit().putStringSet(KEY_PENDING_SERIES_SYNC, ids).apply()
+
+    fun loadPendingBookStateSyncIds(): Set<String> =
+        preferences.getStringSet(KEY_PENDING_BOOK_STATE_SYNC, emptySet()).orEmpty().toSet()
+
+    fun savePendingBookStateSyncIds(ids: Set<String>) =
+        preferences.edit().putStringSet(KEY_PENDING_BOOK_STATE_SYNC, ids).apply()
+
+    fun loadBookStateModifiedTimes(): Map<String, Long> {
+        val json = runCatching {
+            JSONObject(preferences.getString(KEY_BOOK_STATE_MODIFIED_TIMES, "{}").orEmpty())
+        }.getOrNull() ?: return emptyMap()
+        return buildMap {
+            json.keys().forEach { id -> put(id, json.optLong(id, 0L)) }
+        }
+    }
+
+    fun saveBookStateModifiedTimes(times: Map<String, Long>) {
+        val json = JSONObject()
+        times.forEach { (id, modifiedAt) -> json.put(id, modifiedAt) }
+        preferences.edit().putString(KEY_BOOK_STATE_MODIFIED_TIMES, json.toString()).apply()
+    }
+
+    fun loadBookStateSyncCursor(profileId: String): Long {
+        val json = runCatching {
+            JSONObject(preferences.getString(KEY_BOOK_STATE_SYNC_CURSORS, "{}").orEmpty())
+        }.getOrNull() ?: return 0L
+        return json.optLong(profileId, 0L).coerceAtLeast(0L)
+    }
+
+    fun saveBookStateSyncCursor(profileId: String, cursor: Long) {
+        val json = runCatching {
+            JSONObject(preferences.getString(KEY_BOOK_STATE_SYNC_CURSORS, "{}").orEmpty())
+        }.getOrElse { JSONObject() }
+        json.put(profileId, cursor.coerceAtLeast(0L))
+        preferences.edit().putString(KEY_BOOK_STATE_SYNC_CURSORS, json.toString()).apply()
     }
 
     fun loadHiddenIds(): Set<String> =
@@ -106,6 +170,16 @@ class LibraryPreferenceStore(context: Context) {
         }.getOrDefault(ViewerScale.FIT_SCREEN),
         showPageNumber = preferences.getBoolean(KEY_PAGE_NUMBER, true),
         keepScreenOn = preferences.getBoolean(KEY_KEEP_SCREEN_ON, true),
+        readingDirection = enumPreference(KEY_READING_DIRECTION, ViewerReadingDirection.LEFT_TO_RIGHT),
+        pageTurnMode = enumPreference(KEY_PAGE_TURN_MODE, ViewerPageTurnMode.SWIPE_AND_TAP),
+        customTapZonesEnabled = preferences.getBoolean(KEY_CUSTOM_TAP_ZONES_ENABLED, false),
+        tapZones = ViewerTapZones(
+            preferences.getString(KEY_TAP_ZONES, null)
+                ?.split(',')
+                ?.mapNotNull { value -> runCatching { ViewerTapAction.valueOf(value) }.getOrNull() }
+                ?.takeIf { it.size == 9 }
+                ?: ViewerTapZones.DEFAULT_ACTIONS,
+        ),
     )
 
     fun saveViewerPreferences(value: ViewerPreferences) {
@@ -113,8 +187,38 @@ class LibraryPreferenceStore(context: Context) {
             .putString(KEY_SCALE, value.scale.name)
             .putBoolean(KEY_PAGE_NUMBER, value.showPageNumber)
             .putBoolean(KEY_KEEP_SCREEN_ON, value.keepScreenOn)
+            .putString(KEY_READING_DIRECTION, value.readingDirection.name)
+            .putString(KEY_PAGE_TURN_MODE, value.pageTurnMode.name)
+            .putBoolean(KEY_CUSTOM_TAP_ZONES_ENABLED, value.customTapZonesEnabled)
+            .putString(KEY_TAP_ZONES, value.tapZones.actions.joinToString(",") { it.name })
             .apply()
     }
+
+    fun loadOnlineProgress(): Map<Long, Int> {
+        val json = runCatching { JSONObject(preferences.getString(KEY_ONLINE_PROGRESS, "{}").orEmpty()) }
+            .getOrNull() ?: return emptyMap()
+        return buildMap {
+            json.keys().forEach { key -> key.toLongOrNull()?.let { put(it, json.optInt(key, 0)) } }
+        }
+    }
+
+    fun saveOnlineProgress(progress: Map<Long, Int>) {
+        val json = JSONObject()
+        progress.forEach { (id, page) -> json.put(id.toString(), page) }
+        preferences.edit().putString(KEY_ONLINE_PROGRESS, json.toString()).apply()
+    }
+
+    fun loadActiveBookId(): String? =
+        preferences.getString(KEY_ACTIVE_BOOK_ID, null)?.takeIf(String::isNotBlank)
+
+    fun saveActiveBookId(bookId: String?) {
+        preferences.edit().apply {
+            if (bookId == null) remove(KEY_ACTIVE_BOOK_ID) else putString(KEY_ACTIVE_BOOK_ID, bookId)
+        }.apply()
+    }
+
+    private inline fun <reified T : Enum<T>> enumPreference(key: String, fallback: T): T =
+        runCatching { enumValueOf<T>(preferences.getString(key, null).orEmpty()) }.getOrDefault(fallback)
 
     fun loadLibraryViewMode(): String = preferences.getString(KEY_LIBRARY_VIEW_MODE, "GRID") ?: "GRID"
 
@@ -132,12 +236,23 @@ class LibraryPreferenceStore(context: Context) {
         const val KEY_SERIES_FAVORITES = "favorite_series_names"
         const val KEY_READ = "read_book_ids"
         const val KEY_PROGRESS = "book_progress"
+        const val KEY_ONLINE_PROGRESS = "online_gallery_progress"
+        const val KEY_ACTIVE_BOOK_ID = "active_library_book_id"
         const val KEY_CUSTOM_SERIES = "custom_book_series"
+        const val KEY_SERIES_REMOVAL_TIMES = "series_removal_times"
+        const val KEY_PENDING_SERIES_SYNC = "pending_series_sync_ids"
+        const val KEY_PENDING_BOOK_STATE_SYNC = "pending_book_state_sync_ids"
+        const val KEY_BOOK_STATE_MODIFIED_TIMES = "book_state_modified_times"
+        const val KEY_BOOK_STATE_SYNC_CURSORS = "book_state_sync_cursors"
         const val KEY_HIDDEN = "hidden_book_ids"
         const val KEY_CUSTOM_TITLES = "custom_book_titles"
         const val KEY_SCALE = "viewer_scale"
         const val KEY_PAGE_NUMBER = "viewer_page_number"
         const val KEY_KEEP_SCREEN_ON = "viewer_keep_screen_on"
+        const val KEY_READING_DIRECTION = "viewer_reading_direction"
+        const val KEY_PAGE_TURN_MODE = "viewer_page_turn_mode"
+        const val KEY_CUSTOM_TAP_ZONES_ENABLED = "viewer_custom_tap_zones_enabled"
+        const val KEY_TAP_ZONES = "viewer_tap_zones"
         const val KEY_LIBRARY_VIEW_MODE = "library_view_mode"
         const val KEY_LIBRARY_GRID_COLUMNS = "library_grid_columns"
     }
