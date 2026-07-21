@@ -17,6 +17,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.io.File
 import java.io.FileInputStream
+import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -43,6 +44,7 @@ data class BookStateSyncUpdate(
     val mutationId: String = UUID.randomUUID().toString(),
     val bookSyncId: String,
     val baseVersion: Long,
+    val modifiedAt: Long,
     val currentPage: Int,
     val isFavorite: Boolean,
     val isRead: Boolean,
@@ -58,6 +60,31 @@ data class BookStateSyncResult(
     val status: String,
     val conflict: Boolean,
     val version: Long,
+    val state: SyncedBookState? = null,
+)
+
+data class SyncedBookState(
+    val bookSyncId: String,
+    val currentPage: Int,
+    val isFavorite: Boolean,
+    val isRead: Boolean,
+    val isHidden: Boolean,
+    val customTitle: String?,
+    val seriesFavorite: Boolean,
+    val version: Long,
+    val modifiedAt: Long,
+)
+
+data class BookStateSyncChange(
+    val cursor: Long,
+    val deviceId: String,
+    val state: SyncedBookState,
+)
+
+data class BookStateSyncChangesPage(
+    val cursor: Long,
+    val hasMore: Boolean,
+    val changes: List<BookStateSyncChange>,
 )
 
 class CompanionClient {
@@ -199,6 +226,7 @@ class CompanionClient {
                             isCloud = true,
                             syncId = syncId,
                             syncStateVersion = item.optLong("stateVersion", 0L),
+                            syncedStateModifiedAt = item.nullableString("stateUpdatedAt").toEpochMillis(),
                             syncedFavorite = item.optBoolean("isFavorite", false),
                             syncedRead = item.optBoolean("isRead", false),
                             syncedHidden = item.optBoolean("isHidden", false),
@@ -297,6 +325,34 @@ class CompanionClient {
         }
     }
 
+    suspend fun getBookStateChanges(
+        profile: DesktopProfile,
+        afterCursor: Long,
+    ): BookStateSyncChangesPage = withContext(Dispatchers.IO) {
+        val data = request(
+            url = "${profile.baseUrl}/v1/sync/changes?cursor=$afterCursor&limit=$SYNC_CHANGE_PAGE_SIZE",
+            token = profile.token,
+        ).requireSuccess()
+        val changes = data.optJSONArray("changes") ?: JSONArray()
+        BookStateSyncChangesPage(
+            cursor = data.optLong("cursor", afterCursor),
+            hasMore = data.optBoolean("hasMore", false),
+            changes = buildList(changes.length()) {
+                repeat(changes.length()) { index ->
+                    val item = changes.optJSONObject(index) ?: return@repeat
+                    val state = item.optJSONObject("state") ?: return@repeat
+                    add(
+                        BookStateSyncChange(
+                            cursor = item.optLong("cursor", 0L),
+                            deviceId = item.optString("deviceId"),
+                            state = state.toSyncedBookState(),
+                        ),
+                    )
+                }
+            },
+        )
+    }
+
     suspend fun uploadLibraryArchive(
         profile: DesktopProfile,
         archive: File,
@@ -348,6 +404,7 @@ class CompanionClient {
                             .put("mutationId", update.mutationId)
                             .put("bookSyncId", update.bookSyncId)
                             .put("baseVersion", update.baseVersion)
+                            .put("modifiedAt", update.modifiedAt)
                             .put("currentPage", update.currentPage)
                             .put("isFavorite", update.isFavorite)
                             .put("isRead", update.isRead)
@@ -384,6 +441,7 @@ class CompanionClient {
                         status = item.optString("status"),
                         conflict = item.optBoolean("conflict", false),
                         version = item.optJSONObject("state")?.optLong("version", 0L) ?: 0L,
+                        state = item.optJSONObject("state")?.toSyncedBookState(),
                     ),
                 )
             }
@@ -520,6 +578,7 @@ class CompanionClient {
         const val SERIES_SYNC_READ_TIMEOUT_MS = 60_000
         const val UPLOAD_READ_TIMEOUT_MS = 120_000
         const val LIBRARY_PAGE_SIZE = 200
+        const val SYNC_CHANGE_PAGE_SIZE = 200
     }
 }
 
@@ -532,6 +591,22 @@ data class SeriesSyncResult(
     val name: String?,
     val order: Int,
 )
+
+private fun JSONObject.toSyncedBookState(): SyncedBookState = SyncedBookState(
+    bookSyncId = optString("syncId"),
+    currentPage = optInt("currentPage", 0).coerceAtLeast(0),
+    isFavorite = optBoolean("isFavorite", false),
+    isRead = optBoolean("isRead", false),
+    isHidden = optBoolean("isHidden", false),
+    customTitle = nullableString("customTitle"),
+    seriesFavorite = optBoolean("seriesFavorite", false),
+    version = optLong("version", 0L),
+    modifiedAt = nullableString("updatedAt").toEpochMillis(),
+)
+
+private fun String?.toEpochMillis(): Long = this?.let { value ->
+    runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
+} ?: 0L
 
 data class LibraryImportResult(
     val status: String,

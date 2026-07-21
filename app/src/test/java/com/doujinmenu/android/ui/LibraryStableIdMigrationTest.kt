@@ -6,10 +6,18 @@ import com.doujinmenu.android.model.LibraryPage
 import com.doujinmenu.android.network.SeriesSyncUpdate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.doujinmenu.android.network.toJsonObject
 
 class LibraryStableIdMigrationTest {
+    @Test
+    fun `newest book state wins and ties prefer desktop`() {
+        assertTrue(isLocalBookStateNewer(localModifiedAt = 300, remoteModifiedAt = 200))
+        assertFalse(isLocalBookStateNewer(localModifiedAt = 100, remoteModifiedAt = 200))
+        assertFalse(isLocalBookStateNewer(localModifiedAt = 200, remoteModifiedAt = 200))
+    }
+
     @Test
     fun migratesLegacyDesktopIdsToStableSyncIds() {
         val legacyId = "desktop:profile:42"

@@ -129,8 +129,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     nextBook = nextBook,
                     isSeriesBook = isSeriesBook,
                     progress = currentBook?.let { viewModel.uiState.libraryProgress[it.id] } ?: 0,
-                    isLoading = viewModel.uiState.isLibraryBookLoading ||
-                        viewModel.uiState.isLibraryScanning,
+                    isLoading = viewModel.uiState.isLibraryBookLoading,
                     error = viewModel.uiState.libraryScanError,
                     onBack = navController::popBackStack,
                     onOpenReader = { page -> navController.navigate("library-reader?startPage=$page") },
@@ -175,8 +174,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     book = book,
                     initialPage = if (requestedPage >= 0) requestedPage
                         else book?.let { viewModel.uiState.libraryProgress[it.id] } ?: 0,
-                    isLoading = viewModel.uiState.isLibraryBookLoading ||
-                        viewModel.uiState.isLibraryScanning,
+                    isLoading = viewModel.uiState.isLibraryBookLoading,
                     error = viewModel.uiState.libraryScanError,
                     favorite = book?.id in viewModel.uiState.libraryFavoriteIds,
                     preferences = viewModel.uiState.viewerPreferences,

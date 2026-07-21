@@ -58,6 +58,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -242,8 +243,26 @@ fun LibraryScreen(
     ) { state.libraryBooksInVisibility() }
     val shownBooks = books.filterBySeries(selectedSeries, state.customSeriesByBookId)
     val pullToRefreshState = rememberPullToRefreshState()
+    val mainGridState = rememberLazyGridState()
+    val mainListState = rememberLazyListState()
+    val seriesBooksGridState = rememberLazyGridState()
+    val seriesBooksListState = rememberLazyListState()
     val seriesOverviewGridState = rememberLazyGridState()
     val seriesOverviewListState = rememberLazyListState()
+    val filterSignature = libraryFilterSignature(state)
+    var previousFilterSignature by rememberSaveable { mutableStateOf(filterSignature) }
+
+    LaunchedEffect(filterSignature) {
+        if (filterSignature != previousFilterSignature) {
+            mainGridState.scrollToItem(0)
+            mainListState.scrollToItem(0)
+            seriesBooksGridState.scrollToItem(0)
+            seriesBooksListState.scrollToItem(0)
+            seriesOverviewGridState.scrollToItem(0)
+            seriesOverviewListState.scrollToItem(0)
+        }
+        previousFilterSignature = filterSignature
+    }
 
     BackHandler {
         when {
@@ -269,13 +288,13 @@ fun LibraryScreen(
     }
 
     PullToRefreshBox(
-        isRefreshing = state.isLibraryScanning,
+        isRefreshing = state.isLibraryPullRefreshing,
         onRefresh = { if (!editingSeriesOrder) onRefresh() },
         state = pullToRefreshState,
         indicator = {
             if (!editingSeriesOrder) {
                 PullToRefreshDefaults.Indicator(
-                    isRefreshing = state.isLibraryScanning,
+                    isRefreshing = state.isLibraryPullRefreshing,
                     state = pullToRefreshState,
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
@@ -493,6 +512,7 @@ fun LibraryScreen(
                     books = books,
                     state = state,
                     columns = gridColumns,
+                    gridState = mainGridState,
                     selectedIds = selectedIds,
                     selectionMode = selectionMode,
                     onOpenBook = onOpenBook,
@@ -526,6 +546,7 @@ fun LibraryScreen(
                 !seriesMode -> LibraryMixedList(
                     books = books,
                     state = state,
+                    listState = mainListState,
                     selectedIds = selectedIds,
                     selectionMode = selectionMode,
                     onOpenBook = onOpenBook,
@@ -560,6 +581,7 @@ fun LibraryScreen(
                     books = shownBooks,
                     columns = gridColumns,
                     state = state,
+                    gridState = seriesBooksGridState,
                     onOpenBook = onOpenBook,
                     onToggleFavorite = onToggleFavorite,
                     onToggleRead = onToggleRead,
@@ -578,6 +600,7 @@ fun LibraryScreen(
                 else -> LibraryList(
                     books = shownBooks,
                     state = state,
+                    listState = seriesBooksListState,
                     onOpenBook = onOpenBook,
                     onToggleFavorite = onToggleFavorite,
                     onToggleRead = onToggleRead,
@@ -1145,6 +1168,7 @@ private fun LibraryGrid(
     books: List<LibraryBook>,
     columns: Int,
     state: MainUiState,
+    gridState: LazyGridState,
     onOpenBook: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
@@ -1155,6 +1179,7 @@ private fun LibraryGrid(
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
+        state = gridState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1184,6 +1209,7 @@ private fun LibraryGrid(
 private fun LibraryList(
     books: List<LibraryBook>,
     state: MainUiState,
+    listState: LazyListState,
     onOpenBook: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
@@ -1193,6 +1219,7 @@ private fun LibraryList(
     onLongPress: (String) -> Unit,
 ) {
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1221,6 +1248,7 @@ private fun LibraryMixedGrid(
     books: List<LibraryBook>,
     state: MainUiState,
     columns: Int,
+    gridState: LazyGridState,
     selectedIds: Set<String>,
     selectionMode: Boolean,
     onOpenBook: (String) -> Unit,
@@ -1245,6 +1273,7 @@ private fun LibraryMixedGrid(
     }
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
+        state = gridState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1295,6 +1324,7 @@ private fun LibraryMixedGrid(
 private fun LibraryMixedList(
     books: List<LibraryBook>,
     state: MainUiState,
+    listState: LazyListState,
     selectedIds: Set<String>,
     selectionMode: Boolean,
     onOpenBook: (String) -> Unit,
@@ -1318,6 +1348,7 @@ private fun LibraryMixedList(
         libraryMainEntries(books, state.libraryBooksInVisibility(), state.customSeriesByBookId, state.librarySort)
     }
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -2188,6 +2219,16 @@ internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
         LibrarySort.NEWEST -> filtered.sortedByDescending(LibraryBook::modifiedAt)
         LibrarySort.OLDEST -> filtered.sortedBy(LibraryBook::modifiedAt)
     }
+}
+
+internal fun libraryFilterSignature(state: MainUiState): String = buildString {
+    append(state.libraryQuery.length).append(':').append(state.libraryQuery)
+    append('|').append(state.libraryFavoritesOnly)
+    append('|').append(state.libraryReadFilter.name)
+    append('|').append(state.libraryVisibilityFilter.name)
+    append('|').append(state.librarySort.name)
+    append('|').append(state.selectedLibraryLocationUri.orEmpty())
+    append('|').append(state.selectedLibraryLocationUris?.sorted()?.joinToString("\u0001").orEmpty())
 }
 
 private fun MainUiState.libraryBooksInVisibility(): List<LibraryBook> = libraryBooks.filter { book ->

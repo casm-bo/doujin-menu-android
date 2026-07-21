@@ -112,6 +112,36 @@ class LibraryPreferenceStore(context: Context) {
     fun savePendingBookStateSyncIds(ids: Set<String>) =
         preferences.edit().putStringSet(KEY_PENDING_BOOK_STATE_SYNC, ids).apply()
 
+    fun loadBookStateModifiedTimes(): Map<String, Long> {
+        val json = runCatching {
+            JSONObject(preferences.getString(KEY_BOOK_STATE_MODIFIED_TIMES, "{}").orEmpty())
+        }.getOrNull() ?: return emptyMap()
+        return buildMap {
+            json.keys().forEach { id -> put(id, json.optLong(id, 0L)) }
+        }
+    }
+
+    fun saveBookStateModifiedTimes(times: Map<String, Long>) {
+        val json = JSONObject()
+        times.forEach { (id, modifiedAt) -> json.put(id, modifiedAt) }
+        preferences.edit().putString(KEY_BOOK_STATE_MODIFIED_TIMES, json.toString()).apply()
+    }
+
+    fun loadBookStateSyncCursor(profileId: String): Long {
+        val json = runCatching {
+            JSONObject(preferences.getString(KEY_BOOK_STATE_SYNC_CURSORS, "{}").orEmpty())
+        }.getOrNull() ?: return 0L
+        return json.optLong(profileId, 0L).coerceAtLeast(0L)
+    }
+
+    fun saveBookStateSyncCursor(profileId: String, cursor: Long) {
+        val json = runCatching {
+            JSONObject(preferences.getString(KEY_BOOK_STATE_SYNC_CURSORS, "{}").orEmpty())
+        }.getOrElse { JSONObject() }
+        json.put(profileId, cursor.coerceAtLeast(0L))
+        preferences.edit().putString(KEY_BOOK_STATE_SYNC_CURSORS, json.toString()).apply()
+    }
+
     fun loadHiddenIds(): Set<String> =
         preferences.getStringSet(KEY_HIDDEN, emptySet()).orEmpty().toSet()
 
@@ -212,6 +242,8 @@ class LibraryPreferenceStore(context: Context) {
         const val KEY_SERIES_REMOVAL_TIMES = "series_removal_times"
         const val KEY_PENDING_SERIES_SYNC = "pending_series_sync_ids"
         const val KEY_PENDING_BOOK_STATE_SYNC = "pending_book_state_sync_ids"
+        const val KEY_BOOK_STATE_MODIFIED_TIMES = "book_state_modified_times"
+        const val KEY_BOOK_STATE_SYNC_CURSORS = "book_state_sync_cursors"
         const val KEY_HIDDEN = "hidden_book_ids"
         const val KEY_CUSTOM_TITLES = "custom_book_titles"
         const val KEY_SCALE = "viewer_scale"

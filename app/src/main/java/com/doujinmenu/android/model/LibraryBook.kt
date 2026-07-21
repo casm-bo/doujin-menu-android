@@ -13,6 +13,7 @@ data class LibraryBook(
     val isCloud: Boolean = false,
     val syncId: String? = null,
     val syncStateVersion: Long = 0L,
+    val syncedStateModifiedAt: Long = 0L,
     val syncedFavorite: Boolean = false,
     val syncedRead: Boolean = false,
     val syncedHidden: Boolean = false,
