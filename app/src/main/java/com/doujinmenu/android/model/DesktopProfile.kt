@@ -16,7 +16,6 @@ data class CompanionStatus(
 
 data class PairingResult(
     val deviceId: String,
-    val deviceName: String,
     val token: String,
 )
 

@@ -59,7 +59,6 @@ data class BookStateSyncResult(
     val mutationId: String,
     val status: String,
     val conflict: Boolean,
-    val version: Long,
     val state: SyncedBookState? = null,
 )
 
@@ -76,7 +75,6 @@ data class SyncedBookState(
 )
 
 data class BookStateSyncChange(
-    val cursor: Long,
     val deviceId: String,
     val state: SyncedBookState,
 )
@@ -108,7 +106,6 @@ class CompanionClient {
             val device = data.getJSONObject("device")
             PairingResult(
                 deviceId = device.getString("id"),
-                deviceName = device.optString("name", deviceName),
                 token = data.getString("token"),
             )
         }
@@ -312,10 +309,8 @@ class CompanionClient {
                 val item = results.optJSONObject(index) ?: return@repeat
                 add(
                     SeriesSyncResult(
-                        mutationId = item.nullableString("mutationId"),
                         bookSyncId = item.nullableString("bookSyncId").orEmpty(),
                         status = item.optString("status"),
-                        version = item.optLong("version", 0L),
                         modifiedAt = item.optLong("modifiedAt", 0L),
                         name = item.nullableString("name"),
                         order = item.optInt("order", 0),
@@ -343,7 +338,6 @@ class CompanionClient {
                     val state = item.optJSONObject("state") ?: return@repeat
                     add(
                         BookStateSyncChange(
-                            cursor = item.optLong("cursor", 0L),
                             deviceId = item.optString("deviceId"),
                             state = state.toSyncedBookState(),
                         ),
@@ -358,7 +352,7 @@ class CompanionClient {
         archive: File,
         fileName: String,
         syncId: String,
-    ): LibraryImportResult = withContext(Dispatchers.IO) {
+    ): Unit = withContext(Dispatchers.IO) {
         val connection = URL("${profile.baseUrl}/v1/library/import").openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
@@ -381,12 +375,8 @@ class CompanionClient {
                 throw CompanionApiException("파일 업로드 응답이 올바른 JSON이 아닙니다. (HTTP $statusCode)")
             }
             if (statusCode !in 200..299) throw CompanionApiException(root.errorMessage("HTTP $statusCode"))
-            val data = root.requireSuccess()
-            LibraryImportResult(
-                status = data.optString("status"),
-                remoteBookId = data.optLong("id"),
-                syncId = data.nullableString("syncId") ?: syncId,
-            )
+            root.requireSuccess()
+            Unit
         } finally {
             connection.disconnect()
         }
@@ -440,7 +430,6 @@ class CompanionClient {
                         mutationId = item.optString("mutationId"),
                         status = item.optString("status"),
                         conflict = item.optBoolean("conflict", false),
-                        version = item.optJSONObject("state")?.optLong("version", 0L) ?: 0L,
                         state = item.optJSONObject("state")?.toSyncedBookState(),
                     ),
                 )
@@ -583,10 +572,8 @@ class CompanionClient {
 }
 
 data class SeriesSyncResult(
-    val mutationId: String?,
     val bookSyncId: String,
     val status: String,
-    val version: Long,
     val modifiedAt: Long,
     val name: String?,
     val order: Int,
@@ -607,12 +594,6 @@ private fun JSONObject.toSyncedBookState(): SyncedBookState = SyncedBookState(
 private fun String?.toEpochMillis(): Long = this?.let { value ->
     runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
 } ?: 0L
-
-data class LibraryImportResult(
-    val status: String,
-    val remoteBookId: Long,
-    val syncId: String,
-)
 
 private fun absoluteUrl(baseUrl: String, value: String?): String? {
     if (value.isNullOrBlank()) return null

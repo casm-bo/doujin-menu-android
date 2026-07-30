@@ -1,9 +1,19 @@
 package com.doujinmenu.android.model
 
+import com.doujinmenu.android.ui.initialThumbnailVisibility
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ViewerPreferencesTest {
+    @Test
+    fun `thumbnail preference controls initial visibility only`() {
+        assertEquals(true, initialThumbnailVisibility(ViewerPreferences()))
+        assertEquals(
+            false,
+            initialThumbnailVisibility(ViewerPreferences(hideThumbnails = true)),
+        )
+    }
+
     @Test
     fun `default custom tap zones provide previous none and next actions in every row`() {
         val zones = ViewerTapZones()

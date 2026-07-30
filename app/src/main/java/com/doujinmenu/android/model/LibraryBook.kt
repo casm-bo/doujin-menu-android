@@ -103,6 +103,7 @@ data class ViewerTapZones(
 data class ViewerPreferences(
     val scale: ViewerScale = ViewerScale.FIT_SCREEN,
     val showPageNumber: Boolean = true,
+    val hideThumbnails: Boolean = false,
     val keepScreenOn: Boolean = true,
     val readingDirection: ViewerReadingDirection = ViewerReadingDirection.LEFT_TO_RIGHT,
     val pageTurnMode: ViewerPageTurnMode = ViewerPageTurnMode.SWIPE_AND_TAP,

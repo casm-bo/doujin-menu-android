@@ -83,7 +83,9 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -196,6 +198,7 @@ fun LibraryScreen(
     onBackToSearch: () -> Unit,
 ) {
     val context = LocalContext.current
+    val hapticFeedback = LocalHapticFeedback.current
     val libraryPreferences = remember(context) { LibraryPreferenceStore(context) }
     var viewModeName by rememberSaveable {
         mutableStateOf(libraryPreferences.loadLibraryViewMode())
@@ -230,7 +233,6 @@ fun LibraryScreen(
         state.libraryVisibilityFilter,
         state.libraryHiddenIds,
         state.librarySort,
-        state.selectedLibraryLocationUri,
         state.selectedLibraryLocationUris,
         state.libraryFavoriteIds,
         state.libraryFavoriteSeriesNames,
@@ -242,6 +244,10 @@ fun LibraryScreen(
         state.libraryVisibilityFilter,
     ) { state.libraryBooksInVisibility() }
     val shownBooks = books.filterBySeries(selectedSeries, state.customSeriesByBookId)
+    val mainEntries = remember(books, visibilityBooks, state.customSeriesByBookId, state.librarySort) {
+        libraryMainEntries(books, visibilityBooks, state.customSeriesByBookId, state.librarySort)
+    }
+    val shownEntries = remember(shownBooks) { shownBooks.map { LibraryMainEntry.Book(it) } }
     val pullToRefreshState = rememberPullToRefreshState()
     val mainGridState = rememberLazyGridState()
     val mainListState = rememberLazyListState()
@@ -251,6 +257,29 @@ fun LibraryScreen(
     val seriesOverviewListState = rememberLazyListState()
     val filterSignature = libraryFilterSignature(state)
     var previousFilterSignature by rememberSaveable { mutableStateOf(filterSignature) }
+    val openSeries: (String) -> Unit = { name ->
+        onSeriesModeChange(true)
+        onSelectedSeriesChange(name)
+    }
+    val toggleBookSelection: (String) -> Unit = { id -> selectedIds = selectedIds.toggled(id) }
+    val toggleSeriesSelection: (String, Set<String>) -> Unit = { name, ids ->
+        selectedIds = if (ids.all { it in selectedIds }) selectedIds - ids
+        else selectedIds.also { pendingSeriesSelection = name }
+    }
+    val longPressBook: (String) -> Unit = { id ->
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (!selectionMode) {
+            seriesName = state.libraryBooks.firstOrNull { it.id == id }?.title.orEmpty()
+        }
+        selectionMode = true
+        selectedIds = selectedIds + id
+    }
+    val longPressSeries: (String, String) -> Unit = { name, firstTitle ->
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (!selectionMode) seriesName = firstTitle
+        selectionMode = true
+        pendingSeriesSelection = name
+    }
 
     LaunchedEffect(filterSignature) {
         if (filterSignature != previousFilterSignature) {
@@ -497,7 +526,7 @@ fun LibraryScreen(
                         }
                     },
                     onLongPress = { name ->
-                        context.performLightHaptic()
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         if (!seriesSelectionMode) firstSelectedSeriesName = name
                         seriesSelectionMode = true
                         selectedSeriesNames = selectedSeriesNames + name
@@ -508,113 +537,38 @@ fun LibraryScreen(
                     customSeries = state.customSeriesByBookId,
                     onReorder = onReorderSeriesBooks,
                 )
-                !seriesMode && viewMode == LibraryViewMode.GRID -> LibraryMixedGrid(
-                    books = books,
-                    state = state,
-                    columns = gridColumns,
-                    gridState = mainGridState,
-                    selectedIds = selectedIds,
-                    selectionMode = selectionMode,
-                    onOpenBook = onOpenBook,
-                    onOpenSeries = { name ->
-                        onSeriesModeChange(true)
-                        onSelectedSeriesChange(name)
-                    },
-                    onToggleBook = { id -> selectedIds = selectedIds.toggled(id) },
-                    onToggleSeries = { name, ids ->
-                        selectedIds = if (ids.all { it in selectedIds }) selectedIds - ids
-                        else selectedIds.also { pendingSeriesSelection = name }
-                    },
-                    onLongPressBook = { id ->
-                        context.performLightHaptic()
-                        if (!selectionMode) {
-                            seriesName = state.libraryBooks.firstOrNull { it.id == id }?.title.orEmpty()
-                        }
-                        selectionMode = true
-                        selectedIds = selectedIds + id
-                    },
-                    onLongPressSeries = { name, firstTitle ->
-                        context.performLightHaptic()
-                        if (!selectionMode) seriesName = firstTitle
-                        selectionMode = true
-                        pendingSeriesSelection = name
-                    },
-                    onToggleFavorite = onToggleFavorite,
-                    onToggleSeriesFavorite = onToggleSeriesFavorite,
-                    onToggleRead = onToggleRead,
-                )
-                !seriesMode -> LibraryMixedList(
-                    books = books,
-                    state = state,
-                    listState = mainListState,
-                    selectedIds = selectedIds,
-                    selectionMode = selectionMode,
-                    onOpenBook = onOpenBook,
-                    onOpenSeries = { name ->
-                        onSeriesModeChange(true)
-                        onSelectedSeriesChange(name)
-                    },
-                    onToggleBook = { id -> selectedIds = selectedIds.toggled(id) },
-                    onToggleSeries = { name, ids ->
-                        selectedIds = if (ids.all { it in selectedIds }) selectedIds - ids
-                        else selectedIds.also { pendingSeriesSelection = name }
-                    },
-                    onLongPressBook = { id ->
-                        context.performLightHaptic()
-                        if (!selectionMode) {
-                            seriesName = state.libraryBooks.firstOrNull { it.id == id }?.title.orEmpty()
-                        }
-                        selectionMode = true
-                        selectedIds = selectedIds + id
-                    },
-                    onLongPressSeries = { name, firstTitle ->
-                        context.performLightHaptic()
-                        if (!selectionMode) seriesName = firstTitle
-                        selectionMode = true
-                        pendingSeriesSelection = name
-                    },
-                    onToggleFavorite = onToggleFavorite,
-                    onToggleSeriesFavorite = onToggleSeriesFavorite,
-                    onToggleRead = onToggleRead,
-                )
                 viewMode == LibraryViewMode.GRID -> LibraryGrid(
-                    books = shownBooks,
-                    columns = gridColumns,
+                    entries = if (seriesMode) shownEntries else mainEntries,
                     state = state,
-                    gridState = seriesBooksGridState,
-                    onOpenBook = onOpenBook,
-                    onToggleFavorite = onToggleFavorite,
-                    onToggleRead = onToggleRead,
+                    columns = gridColumns,
+                    gridState = if (seriesMode) seriesBooksGridState else mainGridState,
                     selectedIds = selectedIds,
                     selectionMode = selectionMode,
-                    onToggleSelection = { id -> selectedIds = selectedIds.toggled(id) },
-                    onLongPress = { id ->
-                        context.performLightHaptic()
-                        if (!selectionMode) {
-                            seriesName = state.libraryBooks.firstOrNull { it.id == id }?.title.orEmpty()
-                        }
-                        selectionMode = true
-                        selectedIds = selectedIds + id
-                    },
+                    onOpenBook = onOpenBook,
+                    onOpenSeries = openSeries,
+                    onToggleBook = toggleBookSelection,
+                    onToggleSeries = toggleSeriesSelection,
+                    onLongPressBook = longPressBook,
+                    onLongPressSeries = longPressSeries,
+                    onToggleFavorite = onToggleFavorite,
+                    onToggleSeriesFavorite = onToggleSeriesFavorite,
+                    onToggleRead = onToggleRead,
                 )
                 else -> LibraryList(
-                    books = shownBooks,
+                    entries = if (seriesMode) shownEntries else mainEntries,
                     state = state,
-                    listState = seriesBooksListState,
-                    onOpenBook = onOpenBook,
-                    onToggleFavorite = onToggleFavorite,
-                    onToggleRead = onToggleRead,
+                    listState = if (seriesMode) seriesBooksListState else mainListState,
                     selectedIds = selectedIds,
                     selectionMode = selectionMode,
-                    onToggleSelection = { id -> selectedIds = selectedIds.toggled(id) },
-                    onLongPress = { id ->
-                        context.performLightHaptic()
-                        if (!selectionMode) {
-                            seriesName = state.libraryBooks.firstOrNull { it.id == id }?.title.orEmpty()
-                        }
-                        selectionMode = true
-                        selectedIds = selectedIds + id
-                    },
+                    onOpenBook = onOpenBook,
+                    onOpenSeries = openSeries,
+                    onToggleBook = toggleBookSelection,
+                    onToggleSeries = toggleSeriesSelection,
+                    onLongPressBook = longPressBook,
+                    onLongPressSeries = longPressSeries,
+                    onToggleFavorite = onToggleFavorite,
+                    onToggleSeriesFavorite = onToggleSeriesFavorite,
+                    onToggleRead = onToggleRead,
                 )
             }
             state.libraryScanError?.let {
@@ -1165,87 +1119,7 @@ private fun LibrarySelectionMark(selected: Boolean, modifier: Modifier = Modifie
 
 @Composable
 private fun LibraryGrid(
-    books: List<LibraryBook>,
-    columns: Int,
-    state: MainUiState,
-    gridState: LazyGridState,
-    onOpenBook: (String) -> Unit,
-    onToggleFavorite: (String) -> Unit,
-    onToggleRead: (String) -> Unit,
-    selectedIds: Set<String>,
-    selectionMode: Boolean,
-    onToggleSelection: (String) -> Unit,
-    onLongPress: (String) -> Unit,
-) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns),
-        state = gridState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        items(books, key = LibraryBook::id) { book ->
-            LibraryBookCard(
-                book = book,
-                badgeScale = thumbnailBadgeScale(columns),
-                favorite = book.id in state.libraryFavoriteIds,
-                read = book.id in state.libraryReadIds,
-                progress = state.libraryProgress[book.id] ?: 0,
-                selected = book.id in selectedIds,
-                selectionMode = selectionMode,
-                onOpen = {
-                    if (selectionMode) onToggleSelection(book.id) else onOpenBook(book.id)
-                },
-                onLongPress = { onLongPress(book.id) },
-                onToggleFavorite = { onToggleFavorite(book.id) },
-                onToggleRead = { onToggleRead(book.id) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun LibraryList(
-    books: List<LibraryBook>,
-    state: MainUiState,
-    listState: LazyListState,
-    onOpenBook: (String) -> Unit,
-    onToggleFavorite: (String) -> Unit,
-    onToggleRead: (String) -> Unit,
-    selectedIds: Set<String>,
-    selectionMode: Boolean,
-    onToggleSelection: (String) -> Unit,
-    onLongPress: (String) -> Unit,
-) {
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        listItems(books, key = LibraryBook::id) { book ->
-            LibraryBookListItem(
-                book = book,
-                favorite = book.id in state.libraryFavoriteIds,
-                read = book.id in state.libraryReadIds,
-                progress = state.libraryProgress[book.id] ?: 0,
-                selected = book.id in selectedIds,
-                selectionMode = selectionMode,
-                onOpen = {
-                    if (selectionMode) onToggleSelection(book.id) else onOpenBook(book.id)
-                },
-                onLongPress = { onLongPress(book.id) },
-                onToggleFavorite = { onToggleFavorite(book.id) },
-                onToggleRead = { onToggleRead(book.id) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun LibraryMixedGrid(
-    books: List<LibraryBook>,
+    entries: List<LibraryMainEntry>,
     state: MainUiState,
     columns: Int,
     gridState: LazyGridState,
@@ -1261,16 +1135,6 @@ private fun LibraryMixedGrid(
     onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
 ) {
-    val entries = remember(
-        books,
-        state.libraryBooks,
-        state.libraryHiddenIds,
-        state.libraryVisibilityFilter,
-        state.customSeriesByBookId,
-        state.librarySort,
-    ) {
-        libraryMainEntries(books, state.libraryBooksInVisibility(), state.customSeriesByBookId, state.librarySort)
-    }
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         state = gridState,
@@ -1321,8 +1185,8 @@ private fun LibraryMixedGrid(
 }
 
 @Composable
-private fun LibraryMixedList(
-    books: List<LibraryBook>,
+private fun LibraryList(
+    entries: List<LibraryMainEntry>,
     state: MainUiState,
     listState: LazyListState,
     selectedIds: Set<String>,
@@ -1337,16 +1201,6 @@ private fun LibraryMixedList(
     onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
 ) {
-    val entries = remember(
-        books,
-        state.libraryBooks,
-        state.libraryHiddenIds,
-        state.libraryVisibilityFilter,
-        state.customSeriesByBookId,
-        state.librarySort,
-    ) {
-        libraryMainEntries(books, state.libraryBooksInVisibility(), state.customSeriesByBookId, state.librarySort)
-    }
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -1996,6 +1850,7 @@ private fun LibrarySeriesOrderEditor(
     onReorder: (List<String>) -> Unit,
 ) {
     val context = LocalContext.current
+    val hapticFeedback = LocalHapticFeedback.current
     val booksById = remember(books) { books.associateBy(LibraryBook::id) }
     val itemHeights = remember { mutableMapOf<String, Int>() }
     var orderedBooks by remember(books, customSeries) {
@@ -2054,7 +1909,7 @@ private fun LibrarySeriesOrderEditor(
                                 val ids = currentOrderedBooks.map(LibraryBook::id)
                                 dragStartOrder = ids
                                 dragOrder = ids
-                                context.performLightHaptic()
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             },
                             onDragEnd = {
                                 dragging = false
@@ -2099,7 +1954,7 @@ private fun LibrarySeriesOrderEditor(
                                     ids = reordered
                                     accumulatedDrag -= direction * crossingDistance
                                     moved = true
-                                    context.performLightHaptic()
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                 }
                                 if (moved) {
                                     dragOrder = ids
@@ -2191,7 +2046,6 @@ internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
         .filter {
             when {
                 state.selectedLibraryLocationUris != null -> it.locationUri in state.selectedLibraryLocationUris
-                state.selectedLibraryLocationUri != null -> it.locationUri == state.selectedLibraryLocationUri
                 else -> true
             }
         }
@@ -2227,7 +2081,6 @@ internal fun libraryFilterSignature(state: MainUiState): String = buildString {
     append('|').append(state.libraryReadFilter.name)
     append('|').append(state.libraryVisibilityFilter.name)
     append('|').append(state.librarySort.name)
-    append('|').append(state.selectedLibraryLocationUri.orEmpty())
     append('|').append(state.selectedLibraryLocationUris?.sorted()?.joinToString("\u0001").orEmpty())
 }
 

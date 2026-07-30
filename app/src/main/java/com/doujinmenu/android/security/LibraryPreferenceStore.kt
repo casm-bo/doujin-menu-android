@@ -169,6 +169,7 @@ class LibraryPreferenceStore(context: Context) {
             ViewerScale.valueOf(preferences.getString(KEY_SCALE, null).orEmpty())
         }.getOrDefault(ViewerScale.FIT_SCREEN),
         showPageNumber = preferences.getBoolean(KEY_PAGE_NUMBER, true),
+        hideThumbnails = preferences.getBoolean(KEY_HIDE_THUMBNAILS, false),
         keepScreenOn = preferences.getBoolean(KEY_KEEP_SCREEN_ON, true),
         readingDirection = enumPreference(KEY_READING_DIRECTION, ViewerReadingDirection.LEFT_TO_RIGHT),
         pageTurnMode = enumPreference(KEY_PAGE_TURN_MODE, ViewerPageTurnMode.SWIPE_AND_TAP),
@@ -186,6 +187,7 @@ class LibraryPreferenceStore(context: Context) {
         preferences.edit()
             .putString(KEY_SCALE, value.scale.name)
             .putBoolean(KEY_PAGE_NUMBER, value.showPageNumber)
+            .putBoolean(KEY_HIDE_THUMBNAILS, value.hideThumbnails)
             .putBoolean(KEY_KEEP_SCREEN_ON, value.keepScreenOn)
             .putString(KEY_READING_DIRECTION, value.readingDirection.name)
             .putString(KEY_PAGE_TURN_MODE, value.pageTurnMode.name)
@@ -248,6 +250,7 @@ class LibraryPreferenceStore(context: Context) {
         const val KEY_CUSTOM_TITLES = "custom_book_titles"
         const val KEY_SCALE = "viewer_scale"
         const val KEY_PAGE_NUMBER = "viewer_page_number"
+        const val KEY_HIDE_THUMBNAILS = "viewer_hide_thumbnails"
         const val KEY_KEEP_SCREEN_ON = "viewer_keep_screen_on"
         const val KEY_READING_DIRECTION = "viewer_reading_direction"
         const val KEY_PAGE_TURN_MODE = "viewer_page_turn_mode"

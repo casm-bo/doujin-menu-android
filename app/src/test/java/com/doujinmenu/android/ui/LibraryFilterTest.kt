@@ -32,7 +32,7 @@ class LibraryFilterTest {
     fun combinesLocationFavoriteAndReadFilters() {
         val state = MainUiState(
             libraryBooks = books,
-            selectedLibraryLocationUri = "one",
+            selectedLibraryLocationUris = setOf("one"),
             libraryFavoritesOnly = true,
             libraryFavoriteIds = setOf("a", "c"),
             libraryReadFilter = LibraryReadFilter.UNREAD,

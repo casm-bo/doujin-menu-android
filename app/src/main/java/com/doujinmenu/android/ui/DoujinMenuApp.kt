@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +28,10 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,6 +41,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,6 +78,7 @@ private enum class MainDestination(
 @Composable
 fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     val navController = rememberNavController()
+    val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
     var lastMainDestination by rememberSaveable { mutableStateOf(MainDestination.Browser.route) }
 
@@ -85,6 +92,19 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val appMessage = viewModel.uiState.message
+    val appMessageIsError = viewModel.uiState.isError
+    LaunchedEffect(appMessage) {
+        if (appMessage != null) {
+            snackbarHostState.showSnackbar(
+                message = appMessage,
+                withDismissAction = true,
+                duration = SnackbarDuration.Long,
+            )
+            viewModel.dismissMessage()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -244,28 +264,16 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
             }
         }
 
-        val appMessage = viewModel.uiState.message
-        if (appMessage != null) {
-            if (viewModel.uiState.isError) {
-                AppErrorBanner(appMessage, viewModel::dismissMessage)
-            } else {
-                AppSuccessBanner(
-                    message = appMessage,
-                    onDismiss = viewModel::dismissMessage,
-                    title = "알림",
-                )
-            }
-        } else if (viewModel.uiState.connectionNotification != null) {
-            AppSuccessBanner(
-                message = viewModel.uiState.connectionNotification.orEmpty(),
-                onDismiss = viewModel::dismissConnectionNotification,
-                title = "연결됨",
-            )
-        } else viewModel.uiState.downloadNotification?.let { notification ->
-            DownloadNotificationBanner(
-                notification = notification,
-                onDismiss = viewModel::dismissDownloadNotification,
-                onOpen = viewModel::dismissDownloadNotification,
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(12.dp),
+        ) { data ->
+            Snackbar(
+                snackbarData = data,
+                containerColor = if (appMessageIsError) MaterialTheme.colorScheme.errorContainer
+                    else MaterialTheme.colorScheme.inverseSurface,
+                contentColor = if (appMessageIsError) MaterialTheme.colorScheme.onErrorContainer
+                    else MaterialTheme.colorScheme.inverseOnSurface,
             )
         }
     }
@@ -322,7 +330,7 @@ private fun MainShell(
                         Text(
                             text = when {
                                 viewModel.uiState.isLibrarySyncing -> "동기화 중"
-                                pending > 0 -> "동기화 · $pending"
+                                pending > 0 -> "동기화 · 대기 $pending"
                                 else -> "동기화"
                             },
                             modifier = Modifier.padding(
@@ -558,28 +566,12 @@ private fun MainTabContent(
                 onRemoveLibraryLocation = viewModel::removeLibraryLocation,
                 onSetDownloadLocation = viewModel::setDownloadLocation,
                 onClearDownloadLocation = viewModel::clearDownloadLocation,
+                onViewerPreferencesChange = viewModel::updateViewerPreferences,
                 openConnectionRequested = connectionSettingsRequested,
                 onConnectionRequestHandled = { connectionSettingsRequested = false },
             )
         }
         }
-        }
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(title: String, description: String, padding: PaddingValues) {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(title, style = MaterialTheme.typography.headlineSmall)
-            Text(
-                description,
-                modifier = Modifier.padding(top = 8.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
