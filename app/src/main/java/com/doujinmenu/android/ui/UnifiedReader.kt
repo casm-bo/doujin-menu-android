@@ -1,9 +1,5 @@
 package com.doujinmenu.android.ui
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
-import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -58,7 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,6 +71,9 @@ import kotlinx.coroutines.launch
 
 internal data class ReaderPageModel(val key: String, val model: Any)
 
+internal fun initialThumbnailVisibility(preferences: ViewerPreferences): Boolean =
+    !preferences.hideThumbnails
+
 @Composable
 internal fun UnifiedReader(
     readerKey: String,
@@ -90,7 +89,6 @@ internal fun UnifiedReader(
     nextBookTitle: String? = null,
     onOpenNextBook: (() -> Unit)? = null,
 ) {
-    HideSystemBars()
     ReaderKeepScreenOn(preferences.keepScreenOn)
 
     val pagerState = androidx.compose.runtime.key(readerKey) {
@@ -101,10 +99,15 @@ internal fun UnifiedReader(
     }
     val scope = rememberCoroutineScope()
     var controlsVisible by remember(readerKey) { mutableStateOf(true) }
-    var thumbnailsVisible by remember(readerKey) { mutableStateOf(true) }
+    var thumbnailsVisible by remember(readerKey) {
+        mutableStateOf(initialThumbnailVisibility(preferences))
+    }
     var settingsVisible by remember(readerKey) { mutableStateOf(false) }
     var nextBookDialog by remember(readerKey) { mutableStateOf(false) }
     LaunchedEffect(pagerState.currentPage) { onProgress(pagerState.currentPage) }
+    LaunchedEffect(preferences.hideThumbnails) {
+        thumbnailsVisible = initialThumbnailVisibility(preferences)
+    }
     BackHandler(enabled = settingsVisible) { settingsVisible = false }
 
     fun moveTo(page: Int) {
@@ -407,83 +410,103 @@ private fun UnifiedViewerSettingsDialog(
     onChange: (ViewerPreferences) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var tapEditorVisible by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("리더 설정") },
         text = {
-            Column(
+            ViewerSettingsContent(
+                preferences = preferences,
+                onChange = onChange,
                 modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                SettingsHeading("화면 맞춤")
-                ViewerScale.entries.forEach { value ->
-                    SettingsRadio(
-                        label = if (value == ViewerScale.FIT_SCREEN) "전체 페이지" else "너비 맞춤",
-                        selected = preferences.scale == value,
-                    ) { onChange(preferences.copy(scale = value)) }
-                }
-
-                SettingsHeading("읽는 방향")
-                ViewerReadingDirection.entries.forEach { value ->
-                    SettingsRadio(
-                        label = if (value == ViewerReadingDirection.LEFT_TO_RIGHT) "왼쪽 → 오른쪽" else "오른쪽 → 왼쪽",
-                        selected = preferences.readingDirection == value,
-                    ) {
-                        if (preferences.readingDirection != value) {
-                            onChange(
-                                preferences.copy(
-                                    readingDirection = value,
-                                    tapZones = preferences.tapZones.swapPreviousAndNext(),
-                                ),
-                            )
-                        }
-                    }
-                }
-
-                SettingsHeading("페이지 넘기기")
-                ViewerPageTurnMode.entries.forEach { value ->
-                    SettingsRadio(
-                        label = when (value) {
-                            ViewerPageTurnMode.SWIPE_AND_TAP -> "슬라이드 + 터치"
-                            ViewerPageTurnMode.SWIPE_ONLY -> "슬라이드만"
-                            ViewerPageTurnMode.TAP_ONLY -> "터치만"
-                        },
-                        selected = preferences.pageTurnMode == value,
-                    ) { onChange(preferences.copy(pageTurnMode = value)) }
-                }
-
-                SettingsHeading("터치 영역")
-                ReaderSettingSwitch("9분할 사용자 설정", preferences.customTapZonesEnabled) { enabled ->
-                    onChange(
-                        preferences.copy(
-                            customTapZonesEnabled = enabled,
-                            tapZones = preferences.tapZones.customActionsOnly(),
-                        ),
-                    )
-                    tapEditorVisible = enabled
-                }
-                if (preferences.customTapZonesEnabled) {
-                    Text(
-                        "이전·없음·다음 동작을 화면의 실제 위치에 배치합니다.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedButton(
-                        onClick = { tapEditorVisible = true },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("터치 영역 편집") }
-                }
-
-                ReaderSettingSwitch("페이지 번호 표시", preferences.showPageNumber) {
-                    onChange(preferences.copy(showPageNumber = it))
-                }
-                ReaderSettingSwitch("화면 꺼짐 방지", preferences.keepScreenOn) {
-                    onChange(preferences.copy(keepScreenOn = it))
-                }
-            }
+            )
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("완료") } },
     )
+}
+
+@Composable
+internal fun ViewerSettingsContent(
+    preferences: ViewerPreferences,
+    onChange: (ViewerPreferences) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var tapEditorVisible by remember { mutableStateOf(false) }
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        SettingsHeading("화면 맞춤")
+        ViewerScale.entries.forEach { value ->
+            SettingsRadio(
+                label = if (value == ViewerScale.FIT_SCREEN) "전체 페이지" else "너비 맞춤",
+                selected = preferences.scale == value,
+            ) { onChange(preferences.copy(scale = value)) }
+        }
+
+        SettingsHeading("읽는 방향")
+        ViewerReadingDirection.entries.forEach { value ->
+            SettingsRadio(
+                label = if (value == ViewerReadingDirection.LEFT_TO_RIGHT) {
+                    "왼쪽 → 오른쪽"
+                } else {
+                    "오른쪽 → 왼쪽"
+                },
+                selected = preferences.readingDirection == value,
+            ) {
+                if (preferences.readingDirection != value) {
+                    onChange(
+                        preferences.copy(
+                            readingDirection = value,
+                            tapZones = preferences.tapZones.swapPreviousAndNext(),
+                        ),
+                    )
+                }
+            }
+        }
+
+        SettingsHeading("페이지 넘기기")
+        ViewerPageTurnMode.entries.forEach { value ->
+            SettingsRadio(
+                label = when (value) {
+                    ViewerPageTurnMode.SWIPE_AND_TAP -> "슬라이드 + 터치"
+                    ViewerPageTurnMode.SWIPE_ONLY -> "슬라이드만"
+                    ViewerPageTurnMode.TAP_ONLY -> "터치만"
+                },
+                selected = preferences.pageTurnMode == value,
+            ) { onChange(preferences.copy(pageTurnMode = value)) }
+        }
+
+        SettingsHeading("터치 영역")
+        ReaderSettingSwitch("9분할 사용자 설정", preferences.customTapZonesEnabled) { enabled ->
+            onChange(
+                preferences.copy(
+                    customTapZonesEnabled = enabled,
+                    tapZones = preferences.tapZones.customActionsOnly(),
+                ),
+            )
+            tapEditorVisible = enabled
+        }
+        if (preferences.customTapZonesEnabled) {
+            Text(
+                "이전·없음·다음 동작을 화면의 실제 위치에 배치합니다.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(
+                onClick = { tapEditorVisible = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("터치 영역 편집") }
+        }
+
+        ReaderSettingSwitch("페이지 번호 표시", preferences.showPageNumber) {
+            onChange(preferences.copy(showPageNumber = it))
+        }
+        ReaderSettingSwitch("썸네일 숨기기", preferences.hideThumbnails) {
+            onChange(preferences.copy(hideThumbnails = it))
+        }
+        ReaderSettingSwitch("화면 꺼짐 방지", preferences.keepScreenOn) {
+            onChange(preferences.copy(keepScreenOn = it))
+        }
+    }
 
     if (tapEditorVisible && preferences.customTapZonesEnabled) {
         TouchZoneEditor(
@@ -606,16 +629,9 @@ private fun ReaderSettingSwitch(label: String, checked: Boolean, onCheckedChange
 
 @Composable
 private fun ReaderKeepScreenOn(enabled: Boolean) {
-    val activity = LocalContext.current.readerActivity()
-    DisposableEffect(activity, enabled) {
-        if (enabled) activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        else activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    val view = LocalView.current
+    DisposableEffect(view, enabled) {
+        view.keepScreenOn = enabled
+        onDispose { view.keepScreenOn = false }
     }
-}
-
-private tailrec fun Context.readerActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.readerActivity()
-    else -> null
 }

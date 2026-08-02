@@ -39,8 +39,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -257,12 +259,13 @@ internal fun CopyableFacetChip(
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
+    val hapticFeedback = LocalHapticFeedback.current
     Surface(
         modifier = Modifier.combinedClickable(
             enabled = enabled,
             onClick = onClick,
             onLongClick = {
-                context.performLightHaptic()
+                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("gallery metadata", clipboardText))
                 Toast.makeText(context, "클립보드에 복사했습니다.", Toast.LENGTH_SHORT).show()

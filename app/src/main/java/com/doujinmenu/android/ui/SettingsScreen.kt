@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.StorageLocation
+import com.doujinmenu.android.model.ViewerPreferences
 
 private enum class SettingsSection {
     HOME,
@@ -68,11 +69,12 @@ fun SettingsScreen(
     onRemoveLibraryLocation: (String) -> Unit,
     onSetDownloadLocation: (String, String) -> Unit,
     onClearDownloadLocation: () -> Unit,
+    onViewerPreferencesChange: (ViewerPreferences) -> Unit,
     openConnectionRequested: Boolean,
     onConnectionRequestHandled: () -> Unit,
 ) {
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.HOME.name) }
-    val section = SettingsSection.valueOf(sectionName)
+    val section = runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.HOME)
     val openSection: (SettingsSection) -> Unit = { sectionName = it.name }
 
     BackHandler(enabled = section != SettingsSection.HOME) {
@@ -93,8 +95,10 @@ fun SettingsScreen(
             onOpenSection = openSection,
         )
         SettingsSection.VIEWER -> ViewerSettingsScreen(
+            preferences = state.viewerPreferences,
             contentPadding = contentPadding,
             onBack = { openSection(SettingsSection.HOME) },
+            onChange = onViewerPreferencesChange,
         )
         SettingsSection.LIBRARY -> LibrarySettingsScreen(
             state = state,
@@ -134,7 +138,7 @@ private fun SettingsHomeScreen(
     ) {
         item {
             SettingsCategoryCard(
-                title = "뷰어 설정",
+                title = "리더 설정",
                 description = "읽기 방향, 페이지 표시, 화면 맞춤과 제스처",
                 onClick = { onOpenSection(SettingsSection.VIEWER) },
             )
@@ -182,13 +186,15 @@ private fun SettingsCategoryCard(
 }
 
 @Composable
-private fun ViewerSettingsScreen(contentPadding: PaddingValues, onBack: () -> Unit) {
-    SettingsDetailLayout("뷰어 설정", contentPadding, onBack) {
-        SectionCard("뷰어") {
-            Text(
-                "뷰어 세부 설정은 다음 요구사항에 맞춰 이 화면에 추가됩니다.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+private fun ViewerSettingsScreen(
+    preferences: ViewerPreferences,
+    contentPadding: PaddingValues,
+    onBack: () -> Unit,
+    onChange: (ViewerPreferences) -> Unit,
+) {
+    SettingsDetailLayout("리더 설정", contentPadding, onBack) {
+        SectionCard("리더") {
+            ViewerSettingsContent(preferences = preferences, onChange = onChange)
         }
     }
 }

@@ -12,10 +12,109 @@ import com.doujinmenu.android.network.toJsonObject
 
 class LibraryStableIdMigrationTest {
     @Test
-    fun `newest book state wins and ties prefer desktop`() {
-        assertTrue(isLocalBookStateNewer(localModifiedAt = 300, remoteModifiedAt = 200))
-        assertFalse(isLocalBookStateNewer(localModifiedAt = 100, remoteModifiedAt = 200))
-        assertFalse(isLocalBookStateNewer(localModifiedAt = 200, remoteModifiedAt = 200))
+    fun `pending count does not count the same book twice`() {
+        assertEquals(
+            3,
+            distinctPendingSyncCount(
+                pendingSeriesIds = setOf("a", "b"),
+                pendingBookStateIds = setOf("b", "c"),
+            ),
+        )
+    }
+
+    @Test
+    fun `pending count groups local and desktop copies by sync id`() {
+        val local = LibraryBook(
+            id = "file:uuid",
+            title = "book",
+            locationUri = "local",
+            locationName = "local",
+            folderUri = "local",
+            pages = emptyList(),
+            modifiedAt = 0,
+            syncId = "UUID",
+        )
+        val cloud = local.copy(id = "desktop:profile:uuid", isCloud = true, syncId = "uuid")
+
+        assertEquals(
+            1,
+            distinctPendingSyncCount(
+                pendingSeriesIds = setOf(local.id),
+                pendingBookStateIds = setOf(cloud.id),
+                books = listOf(local, cloud),
+            ),
+        )
+    }
+
+    @Test
+    fun `sync response cannot overwrite a newer local edit`() {
+        assertTrue(
+            shouldAcceptBookStateResponse(
+                bookId = "book",
+                localModifiedAt = 100,
+                isPending = true,
+                expectedModifiedAtByBookId = mapOf("book" to 100L),
+            ),
+        )
+        assertFalse(
+            shouldAcceptBookStateResponse(
+                bookId = "book",
+                localModifiedAt = 101,
+                isPending = true,
+                expectedModifiedAtByBookId = mapOf("book" to 100L),
+            ),
+        )
+    }
+
+    @Test
+    fun `normal pull trusts pending intent instead of device clocks`() {
+        assertFalse(
+            shouldAcceptBookStateResponse(
+                bookId = "book",
+                localModifiedAt = 100,
+                isPending = true,
+                expectedModifiedAtByBookId = null,
+            ),
+        )
+        assertTrue(
+            shouldAcceptBookStateResponse(
+                bookId = "book",
+                localModifiedAt = 300,
+                isPending = false,
+                expectedModifiedAtByBookId = null,
+            ),
+        )
+    }
+
+    @Test
+    fun `local copy uses the latest state version for its sync id`() {
+        val local = LibraryBook(
+            id = "file:uuid",
+            title = "book",
+            locationUri = "local",
+            locationName = "local",
+            folderUri = "local",
+            pages = emptyList(),
+            modifiedAt = 0,
+            syncId = "UUID",
+            syncStateVersion = 0,
+        )
+        val cloud = local.copy(
+            id = "desktop:profile:uuid",
+            isCloud = true,
+            syncId = "uuid",
+            syncStateVersion = 7,
+        )
+
+        assertEquals(mapOf("uuid" to 7L), latestSyncStateVersions(listOf(local, cloud)))
+    }
+
+    @Test
+    fun `mutation id is stable for retries and changes with the revision`() {
+        val first = stableBookStateMutationId("phone", "UUID", 100)
+
+        assertEquals(first, stableBookStateMutationId("phone", "uuid", 100))
+        assertTrue(first != stableBookStateMutationId("phone", "uuid", 101))
     }
 
     @Test
@@ -104,7 +203,7 @@ class LibraryStableIdMigrationTest {
     }
 
     @Test
-    fun newestMobileSeriesWinsAndIsQueuedForUpload() {
+    fun pendingMobileSeriesWinsWithoutComparingDeviceClocks() {
         val mobile = CustomSeriesAssignment("Mobile Series", 1, modifiedAt = 300)
         val desktop = CustomSeriesAssignment("Desktop Series", 2, modifiedAt = 200)
         val book = LibraryBook(
@@ -122,7 +221,12 @@ class LibraryStableIdMigrationTest {
             hasSyncedSeriesState = true,
         )
 
-        val result = mergeSyncedSeries(mapOf(book.id to mobile), emptyMap(), listOf(book))
+        val result = mergeSyncedSeries(
+            local = mapOf(book.id to mobile),
+            removalTimes = emptyMap(),
+            books = listOf(book),
+            pendingIds = setOf(book.id),
+        )
         assertEquals(mapOf(book.id to mobile), result.assignments)
         assertEquals(setOf(book.id), result.localWinnerIds)
     }

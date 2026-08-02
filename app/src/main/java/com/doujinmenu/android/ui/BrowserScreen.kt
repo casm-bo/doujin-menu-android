@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
@@ -43,8 +42,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -83,6 +84,7 @@ fun BrowserScreen(
     onConnect: () -> Unit,
 ) {
     val context = LocalContext.current
+    val hapticFeedback = LocalHapticFeedback.current
     val selected = state.profiles.firstOrNull { it.id == state.selectedProfileId }
     if (selected == null) {
         ConnectionRequiredScreen(contentPadding, onConnect)
@@ -230,7 +232,7 @@ fun BrowserScreen(
                                     modifier = Modifier.combinedClickable(
                                         onClick = { onToggleLanguage(language) },
                                         onLongClick = {
-                                            context.performLightHaptic()
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                             deleteLanguage = language
                                         },
                                     ),
@@ -512,23 +514,5 @@ fun LoadingRow(label: String) {
         CircularProgressIndicator(modifier = Modifier.width(28.dp).height(28.dp))
         Spacer(Modifier.width(12.dp))
         Text(label)
-    }
-}
-
-@Composable
-fun MessageCard(message: String, isError: Boolean) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.secondaryContainer,
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(
-            message,
-            modifier = Modifier.padding(16.dp),
-            color = if (isError) MaterialTheme.colorScheme.onErrorContainer
-            else MaterialTheme.colorScheme.onSecondaryContainer,
-        )
     }
 }
