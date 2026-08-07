@@ -397,14 +397,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectGallery(galleryId: Long) {
-        val viewed = rememberViewedGallery(galleryId)
         uiState.galleries.firstOrNull { it.id == galleryId }?.let { gallery ->
             uiState = uiState.copy(
                 activeGallery = gallery,
                 galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)),
-                viewedGalleryIds = viewed,
             )
-        } ?: run { uiState = uiState.copy(viewedGalleryIds = viewed) }
+        }
     }
 
     fun libraryBookIdForGallery(galleryId: Long): String? =
@@ -850,12 +848,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openLibraryBook(bookId: String) {
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
-        val readIds = uiState.libraryReadIds + bookId
-        libraryPreferenceStore.saveReadIds(readIds)
         libraryPreferenceStore.saveActiveBookId(bookId)
         uiState = uiState.copy(
             activeLibraryBook = book,
-            libraryReadIds = readIds,
             isLibraryBookLoading = !book.hasResolvedReaderPages(),
             libraryScanError = null,
         )
@@ -1362,10 +1357,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateLibraryProgress(bookId: String, page: Int) {
-        if (uiState.libraryProgress[bookId] == page) return
-        val progress = uiState.libraryProgress + (bookId to page.coerceAtLeast(0))
+        val normalizedPage = page.coerceAtLeast(0)
+        val book = uiState.libraryBooks.firstOrNull { it.id == bookId }
+        val readIds = if (reachedLastPage(normalizedPage, book?.pages?.size ?: 0)) {
+            uiState.libraryReadIds + bookId
+        } else {
+            uiState.libraryReadIds
+        }
+        if (uiState.libraryProgress[bookId] == normalizedPage && readIds == uiState.libraryReadIds) return
+        val progress = uiState.libraryProgress + (bookId to normalizedPage)
         libraryPreferenceStore.saveProgress(progress)
-        uiState = uiState.copy(libraryProgress = progress)
+        if (readIds != uiState.libraryReadIds) libraryPreferenceStore.saveReadIds(readIds)
+        uiState = uiState.copy(libraryProgress = progress, libraryReadIds = readIds)
         enqueueBookStateSync(setOf(bookId))
     }
 
@@ -1379,10 +1382,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateOnlineReaderProgress(galleryId: Long, page: Int) {
-        if (uiState.onlineReaderProgress[galleryId] == page) return
-        val progress = uiState.onlineReaderProgress + (galleryId to page.coerceAtLeast(0))
+        val normalizedPage = page.coerceAtLeast(0)
+        val pageCount = uiState.activeGallery?.takeIf { it.id == galleryId }?.pageCount
+            ?: uiState.galleryCache[galleryId]?.pageCount
+            ?: uiState.readerPages.takeIf { uiState.readerGalleryId == galleryId }?.size
+            ?: 0
+        val viewedIds = if (reachedLastPage(normalizedPage, pageCount)) {
+            rememberViewedGallery(galleryId)
+        } else {
+            uiState.viewedGalleryIds
+        }
+        if (uiState.onlineReaderProgress[galleryId] == normalizedPage && viewedIds == uiState.viewedGalleryIds) return
+        val progress = uiState.onlineReaderProgress + (galleryId to normalizedPage)
         libraryPreferenceStore.saveOnlineProgress(progress)
-        uiState = uiState.copy(onlineReaderProgress = progress)
+        uiState = uiState.copy(onlineReaderProgress = progress, viewedGalleryIds = viewedIds)
     }
 
     fun updateViewerPreferences(value: ViewerPreferences) {
@@ -2755,6 +2768,9 @@ private fun operationErrorMessage(error: Exception): String {
         else -> error.message ?: "알 수 없는 오류가 발생했습니다."
     }
 }
+
+internal fun reachedLastPage(page: Int, pageCount: Int): Boolean =
+    pageCount > 0 && page >= pageCount - 1
 
 private fun seriesDisplayStem(title: String): String = title
     .replace(Regex("^\\s*\\[[^]]+]\\s*"), "")
