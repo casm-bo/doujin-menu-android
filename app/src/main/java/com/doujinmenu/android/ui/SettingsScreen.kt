@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.doujinmenu.android.BuildConfig
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.StorageLocation
 import com.doujinmenu.android.model.ViewerPreferences
@@ -51,6 +52,7 @@ private enum class SettingsSection {
     VIEWER,
     LIBRARY,
     CONNECTION,
+    SUPPORT,
 }
 
 @Composable
@@ -70,6 +72,7 @@ fun SettingsScreen(
     onSetDownloadLocation: (String, String) -> Unit,
     onClearDownloadLocation: () -> Unit,
     onViewerPreferencesChange: (ViewerPreferences) -> Unit,
+    onCheckForUpdates: () -> Unit,
     openConnectionRequested: Boolean,
     onConnectionRequestHandled: () -> Unit,
 ) {
@@ -122,6 +125,12 @@ fun SettingsScreen(
             onSelectProfile = onSelectProfile,
             onRemoveProfile = onRemoveProfile,
         )
+        SettingsSection.SUPPORT -> SupportSettingsScreen(
+            state = state,
+            contentPadding = contentPadding,
+            onBack = { openSection(SettingsSection.HOME) },
+            onCheckForUpdates = onCheckForUpdates,
+        )
     }
 }
 
@@ -157,6 +166,53 @@ private fun SettingsHomeScreen(
                 description = "선택적 PC 연결 및 동기화 · 등록된 PC ${state.profiles.size}개",
                 onClick = { onOpenSection(SettingsSection.CONNECTION) },
             )
+        }
+        item {
+            SettingsCategoryCard(
+                title = "업데이트 및 지원",
+                description = "버전 확인, 진단 데이터 공유, 문제 신고",
+                onClick = { onOpenSection(SettingsSection.SUPPORT) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SupportSettingsScreen(
+    state: MainUiState,
+    contentPadding: PaddingValues,
+    onBack: () -> Unit,
+    onCheckForUpdates: () -> Unit,
+) {
+    val context = LocalContext.current
+    SettingsDetailLayout("업데이트 및 지원", contentPadding, onBack) {
+        SectionCard("앱 정보") {
+            Text("버전 ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onCheckForUpdates,
+                enabled = !state.isCheckingForUpdates,
+            ) {
+                Text(if (state.isCheckingForUpdates) "확인 중…" else "업데이트 확인")
+            }
+        }
+        SectionCard("문제 해결") {
+            Text(
+                "진단 정보에는 앱·기기 버전과 상태 개수만 포함됩니다. " +
+                    "연결 주소, 인증 정보, 작품명과 파일 경로는 포함하지 않습니다.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(onClick = { shareDiagnosticData(context, state) }) {
+                    Text("진단 데이터 보내기")
+                }
+                Button(onClick = { openGitHubIssue(context, state) }) {
+                    Text("이슈 등록")
+                }
+            }
         }
     }
 }

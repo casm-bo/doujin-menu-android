@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.doujinmenu.android.BuildConfig
 import com.doujinmenu.android.data.LibraryScanner
 import com.doujinmenu.android.data.LibraryArchiveExtractor
 import com.doujinmenu.android.data.LibraryFileDeleter
@@ -29,12 +30,15 @@ import com.doujinmenu.android.network.CompanionClient
 import com.doujinmenu.android.network.CompanionApiException
 import com.doujinmenu.android.network.BookStateSyncResult
 import com.doujinmenu.android.network.BookStateSyncUpdate
+import com.doujinmenu.android.network.AppRelease
 import com.doujinmenu.android.network.SyncedBookState
 import com.doujinmenu.android.network.EndpointNormalizer
 import com.doujinmenu.android.network.FilterSuggestion
 import com.doujinmenu.android.network.HitomiSuggestionClient
+import com.doujinmenu.android.network.GitHubReleaseChecker
 import com.doujinmenu.android.network.SeriesSyncUpdate
 import com.doujinmenu.android.network.SeriesSyncResult
+import com.doujinmenu.android.network.isNewerAppVersion
 import com.doujinmenu.android.security.BrowserPreferenceStore
 import com.doujinmenu.android.security.LibraryPreferenceStore
 import com.doujinmenu.android.security.SecureProfileStore
@@ -127,6 +131,8 @@ data class MainUiState(
     val isBusy: Boolean = false,
     val message: String? = null,
     val isError: Boolean = false,
+    val availableUpdate: AppRelease? = null,
+    val isCheckingForUpdates: Boolean = false,
 )
 
 enum class DesktopConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
@@ -134,6 +140,8 @@ enum class DesktopConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val client = CompanionClient()
     private val suggestionClient = HitomiSuggestionClient()
+    private val releaseChecker = GitHubReleaseChecker()
+    private val updatePreferences = application.getSharedPreferences("updates", Application.MODE_PRIVATE)
     private val profileStore = SecureProfileStore(application)
     private val browserPreferenceStore = BrowserPreferenceStore(application)
     private val libraryPreferenceStore = LibraryPreferenceStore(application)
@@ -189,6 +197,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
         )
         refreshLibrarySilently()
+        checkForUpdates(manual = false)
     }
 
     fun setHost(value: String) = update { copy(host = value) }
@@ -556,6 +565,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissMessage() {
         uiState = uiState.copy(message = null, isError = false)
+    }
+
+    fun checkForUpdates(manual: Boolean = true) {
+        if (uiState.isCheckingForUpdates) return
+        val now = System.currentTimeMillis()
+        if (!manual && now - updatePreferences.getLong(LAST_UPDATE_CHECK_KEY, 0L) < UPDATE_CHECK_INTERVAL_MS) {
+            return
+        }
+        viewModelScope.launch {
+            uiState = uiState.copy(isCheckingForUpdates = true)
+            try {
+                val release = releaseChecker.latestRelease()
+                val skipped = updatePreferences.getString(SKIPPED_UPDATE_KEY, null)
+                when {
+                    isNewerAppVersion(release.versionName, BuildConfig.VERSION_NAME) &&
+                        (manual || skipped != release.versionName) -> {
+                        uiState = uiState.copy(availableUpdate = release)
+                    }
+                    manual -> {
+                        uiState = uiState.copy(
+                            message = "현재 ${BuildConfig.VERSION_NAME} 버전이 최신입니다.",
+                            isError = false,
+                        )
+                    }
+                }
+            } catch (error: Exception) {
+                if (manual) {
+                    uiState = uiState.copy(
+                        message = "업데이트를 확인하지 못했습니다: ${error.message ?: "네트워크 오류"}",
+                        isError = true,
+                    )
+                }
+            } finally {
+                updatePreferences.edit().putLong(LAST_UPDATE_CHECK_KEY, now).apply()
+                uiState = uiState.copy(isCheckingForUpdates = false)
+            }
+        }
+    }
+
+    fun dismissAvailableUpdate(skipVersion: Boolean) {
+        val version = uiState.availableUpdate?.versionName
+        if (skipVersion && version != null) {
+            updatePreferences.edit().putString(SKIPPED_UPDATE_KEY, version).apply()
+        }
+        uiState = uiState.copy(availableUpdate = null)
     }
 
     fun addLibraryLocation(uri: String, displayName: String) {
@@ -2577,6 +2631,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val FILE_UPLOAD_RETRY_BASE_DELAY_MS = 750L
         const val BOOK_STATE_SYNC_MAX_RETRIES = 3
         const val BOOK_STATE_SYNC_RETRY_BASE_DELAY_MS = 500L
+        const val UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1_000L
+        const val LAST_UPDATE_CHECK_KEY = "last_update_check"
+        const val SKIPPED_UPDATE_KEY = "skipped_update"
         val FILTER_TYPES = listOf(
             "artist", "group", "type", "language", "series", "character", "male", "female", "tag",
         )

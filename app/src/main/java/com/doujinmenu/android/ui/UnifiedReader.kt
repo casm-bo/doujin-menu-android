@@ -1,5 +1,6 @@
 package com.doujinmenu.android.ui
 
+import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -18,12 +19,18 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -54,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,6 +112,7 @@ internal fun UnifiedReader(
     }
     var settingsVisible by remember(readerKey) { mutableStateOf(false) }
     var nextBookDialog by remember(readerKey) { mutableStateOf(false) }
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     LaunchedEffect(pagerState.currentPage) { onProgress(pagerState.currentPage) }
     LaunchedEffect(preferences.hideThumbnails) {
         thumbnailsVisible = initialThumbnailVisibility(preferences)
@@ -147,7 +156,9 @@ internal fun UnifiedReader(
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(
+                readerContentPadding(isLandscape, controlsVisible, thumbnailsVisible),
+            ),
             beyondViewportPageCount = minOf(2, pages.lastIndex),
             key = { pages[it].key },
             reverseLayout = preferences.readingDirection == ViewerReadingDirection.RIGHT_TO_LEFT,
@@ -257,7 +268,10 @@ private fun ReaderTopBar(
     onSettings: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.76f)).padding(8.dp),
+        modifier = Modifier.fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+            .background(Color.Black.copy(alpha = 0.76f))
+            .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TextButton(onClick = onBack) { Text("‹", color = Color.White) }
@@ -292,7 +306,9 @@ private fun ReaderThumbnailBar(
     }
     LazyRow(
         state = listState,
-        modifier = modifier.fillMaxWidth().height(116.dp)
+        modifier = modifier.fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+            .height(READER_THUMBNAIL_BAR_HEIGHT)
             .background(Color.Black.copy(alpha = 0.78f))
             .pointerInput(onSwipeDown) {
                 val threshold = 48.dp.toPx()
@@ -329,6 +345,22 @@ private fun ReaderThumbnailBar(
         }
     }
 }
+
+internal fun readerContentPadding(
+    isLandscape: Boolean,
+    controlsVisible: Boolean,
+    thumbnailsVisible: Boolean,
+): PaddingValues = if (isLandscape) {
+    PaddingValues(
+        top = if (controlsVisible) READER_TOP_BAR_HEIGHT else 0.dp,
+        bottom = if (thumbnailsVisible) READER_THUMBNAIL_BAR_HEIGHT else 0.dp,
+    )
+} else {
+    PaddingValues()
+}
+
+private val READER_TOP_BAR_HEIGHT = 64.dp
+private val READER_THUMBNAIL_BAR_HEIGHT = 116.dp
 
 @Composable
 private fun ReaderBottomSwipeHandle(

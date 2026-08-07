@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -51,6 +54,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
@@ -78,6 +82,7 @@ private enum class MainDestination(
 @Composable
 fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     val navController = rememberNavController()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
     var lastMainDestination by rememberSaveable { mutableStateOf(MainDestination.Browser.route) }
@@ -276,6 +281,36 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     else MaterialTheme.colorScheme.inverseOnSurface,
             )
         }
+    }
+
+    viewModel.uiState.availableUpdate?.let { release ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissAvailableUpdate(skipVersion = false) },
+            title = { Text("새 버전 ${release.versionName}") },
+            text = {
+                Text(
+                    release.notes.ifBlank { "새 버전을 사용할 수 있습니다." }.take(600),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.pageUrl)))
+                        viewModel.dismissAvailableUpdate(skipVersion = false)
+                    },
+                ) { Text("업데이트") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { viewModel.dismissAvailableUpdate(skipVersion = true) }) {
+                        Text("이 버전 건너뛰기")
+                    }
+                    TextButton(onClick = { viewModel.dismissAvailableUpdate(skipVersion = false) }) {
+                        Text("나중에")
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -567,6 +602,7 @@ private fun MainTabContent(
                 onSetDownloadLocation = viewModel::setDownloadLocation,
                 onClearDownloadLocation = viewModel::clearDownloadLocation,
                 onViewerPreferencesChange = viewModel::updateViewerPreferences,
+                onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
                 openConnectionRequested = connectionSettingsRequested,
                 onConnectionRequestHandled = { connectionSettingsRequested = false },
             )
