@@ -1,5 +1,8 @@
 # doujin-menu-android
 
+[![GitHub latest release](https://img.shields.io/github/v/release/casm-bo/doujin-menu-android)](https://github.com/casm-bo/doujin-menu-android/releases/latest)
+[![GitHub Downloads](https://img.shields.io/github/downloads/casm-bo/doujin-menu-android/total)](https://github.com/casm-bo/doujin-menu-android/releases/latest)
+
 [doujin-menu 데스크톱 앱](https://github.com/casm-bo/doujin-menu-V2)의 Companion Server와 연동하는 Android 클라이언트입니다. Android 앱은 데스크톱 앱과 기능 구성이 다르며, 단독으로 사용하지 않고 데스크톱 앱과 페어링해 사용합니다.
 
 ## 주요 기능
