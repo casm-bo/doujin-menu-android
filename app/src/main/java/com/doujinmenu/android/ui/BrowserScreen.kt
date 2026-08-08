@@ -460,13 +460,12 @@ private fun GalleryCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 gallery.tags.take(3).takeIf { it.isNotEmpty() }?.let { tags ->
-                    Text(
-                        tags.joinToString(" · ") { it.name },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        tags.forEach { TagPill(tagDisplayInfo(it.name, it.type)) }
+                    }
                 }
                 gallery.loadError?.let { error ->
                     Text(

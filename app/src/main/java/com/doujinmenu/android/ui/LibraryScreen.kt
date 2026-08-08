@@ -1524,13 +1524,7 @@ private fun LibraryBookText(book: LibraryBook, progress: Int, modifier: Modifier
             )
         }
         if (book.metadata.tags.isNotEmpty()) {
-            Text(
-                book.metadata.tags.take(4).joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            CompactTagRow(book.metadata.tags.take(4))
         }
         Text(
             "${book.pages.size}장 · ${book.locationName}" +
@@ -1825,13 +1819,7 @@ private fun SeriesText(name: String, books: List<LibraryBook>, modifier: Modifie
             )
         }
         if (tags.isNotEmpty()) {
-            Text(
-                tags.take(4).joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            CompactTagRow(tags.take(4))
         }
         Text(
             "${books.size}화 · $source",

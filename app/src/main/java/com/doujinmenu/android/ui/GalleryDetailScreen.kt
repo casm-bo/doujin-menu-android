@@ -171,12 +171,12 @@ fun GalleryDetailScreen(
                             Text("태그", fontWeight = FontWeight.SemiBold)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 gallery.tags.forEach { tag ->
-                                    val namespace = tag.type.lowercase()
-                                        .takeIf { it == "female" || it == "male" }
-                                        ?: "tag"
-                                    val facet = "$namespace:${tag.name}"
+                                    val facet = tagSearchFacet(tag.name, tag.type)
+                                    val display = tagDisplayInfo(tag.name, tag.type)
                                     CopyableFacetChip(
-                                        text = facet,
+                                        text = display.text,
+                                        tagStyle = display.style,
+                                        clipboardText = facet,
                                         onClick = { onSearchFacet(facet) },
                                         enabled = tag.name.isGalleryFacetSearchable(),
                                     )
@@ -255,11 +255,13 @@ fun GalleryDetailScreen(
 internal fun CopyableFacetChip(
     text: String,
     clipboardText: String = text,
+    tagStyle: TagStyle = TagStyle.DEFAULT,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
+    val (containerColor, contentColor) = tagColors(tagStyle)
     Surface(
         modifier = Modifier.combinedClickable(
             enabled = enabled,
@@ -271,11 +273,10 @@ internal fun CopyableFacetChip(
                 Toast.makeText(context, "클립보드에 복사했습니다.", Toast.LENGTH_SHORT).show()
             },
         ),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = if (enabled) MaterialTheme.colorScheme.onSurface
-        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        shape = RoundedCornerShape(if (tagStyle == TagStyle.DEFAULT) 8.dp else 50.dp),
+        color = containerColor,
+        contentColor = if (enabled) contentColor else contentColor.copy(alpha = 0.38f),
+        border = if (tagStyle == TagStyle.DEFAULT) BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
     ) {
         Text(text, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
     }
