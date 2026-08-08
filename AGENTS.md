@@ -1,5 +1,25 @@
 # Default Behavior
 
+## Task Organization and Commits
+
+Before making changes, divide the requested work into logical, independently verifiable categories.
+
+For each category:
+
+1. Complete only that category.
+2. Run the smallest relevant verification or test.
+3. Review the changed files and exclude unrelated user changes.
+4. Commit automatically after verification succeeds.
+
+Commit rules:
+
+- Create one atomic commit per completed category.
+- Use Conventional Commits with a concise message, such as `feat:`, `fix:`, `refactor:`, `test:`, or `docs:`.
+- Never commit unrelated, pre-existing, or user-owned changes.
+- Do not commit incomplete or failing work.
+- Do not amend, squash, rebase, or push unless explicitly requested.
+- If changes cannot be separated safely, stop and ask before committing.
+
 ## Default Skills
 
 Always use:
