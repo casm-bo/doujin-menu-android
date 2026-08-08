@@ -53,6 +53,7 @@ private enum class SettingsSection {
     LIBRARY,
     CONNECTION,
     SUPPORT,
+    CHANGELOG,
 }
 
 @Composable
@@ -130,6 +131,11 @@ fun SettingsScreen(
             contentPadding = contentPadding,
             onBack = { openSection(SettingsSection.HOME) },
             onCheckForUpdates = onCheckForUpdates,
+            onOpenChangelog = { openSection(SettingsSection.CHANGELOG) },
+        )
+        SettingsSection.CHANGELOG -> ChangelogScreen(
+            contentPadding = contentPadding,
+            onBack = { openSection(SettingsSection.SUPPORT) },
         )
     }
 }
@@ -169,8 +175,8 @@ private fun SettingsHomeScreen(
         }
         item {
             SettingsCategoryCard(
-                title = "업데이트 및 지원",
-                description = "버전 확인, 진단 데이터 공유, 문제 신고",
+                title = "정보",
+                description = "버전, 업데이트 내역, 진단 및 문제 신고",
                 onClick = { onOpenSection(SettingsSection.SUPPORT) },
             )
         }
@@ -183,9 +189,10 @@ private fun SupportSettingsScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
     onCheckForUpdates: () -> Unit,
+    onOpenChangelog: () -> Unit,
 ) {
     val context = LocalContext.current
-    SettingsDetailLayout("업데이트 및 지원", contentPadding, onBack) {
+    SettingsDetailLayout("정보", contentPadding, onBack) {
         SectionCard("앱 정보") {
             Text("버전 ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             Spacer(Modifier.height(8.dp))
@@ -195,6 +202,16 @@ private fun SupportSettingsScreen(
             ) {
                 Text(if (state.isCheckingForUpdates) "확인 중…" else "업데이트 확인")
             }
+        }
+        SectionCard("내역") {
+            Text(
+                "버전별 새로운 기능과 변경 사항을 확인합니다.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(
+                onClick = onOpenChangelog,
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("업데이트 기록") }
         }
         SectionCard("문제 해결") {
             Text(
@@ -211,6 +228,19 @@ private fun SupportSettingsScreen(
                 }
                 Button(onClick = { openGitHubIssue(context, state) }) {
                     Text("이슈 등록")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChangelogScreen(contentPadding: PaddingValues, onBack: () -> Unit) {
+    SettingsDetailLayout("업데이트 기록", contentPadding, onBack) {
+        appChangelog.forEach { changelog ->
+            SectionCard("v${changelog.version}") {
+                changelog.changes.forEach { change ->
+                    Text("• $change")
                 }
             }
         }
