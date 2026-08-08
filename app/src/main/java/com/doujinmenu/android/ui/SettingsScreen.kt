@@ -219,16 +219,11 @@ private fun SupportSettingsScreen(
                     "연결 주소, 인증 정보, 작품명과 파일 경로는 포함하지 않습니다.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(
+            Button(
+                onClick = { openGitHubIssue(context, state) },
                 modifier = Modifier.padding(top = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(onClick = { shareDiagnosticData(context, state) }) {
-                    Text("진단 데이터 보내기")
-                }
-                Button(onClick = { openGitHubIssue(context, state) }) {
-                    Text("이슈 등록")
-                }
+                Text("진단 데이터 보내기")
             }
         }
     }

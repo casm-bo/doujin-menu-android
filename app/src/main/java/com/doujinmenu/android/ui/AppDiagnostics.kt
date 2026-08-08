@@ -7,16 +7,6 @@ import android.net.Uri
 import android.os.Build
 import com.doujinmenu.android.BuildConfig
 
-internal fun shareDiagnosticData(context: Context, state: MainUiState) {
-    val report = buildDiagnosticReport(context, state)
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, "Doujin Menu Android diagnostic data")
-        putExtra(Intent.EXTRA_TEXT, report)
-    }
-    context.startActivity(Intent.createChooser(intent, "진단 데이터 보내기"))
-}
-
 internal fun openGitHubIssue(context: Context, state: MainUiState) {
     val body = """
         ## 문제 설명
