@@ -13,12 +13,17 @@ import org.junit.Test
 
 class LibraryFilterTest {
     @Test
+    fun `default sort is newest modified first`() {
+        assertEquals(listOf("b", "c", "a"), visibleLibraryBooks(MainUiState(libraryBooks = books)).map(LibraryBook::id))
+    }
+
+    @Test
     fun `filter signature changes only for list conditions`() {
         val base = MainUiState()
 
         assertNotEquals(libraryFilterSignature(base), libraryFilterSignature(base.copy(libraryQuery = "tag:test")))
         assertNotEquals(libraryFilterSignature(base), libraryFilterSignature(base.copy(libraryFavoritesOnly = true)))
-        assertNotEquals(libraryFilterSignature(base), libraryFilterSignature(base.copy(librarySort = LibrarySort.NEWEST)))
+        assertNotEquals(libraryFilterSignature(base), libraryFilterSignature(base.copy(librarySort = LibrarySort.TITLE_ASC)))
         assertEquals(libraryFilterSignature(base), libraryFilterSignature(base.copy(message = "unrelated")))
     }
 

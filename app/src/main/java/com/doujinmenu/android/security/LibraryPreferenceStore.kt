@@ -2,6 +2,7 @@ package com.doujinmenu.android.security
 
 import android.content.Context
 import com.doujinmenu.android.model.CustomSeriesAssignment
+import com.doujinmenu.android.model.LibrarySort
 import com.doujinmenu.android.model.ViewerPreferences
 import com.doujinmenu.android.model.ViewerPageTurnMode
 import com.doujinmenu.android.model.ViewerReadingDirection
@@ -232,6 +233,11 @@ class LibraryPreferenceStore(context: Context) {
     fun saveLibraryGridColumns(value: Int) =
         preferences.edit().putInt(KEY_LIBRARY_GRID_COLUMNS, value.coerceIn(2, 4)).apply()
 
+    fun loadLibrarySort(): LibrarySort = enumPreference(KEY_LIBRARY_SORT, LibrarySort.NEWEST)
+
+    fun saveLibrarySort(value: LibrarySort) =
+        preferences.edit().putString(KEY_LIBRARY_SORT, value.name).apply()
+
     private companion object {
         const val FILE_NAME = "library_preferences"
         const val KEY_FAVORITES = "favorite_book_ids"
@@ -258,5 +264,6 @@ class LibraryPreferenceStore(context: Context) {
         const val KEY_TAP_ZONES = "viewer_tap_zones"
         const val KEY_LIBRARY_VIEW_MODE = "library_view_mode"
         const val KEY_LIBRARY_GRID_COLUMNS = "library_grid_columns"
+        const val KEY_LIBRARY_SORT = "library_sort"
     }
 }

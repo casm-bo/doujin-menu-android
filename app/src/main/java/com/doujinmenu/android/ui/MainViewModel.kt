@@ -92,7 +92,7 @@ data class MainUiState(
     val libraryFavoritesOnly: Boolean = false,
     val libraryReadFilter: LibraryReadFilter = LibraryReadFilter.ALL,
     val libraryVisibilityFilter: LibraryVisibilityFilter = LibraryVisibilityFilter.VISIBLE,
-    val librarySort: LibrarySort = LibrarySort.TITLE_ASC,
+    val librarySort: LibrarySort = LibrarySort.NEWEST,
     val selectedLibraryLocationUris: Set<String>? = null,
     val librarySeriesMode: Boolean = false,
     val selectedLibrarySeries: String? = null,
@@ -192,6 +192,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             libraryProgress = libraryPreferenceStore.loadProgress(),
             onlineReaderProgress = libraryPreferenceStore.loadOnlineProgress(),
             customSeriesByBookId = libraryPreferenceStore.loadCustomSeries(),
+            librarySort = libraryPreferenceStore.loadLibrarySort(),
             librarySyncPendingCount = pendingLibrarySyncCount(),
             viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
@@ -884,7 +885,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setLibraryVisibilityFilter(value: LibraryVisibilityFilter) = update {
         copy(libraryVisibilityFilter = value)
     }
-    fun setLibrarySort(value: LibrarySort) = update { copy(librarySort = value) }
+    fun setLibrarySort(value: LibrarySort) {
+        libraryPreferenceStore.saveLibrarySort(value)
+        update { copy(librarySort = value) }
+    }
     fun toggleLibraryLocation(uri: String) = update {
         val allUris = (libraryLocations + desktopLibraryLocations).mapTo(linkedSetOf()) { it.uri }
         val current = selectedLibraryLocationUris ?: allUris
