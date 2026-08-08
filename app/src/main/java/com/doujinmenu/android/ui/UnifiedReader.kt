@@ -1,6 +1,5 @@
 package com.doujinmenu.android.ui
 
-import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -19,7 +18,6 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -61,7 +59,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,6 +72,7 @@ import com.doujinmenu.android.model.ViewerReadingDirection
 import com.doujinmenu.android.model.ViewerScale
 import com.doujinmenu.android.model.ViewerTapAction
 import com.doujinmenu.android.model.ViewerTapZones
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 internal data class ReaderPageModel(val key: String, val model: Any)
@@ -112,8 +110,13 @@ internal fun UnifiedReader(
     }
     var settingsVisible by remember(readerKey) { mutableStateOf(false) }
     var nextBookDialog by remember(readerKey) { mutableStateOf(false) }
-    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     LaunchedEffect(pagerState.currentPage) { onProgress(pagerState.currentPage) }
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible) {
+            delay(READER_CONTROLS_AUTO_HIDE_MS)
+            controlsVisible = false
+        }
+    }
     LaunchedEffect(preferences.hideThumbnails) {
         thumbnailsVisible = initialThumbnailVisibility(preferences)
     }
@@ -156,9 +159,7 @@ internal fun UnifiedReader(
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize().padding(
-                readerContentPadding(isLandscape, controlsVisible, thumbnailsVisible),
-            ),
+            modifier = Modifier.fillMaxSize(),
             beyondViewportPageCount = minOf(2, pages.lastIndex),
             key = { pages[it].key },
             reverseLayout = preferences.readingDirection == ViewerReadingDirection.RIGHT_TO_LEFT,
@@ -184,7 +185,12 @@ internal fun UnifiedReader(
             )
         }
 
-        if (controlsVisible) {
+        AnimatedVisibility(
+            visible = controlsVisible,
+            modifier = Modifier.align(Alignment.TopCenter),
+            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+        ) {
             ReaderTopBar(
                 title = title,
                 favorite = favorite,
@@ -270,7 +276,7 @@ private fun ReaderTopBar(
     Row(
         modifier = Modifier.fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-            .background(Color.Black.copy(alpha = 0.76f))
+            .background(Color.Black.copy(alpha = 0.84f))
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -346,21 +352,8 @@ private fun ReaderThumbnailBar(
     }
 }
 
-internal fun readerContentPadding(
-    isLandscape: Boolean,
-    controlsVisible: Boolean,
-    thumbnailsVisible: Boolean,
-): PaddingValues = if (isLandscape) {
-    PaddingValues(
-        top = if (controlsVisible) READER_TOP_BAR_HEIGHT else 0.dp,
-        bottom = if (thumbnailsVisible) READER_THUMBNAIL_BAR_HEIGHT else 0.dp,
-    )
-} else {
-    PaddingValues()
-}
-
-private val READER_TOP_BAR_HEIGHT = 64.dp
 private val READER_THUMBNAIL_BAR_HEIGHT = 116.dp
+private const val READER_CONTROLS_AUTO_HIDE_MS = 3_000L
 
 @Composable
 private fun ReaderBottomSwipeHandle(
@@ -369,7 +362,6 @@ private fun ReaderBottomSwipeHandle(
 ) {
     Box(
         modifier = modifier.fillMaxWidth().height(44.dp)
-            .background(Color.Black.copy(alpha = 0.12f))
             .pointerInput(onSwipeUp) {
                 val threshold = 48.dp.toPx()
                 var draggedY = 0f
@@ -387,7 +379,7 @@ private fun ReaderBottomSwipeHandle(
     ) {
         Box(
             modifier = Modifier.padding(bottom = 8.dp).size(width = 52.dp, height = 4.dp)
-                .background(Color.White.copy(alpha = 0.7f)),
+                .background(Color.White),
         )
     }
 }
@@ -513,14 +505,13 @@ internal fun ViewerSettingsContent(
             onChange(
                 preferences.copy(
                     customTapZonesEnabled = enabled,
-                    tapZones = preferences.tapZones.customActionsOnly(),
                 ),
             )
             tapEditorVisible = enabled
         }
         if (preferences.customTapZonesEnabled) {
             Text(
-                "이전·없음·다음 동작을 화면의 실제 위치에 배치합니다.",
+                "이전·토글·다음·없음 동작을 화면의 실제 위치에 배치합니다.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedButton(
@@ -568,7 +559,7 @@ private fun TouchZoneEditor(
                     Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
                         repeat(3) { column ->
                             val index = row * 3 + column
-                            val action = zones.actionAt(index).asCustomAction()
+                            val action = zones.actionAt(index)
                             Box(
                                 modifier = Modifier.weight(1f).fillMaxSize()
                                     .background(action.zoneColor().copy(alpha = 0.76f))
@@ -596,7 +587,7 @@ private fun TouchZoneEditor(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "영역을 눌러 이전 · 없음 · 다음 변경",
+                    "영역을 눌러 이전 · 토글 · 다음 · 없음 변경",
                     modifier = Modifier.weight(1f),
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
@@ -607,31 +598,24 @@ private fun TouchZoneEditor(
     }
 }
 
-private fun ViewerTapZones.customActionsOnly(): ViewerTapZones = ViewerTapZones(
-    actions = actions.map(ViewerTapAction::asCustomAction),
-)
-
-private fun ViewerTapAction.asCustomAction(): ViewerTapAction =
-    if (this == ViewerTapAction.TOGGLE_CONTROLS) ViewerTapAction.NONE else this
-
-private fun ViewerTapAction.nextCustomAction(): ViewerTapAction = when (asCustomAction()) {
-    ViewerTapAction.PREVIOUS_PAGE -> ViewerTapAction.NONE
-    ViewerTapAction.NONE -> ViewerTapAction.NEXT_PAGE
-    ViewerTapAction.NEXT_PAGE -> ViewerTapAction.PREVIOUS_PAGE
-    ViewerTapAction.TOGGLE_CONTROLS -> ViewerTapAction.NONE
+internal fun ViewerTapAction.nextCustomAction(): ViewerTapAction = when (this) {
+    ViewerTapAction.PREVIOUS_PAGE -> ViewerTapAction.TOGGLE_CONTROLS
+    ViewerTapAction.TOGGLE_CONTROLS -> ViewerTapAction.NEXT_PAGE
+    ViewerTapAction.NEXT_PAGE -> ViewerTapAction.NONE
+    ViewerTapAction.NONE -> ViewerTapAction.PREVIOUS_PAGE
 }
 
-private fun ViewerTapAction.zoneColor(): Color = when (asCustomAction()) {
+private fun ViewerTapAction.zoneColor(): Color = when (this) {
     ViewerTapAction.PREVIOUS_PAGE -> Color(0xFFD32F2F)
     ViewerTapAction.NONE -> Color(0xFF616161)
     ViewerTapAction.NEXT_PAGE -> Color(0xFF00897B)
-    ViewerTapAction.TOGGLE_CONTROLS -> Color(0xFF616161)
+    ViewerTapAction.TOGGLE_CONTROLS -> Color(0xFF3949AB)
 }
 
 private fun ViewerTapAction.shortLabel(): String = when (this) {
     ViewerTapAction.PREVIOUS_PAGE -> "이전"
     ViewerTapAction.NEXT_PAGE -> "다음"
-    ViewerTapAction.TOGGLE_CONTROLS -> "메뉴"
+    ViewerTapAction.TOGGLE_CONTROLS -> "토글"
     ViewerTapAction.NONE -> "없음"
 }
 

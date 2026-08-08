@@ -5,7 +5,6 @@ import com.doujinmenu.android.model.LibraryPage
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import androidx.compose.ui.unit.dp
 
 class LocalReaderScreenTest {
     @Test
@@ -26,30 +25,6 @@ class LocalReaderScreenTest {
         )
 
         assertTrue(book.hasReadablePages())
-    }
-
-    @Test
-    fun landscapeReaderReservesVisibleControlBars() {
-        val padding = readerContentPadding(
-            isLandscape = true,
-            controlsVisible = true,
-            thumbnailsVisible = true,
-        )
-
-        assertTrue(padding.calculateTopPadding() == 64.dp)
-        assertTrue(padding.calculateBottomPadding() == 116.dp)
-    }
-
-    @Test
-    fun portraitReaderKeepsOverlayLayout() {
-        val padding = readerContentPadding(
-            isLandscape = false,
-            controlsVisible = true,
-            thumbnailsVisible = true,
-        )
-
-        assertTrue(padding.calculateTopPadding() == 0.dp)
-        assertTrue(padding.calculateBottomPadding() == 0.dp)
     }
 
     private fun bookWithPages(vararg pages: LibraryPage) = LibraryBook(

@@ -1,6 +1,7 @@
 package com.doujinmenu.android.model
 
 import com.doujinmenu.android.ui.initialThumbnailVisibility
+import com.doujinmenu.android.ui.nextCustomAction
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -51,5 +52,13 @@ class ViewerPreferencesTest {
         assertEquals(ViewerTapAction.NEXT_PAGE, swapped.actionAt(0))
         assertEquals(ViewerTapAction.NONE, swapped.actionAt(1))
         assertEquals(ViewerTapAction.PREVIOUS_PAGE, swapped.actionAt(2))
+    }
+
+    @Test
+    fun `custom actions cycle previous toggle next and none`() {
+        assertEquals(ViewerTapAction.TOGGLE_CONTROLS, ViewerTapAction.PREVIOUS_PAGE.nextCustomAction())
+        assertEquals(ViewerTapAction.NEXT_PAGE, ViewerTapAction.TOGGLE_CONTROLS.nextCustomAction())
+        assertEquals(ViewerTapAction.NONE, ViewerTapAction.NEXT_PAGE.nextCustomAction())
+        assertEquals(ViewerTapAction.PREVIOUS_PAGE, ViewerTapAction.NONE.nextCustomAction())
     }
 }
