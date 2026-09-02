@@ -97,7 +97,7 @@ fun BrowserWorkspace.closeTab(tabId: String): BrowserWorkspace {
 }
 
 fun BrowserWorkspace.pushPage(page: BrowserPage): BrowserWorkspace = updateActiveTab { tab ->
-    val history = tab.history.take(tab.currentIndex + 1) + page
+    val history = (tab.history.take(tab.currentIndex + 1) + page).takeLast(MAX_TAB_HISTORY)
     tab.copy(history = history, currentIndex = history.lastIndex)
 }
 
@@ -138,3 +138,5 @@ val BrowserPage.label: String
         is BrowserPage.OnlineReader -> title.ifBlank { "갤러리 $galleryId" }
         is BrowserPage.LibraryReader -> title.ifBlank { "다운로드 작품" }
     }
+
+private const val MAX_TAB_HISTORY = 50

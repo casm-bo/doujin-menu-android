@@ -453,7 +453,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             activeGallery = gallery,
             galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)),
         )
-        applyBrowserWorkspace(workspace, navigate = true)
+        applyBrowserWorkspace(workspace)
     }
 
     fun openLibraryBookTab(bookId: String) {
@@ -461,7 +461,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         openLibraryBook(bookId)
         applyBrowserWorkspace(
             uiState.browserWorkspace.pushPage(BrowserPage.LibraryBook(bookId, book.title)),
-            navigate = true,
         )
     }
 
@@ -470,7 +469,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         openLibraryBook(bookId)
         applyBrowserWorkspace(
             uiState.browserWorkspace.openTab(BrowserPage.LibraryBook(bookId, book.title)),
-            navigate = true,
         )
     }
 
@@ -484,7 +482,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 title = gallery.title,
                 startPage = startPage.coerceAtLeast(0),
             )),
-            navigate = true,
         )
     }
 
@@ -496,7 +493,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 title = book.title,
                 startPage = startPage.coerceAtLeast(0),
             )),
-            navigate = true,
         )
     }
 
@@ -506,7 +502,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val workspace = uiState.browserWorkspace
             .pushPage(BrowserPage.LibraryBook(bookId, book.title))
             .pushPage(BrowserPage.LibraryReader(bookId, book.title, 0))
-        applyBrowserWorkspace(workspace, navigate = true)
+        applyBrowserWorkspace(workspace)
     }
 
     fun activeBrowserPage(): BrowserPage = uiState.browserWorkspace.activeTab.currentPage
@@ -516,27 +512,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             uiState.browserWorkspace.openTab(BrowserPage.Search(
                 preferredLanguages = uiState.preferredLanguages,
             )),
-            navigate = true,
         )
     }
 
     fun selectBrowserTab(tabId: String) {
-        applyBrowserWorkspace(uiState.browserWorkspace.selectTab(tabId), navigate = true, reload = true)
+        applyBrowserWorkspace(uiState.browserWorkspace.selectTab(tabId), reload = true)
     }
 
     fun closeBrowserTab(tabId: String) {
-        applyBrowserWorkspace(uiState.browserWorkspace.closeTab(tabId), navigate = true, reload = true)
+        val current = uiState.browserWorkspace
+        val closingActiveTab = tabId == current.activeTabId
+        val workspace = if (current.tabs.size == 1 && closingActiveTab) {
+            BrowserWorkspace.initial(BrowserPage.Search(
+                preferredLanguages = uiState.preferredLanguages,
+            ))
+        } else {
+            current.closeTab(tabId)
+        }
+        if (closingActiveTab) {
+            applyBrowserWorkspace(workspace, reload = true)
+        } else {
+            uiState = uiState.copy(browserWorkspace = workspace)
+            browserPreferenceStore.saveBrowserWorkspace(workspace)
+        }
     }
 
     fun moveBrowserTab(tabId: String, offset: Int) {
-        applyBrowserWorkspace(uiState.browserWorkspace.moveTab(tabId, offset), navigate = false)
+        val workspace = uiState.browserWorkspace.moveTab(tabId, offset)
+        uiState = uiState.copy(browserWorkspace = workspace)
+        browserPreferenceStore.saveBrowserWorkspace(workspace)
     }
 
     fun canGoBackInBrowserTab(): Boolean = uiState.browserWorkspace.activeTab.canGoBack
 
     fun goBackInBrowserTab(): Boolean {
         if (!canGoBackInBrowserTab()) return false
-        applyBrowserWorkspace(uiState.browserWorkspace.goBack(), navigate = true, reload = true)
+        applyBrowserWorkspace(uiState.browserWorkspace.goBack(), reload = true)
         return true
     }
 
@@ -1757,19 +1768,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 query = query,
                 preferredLanguages = preferredLanguages,
             )),
-            navigate = true,
         )
     }
 
     private fun applyBrowserWorkspace(
         workspace: BrowserWorkspace,
-        navigate: Boolean,
         reload: Boolean = false,
     ) {
         browserSearchJob?.cancel()
         suggestionJob?.cancel()
         val page = workspace.activeTab.currentPage
-        val revision = uiState.browserNavigationRevision + if (navigate) 1 else 0
+        val revision = uiState.browserNavigationRevision + 1
         uiState = when (page) {
             is BrowserPage.Search -> uiState.copy(
                 browserWorkspace = workspace,

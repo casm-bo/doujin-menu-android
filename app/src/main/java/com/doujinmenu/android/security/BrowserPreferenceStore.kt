@@ -174,19 +174,22 @@ internal fun browserWorkspaceFromJson(raw: String): BrowserWorkspace = runCatchi
             val item = tabsJson.optJSONObject(index) ?: return@repeat
             val id = item.optString("id").takeIf(String::isNotBlank) ?: return@repeat
             val historyJson = item.optJSONArray("history") ?: return@repeat
-            val history = buildList {
+            val rawHistory = buildList {
                 repeat(historyJson.length()) { pageIndex ->
                     historyJson.optJSONObject(pageIndex)?.toBrowserPage()?.let(::add)
                 }
             }
+            val history = rawHistory.takeLast(50)
             if (history.isEmpty()) return@repeat
+            val droppedHistoryCount = rawHistory.size - history.size
             add(BrowserTab(
                 id = id,
                 history = history,
-                currentIndex = item.optInt("currentIndex", 0).coerceIn(history.indices),
+                currentIndex = (item.optInt("currentIndex", 0) - droppedHistoryCount)
+                    .coerceIn(history.indices),
             ))
         }
-    }
+    }.take(20)
     if (tabs.isEmpty()) return@runCatching BrowserWorkspace.initial()
     val requestedActiveId = root.optString("activeTabId")
     BrowserWorkspace(

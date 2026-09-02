@@ -77,4 +77,14 @@ class BrowserSessionTest {
         assertEquals(activeId, moved.activeTabId)
         assertEquals(activeId, moved.tabs.first().id)
     }
+
+    @Test
+    fun historyIsBounded() {
+        val workspace = (1..60).fold(BrowserWorkspace.initial()) { current, id ->
+            current.pushPage(BrowserPage.OnlineGallery(id.toLong(), "Gallery $id"))
+        }
+
+        assertEquals(50, workspace.activeTab.history.size)
+        assertEquals(60L, (workspace.activeTab.currentPage as BrowserPage.OnlineGallery).galleryId)
+    }
 }
