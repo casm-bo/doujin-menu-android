@@ -1,6 +1,9 @@
 package com.doujinmenu.android.security
 
 import android.content.Context
+import com.doujinmenu.android.model.BrowserPage
+import com.doujinmenu.android.model.BrowserTab
+import com.doujinmenu.android.model.BrowserWorkspace
 import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.model.StorageLocation
 import java.util.UUID
@@ -80,6 +83,15 @@ class BrowserPreferenceStore(context: Context) {
         ).apply()
     }
 
+    fun loadBrowserWorkspace(): BrowserWorkspace {
+        val raw = preferences.getString(KEY_BROWSER_WORKSPACE, null) ?: return BrowserWorkspace.initial()
+        return browserWorkspaceFromJson(raw)
+    }
+
+    fun saveBrowserWorkspace(workspace: BrowserWorkspace) {
+        preferences.edit().putString(KEY_BROWSER_WORKSPACE, browserWorkspaceToJson(workspace)).apply()
+    }
+
     fun loadLibraryLocations(): List<StorageLocation> =
         loadStorageLocations(KEY_LIBRARY_LOCATIONS)
 
@@ -133,7 +145,107 @@ class BrowserPreferenceStore(context: Context) {
         const val KEY_CUSTOM_LANGUAGES = "custom_languages"
         const val KEY_KNOWN_FILTERS = "known_filter_tokens"
         const val KEY_VIEWED_GALLERIES = "viewed_gallery_ids"
+        const val KEY_BROWSER_WORKSPACE = "browser_workspace"
         const val KEY_LIBRARY_LOCATIONS = "library_locations"
         const val KEY_DOWNLOAD_LOCATION = "download_location"
     }
 }
+
+internal fun browserWorkspaceToJson(workspace: BrowserWorkspace): String = JSONObject()
+    .put("version", 1)
+    .put("activeTabId", workspace.activeTabId)
+    .put("tabs", JSONArray().apply {
+        workspace.tabs.forEach { tab ->
+            put(JSONObject()
+                .put("id", tab.id)
+                .put("currentIndex", tab.currentIndex)
+                .put("history", JSONArray().apply {
+                    tab.history.forEach { page -> put(page.toJson()) }
+                }))
+        }
+    })
+    .toString()
+
+internal fun browserWorkspaceFromJson(raw: String): BrowserWorkspace = runCatching {
+    val root = JSONObject(raw)
+    val tabsJson = root.optJSONArray("tabs") ?: return@runCatching BrowserWorkspace.initial()
+    val tabs = buildList {
+        repeat(tabsJson.length()) { index ->
+            val item = tabsJson.optJSONObject(index) ?: return@repeat
+            val id = item.optString("id").takeIf(String::isNotBlank) ?: return@repeat
+            val historyJson = item.optJSONArray("history") ?: return@repeat
+            val history = buildList {
+                repeat(historyJson.length()) { pageIndex ->
+                    historyJson.optJSONObject(pageIndex)?.toBrowserPage()?.let(::add)
+                }
+            }
+            if (history.isEmpty()) return@repeat
+            add(BrowserTab(
+                id = id,
+                history = history,
+                currentIndex = item.optInt("currentIndex", 0).coerceIn(history.indices),
+            ))
+        }
+    }
+    if (tabs.isEmpty()) return@runCatching BrowserWorkspace.initial()
+    val requestedActiveId = root.optString("activeTabId")
+    BrowserWorkspace(
+        tabs = tabs,
+        activeTabId = requestedActiveId.takeIf { id -> tabs.any { it.id == id } } ?: tabs.first().id,
+    )
+}.getOrElse { BrowserWorkspace.initial() }
+
+private fun BrowserPage.toJson(): JSONObject = when (this) {
+    is BrowserPage.Search -> JSONObject()
+        .put("type", "search")
+        .put("key", key)
+        .put("query", query)
+        .put("preferredLanguages", JSONArray(preferredLanguages.toList()))
+        .put("submittedQuery", submittedQuery)
+        .put("submittedQueries", JSONArray(submittedQueries))
+        .put("currentPage", currentPage)
+        .put("scrollIndex", scrollIndex)
+        .put("scrollOffset", scrollOffset)
+    is BrowserPage.OnlineGallery -> JSONObject()
+        .put("type", "online")
+        .put("key", key)
+        .put("galleryId", galleryId)
+        .put("title", title)
+    is BrowserPage.LibraryBook -> JSONObject()
+        .put("type", "library")
+        .put("key", key)
+        .put("bookId", bookId)
+        .put("title", title)
+}
+
+private fun JSONObject.toBrowserPage(): BrowserPage? {
+    val key = optString("key").takeIf(String::isNotBlank) ?: UUID.randomUUID().toString()
+    return when (optString("type")) {
+        "search" -> BrowserPage.Search(
+            key = key,
+            query = optString("query"),
+            preferredLanguages = optJSONArray("preferredLanguages").stringSet(),
+            submittedQuery = optString("submittedQuery"),
+            submittedQueries = optJSONArray("submittedQueries").stringList(),
+            currentPage = optInt("currentPage", 0).coerceAtLeast(0),
+            scrollIndex = optInt("scrollIndex", 0).coerceAtLeast(0),
+            scrollOffset = optInt("scrollOffset", 0).coerceAtLeast(0),
+        )
+        "online" -> optLong("galleryId").takeIf { it > 0 }?.let { galleryId ->
+            BrowserPage.OnlineGallery(galleryId, optString("title"), key)
+        }
+        "library" -> optString("bookId").takeIf(String::isNotBlank)?.let { bookId ->
+            BrowserPage.LibraryBook(bookId, optString("title"), key)
+        }
+        else -> null
+    }
+}
+
+private fun JSONArray?.stringList(): List<String> = buildList {
+    val array = this@stringList ?: return@buildList
+    repeat(array.length()) { index ->
+        array.optString(index).takeIf(String::isNotBlank)?.let(::add)
+    }
+}
+
+private fun JSONArray?.stringSet(): Set<String> = stringList().toCollection(linkedSetOf())
