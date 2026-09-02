@@ -41,22 +41,24 @@ fun ReaderScreen(
 ) {
     HideSystemBars()
     LaunchedEffect(galleryId) { onLoad(galleryId) }
+    val pageUrls = state.readerPagesByGalleryId[galleryId].orEmpty()
+    val readerError = state.readerErrorsByGalleryId[galleryId]
 
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
         when {
-            state.isReaderLoading -> CircularProgressIndicator()
-            state.readerError != null -> {
+            galleryId in state.readerLoadingGalleryIds -> CircularProgressIndicator()
+            readerError != null -> {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(state.readerError, color = Color.White)
+                    Text(readerError, color = Color.White)
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = { onLoad(galleryId) }) { Text("다시 시도") }
                     Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("돌아가기") }
                 }
             }
-            state.readerPages.isEmpty() -> {
+            pageUrls.isEmpty() -> {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("페이지가 없습니다.", color = Color.White)
                     Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("돌아가기") }
@@ -64,7 +66,6 @@ fun ReaderScreen(
             }
             else -> {
                 val context = LocalContext.current
-                val pageUrls = state.readerPages
                 val pages = remember(galleryId, pageUrls) {
                     pageUrls.map { url ->
                         ReaderPageModel(
@@ -74,7 +75,6 @@ fun ReaderScreen(
                     }
                 }
                 val title = state.galleryCache[galleryId]?.title
-                    ?: state.activeGallery?.takeIf { it.id == galleryId }?.title
                     ?: "갤러리 $galleryId"
                 UnifiedReader(
                     readerKey = "online:$galleryId",

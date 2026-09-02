@@ -2,6 +2,7 @@ package com.doujinmenu.android.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
@@ -60,6 +61,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.doujinmenu.android.model.BrowserPage
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -112,6 +114,40 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
+    val browserNavigationRevision = viewModel.uiState.browserNavigationRevision
+    LaunchedEffect(browserNavigationRevision) {
+        when (val page = viewModel.activeBrowserPage()) {
+            is BrowserPage.Search -> {
+                lastMainDestination = MainDestination.Browser.route
+                navController.popBackStack("main", inclusive = false)
+            }
+            is BrowserPage.OnlineGallery -> navController.navigate("gallery/${page.galleryId}") {
+                popUpTo("main")
+                launchSingleTop = true
+            }
+            is BrowserPage.LibraryBook -> navController.navigate("library-detail/${Uri.encode(page.bookId)}") {
+                popUpTo("main")
+                launchSingleTop = true
+            }
+            is BrowserPage.OnlineReader -> navController.navigate(
+                "reader/${page.galleryId}?startPage=${page.startPage}",
+            ) {
+                popUpTo("main")
+                launchSingleTop = true
+            }
+            is BrowserPage.LibraryReader -> navController.navigate(
+                "library-reader/${Uri.encode(page.bookId)}?startPage=${page.startPage}",
+            ) {
+                popUpTo("main")
+                launchSingleTop = true
+            }
+        }
+    }
+
+    val browserBack: () -> Unit = {
+        if (!viewModel.goBackInBrowserTab()) navController.popBackStack()
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
@@ -130,21 +166,19 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     onGalleryClick = {
                         val libraryBookId = viewModel.libraryBookIdForGallery(it)
                         if (libraryBookId != null) {
-                            viewModel.openLibraryBook(libraryBookId)
-                            navController.navigate("library-detail")
+                            viewModel.openLibraryBookTab(libraryBookId)
                         } else {
                             viewModel.selectGallery(it)
-                            navController.navigate("gallery/$it")
                         }
                     },
-                    onLibraryBookClick = { bookId ->
-                        viewModel.openLibraryBook(bookId)
-                        navController.navigate("library-detail")
-                    },
+                    onLibraryBookClick = viewModel::openLibraryBookInNewTab,
                 )
             }
-            composable("library-detail") {
-                val currentBook = viewModel.uiState.activeLibraryBook
+            composable("library-detail/{bookId}") { entry ->
+                val bookId = entry.arguments?.getString("bookId") ?: return@composable
+                LaunchedEffect(bookId) { viewModel.openLibraryBook(bookId) }
+                BackHandler(onBack = browserBack)
+                val currentBook = viewModel.uiState.libraryBooks.firstOrNull { it.id == bookId }
                 val nextBook = currentBook?.let { viewModel.nextLibrarySeriesBook(it.id) }
                 val previousBook = currentBook?.let { viewModel.previousLibrarySeriesBook(it.id) }
                 val isSeriesBook = currentBook?.id in viewModel.uiState.customSeriesByBookId
@@ -156,43 +190,43 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     progress = currentBook?.let { viewModel.uiState.libraryProgress[it.id] } ?: 0,
                     isLoading = viewModel.uiState.isLibraryBookLoading,
                     error = viewModel.uiState.libraryScanError,
-                    onBack = navController::popBackStack,
-                    onOpenReader = { page -> navController.navigate("library-reader?startPage=$page") },
+                    onBack = browserBack,
+                    onOpenReader = { page -> viewModel.openLibraryReaderTab(bookId, page) },
                     onOpenPreviousBook = {
-                        previousBook?.let { viewModel.openLibraryBook(it.id) }
+                        previousBook?.let { viewModel.openLibraryBookTab(it.id) }
                     },
                     onOpenNextBook = {
-                        nextBook?.let { viewModel.openLibraryBook(it.id) }
+                        nextBook?.let { viewModel.openLibraryBookTab(it.id) }
                     },
                     onOpenSeriesList = {
                         currentBook?.id?.let { id ->
                             viewModel.uiState.customSeriesByBookId[id]?.name?.let { series ->
                                 viewModel.setLibrarySeriesMode(true)
                                 viewModel.selectLibrarySeries(series)
-                                navController.popBackStack()
+                                lastMainDestination = MainDestination.Library.route
+                                navController.popBackStack("main", inclusive = false)
                             }
                         }
                     },
                     onSearchFacet = { facet ->
                         viewModel.searchFromFacet(facet)
-                        lastMainDestination = MainDestination.Browser.route
-                        navController.navigate("main")
                     },
                     onSearchLanguage = { language ->
                         viewModel.searchFromLanguage(language)
-                        lastMainDestination = MainDestination.Browser.route
-                        navController.navigate("main")
                     },
                 )
             }
             composable(
-                route = "library-reader?startPage={startPage}",
+                route = "library-reader/{bookId}?startPage={startPage}",
                 arguments = listOf(navArgument("startPage") {
                     type = NavType.IntType
                     defaultValue = -1
                 }),
             ) { entry ->
-                val book = viewModel.uiState.activeLibraryBook
+                val bookId = entry.arguments?.getString("bookId") ?: return@composable
+                LaunchedEffect(bookId) { viewModel.openLibraryBook(bookId) }
+                BackHandler(onBack = browserBack)
+                val book = viewModel.uiState.libraryBooks.firstOrNull { it.id == bookId }
                 val nextBook = book?.let { viewModel.nextLibrarySeriesBook(it.id) }
                 val requestedPage = entry.arguments?.getInt("startPage") ?: -1
                 LocalReaderScreen(
@@ -203,15 +237,13 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     error = viewModel.uiState.libraryScanError,
                     favorite = book?.id in viewModel.uiState.libraryFavoriteIds,
                     preferences = viewModel.uiState.viewerPreferences,
-                    onBack = navController::popBackStack,
+                    onBack = browserBack,
                     onToggleFavorite = { book?.let { viewModel.toggleLibraryFavorite(it.id) } },
                     onProgress = { page -> book?.let { viewModel.updateLibraryProgress(it.id, page) } },
                     nextBookTitle = nextBook?.title,
                     onOpenNextBook = {
                         nextBook?.let {
-                            viewModel.openLibraryBook(it.id)
-                            navController.popBackStack()
-                            navController.navigate("library-reader?startPage=0")
+                            viewModel.openNextLibraryReaderTab(it.id)
                         }
                     },
                     onPreferencesChange = viewModel::updateViewerPreferences,
@@ -220,25 +252,20 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
             composable("gallery/{galleryId}") { entry ->
                 val galleryId = entry.arguments?.getString("galleryId")?.toLongOrNull()
                     ?: return@composable
+                LaunchedEffect(galleryId) { viewModel.ensureGalleryLoaded(galleryId) }
+                BackHandler(onBack = browserBack)
                 GalleryDetailScreen(
                     gallery = viewModel.uiState.galleryCache[galleryId]
-                        ?: viewModel.uiState.activeGallery?.takeIf { it.id == galleryId }
                         ?: viewModel.uiState.galleries.firstOrNull { it.id == galleryId },
                     state = viewModel.uiState,
                     onLoadPreview = viewModel::loadReader,
-                    onBack = navController::popBackStack,
-                    onOpenReader = { page ->
-                        navController.navigate("reader/$galleryId?startPage=$page")
-                    },
+                    onBack = browserBack,
+                    onOpenReader = { page -> viewModel.openOnlineReaderTab(galleryId, page) },
                     onSearchFacet = { facet ->
                         viewModel.searchFromFacet(facet)
-                        lastMainDestination = MainDestination.Browser.route
-                        navController.navigate("main")
                     },
                     onSearchLanguage = { language ->
                         viewModel.searchFromLanguage(language)
-                        lastMainDestination = MainDestination.Browser.route
-                        navController.navigate("main")
                     },
                     onDownload = viewModel::downloadGallery,
                 )
@@ -254,6 +281,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
             ) { entry ->
                 val galleryId = entry.arguments?.getString("galleryId")?.toLongOrNull()
                     ?: return@composable
+                BackHandler(onBack = browserBack)
                 val requestedPage = entry.arguments?.getInt("startPage") ?: -1
                 ReaderScreen(
                     galleryId = galleryId,
@@ -262,7 +290,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     state = viewModel.uiState,
                     preferences = viewModel.uiState.viewerPreferences,
                     onLoad = viewModel::loadReader,
-                    onBack = navController::popBackStack,
+                    onBack = browserBack,
                     onProgress = { page -> viewModel.updateOnlineReaderProgress(galleryId, page) },
                     onPreferencesChange = viewModel::updateViewerPreferences,
                 )
@@ -334,6 +362,10 @@ private fun MainShell(
             selectedRoute = destination.route
         }
     }
+    BackHandler(
+        enabled = selected == MainDestination.Browser && viewModel.canGoBackInBrowserTab(),
+        onBack = { viewModel.goBackInBrowserTab() },
+    )
 
     val content: @Composable (PaddingValues) -> Unit = { padding ->
         MainTabContent(

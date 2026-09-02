@@ -129,10 +129,9 @@ data class MainUiState(
     val hasNextPage: Boolean = false,
     val isLoadingPage: Boolean = false,
     val isRefreshing: Boolean = false,
-    val readerGalleryId: Long? = null,
-    val readerPages: List<String> = emptyList(),
-    val isReaderLoading: Boolean = false,
-    val readerError: String? = null,
+    val readerPagesByGalleryId: Map<Long, List<String>> = emptyMap(),
+    val readerLoadingGalleryIds: Set<Long> = emptySet(),
+    val readerErrorsByGalleryId: Map<Long, String> = emptyMap(),
     val downloadingGalleryIds: Set<Long> = emptySet(),
     val downloadQueue: List<DownloadQueueItem> = emptyList(),
     val isDownloadQueueLoading: Boolean = false,
@@ -475,6 +474,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    fun openOnlineReaderTab(galleryId: Long, startPage: Int) {
+        val gallery = uiState.galleryCache[galleryId]
+            ?: uiState.galleries.firstOrNull { it.id == galleryId }
+            ?: return
+        applyBrowserWorkspace(
+            uiState.browserWorkspace.pushPage(BrowserPage.OnlineReader(
+                galleryId = galleryId,
+                title = gallery.title,
+                startPage = startPage.coerceAtLeast(0),
+            )),
+            navigate = true,
+        )
+    }
+
+    fun openLibraryReaderTab(bookId: String, startPage: Int) {
+        val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
+        applyBrowserWorkspace(
+            uiState.browserWorkspace.pushPage(BrowserPage.LibraryReader(
+                bookId = bookId,
+                title = book.title,
+                startPage = startPage.coerceAtLeast(0),
+            )),
+            navigate = true,
+        )
+    }
+
+    fun openNextLibraryReaderTab(bookId: String) {
+        val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
+        openLibraryBook(bookId)
+        val workspace = uiState.browserWorkspace
+            .pushPage(BrowserPage.LibraryBook(bookId, book.title))
+            .pushPage(BrowserPage.LibraryReader(bookId, book.title, 0))
+        applyBrowserWorkspace(workspace, navigate = true)
+    }
+
+    fun activeBrowserPage(): BrowserPage = uiState.browserWorkspace.activeTab.currentPage
+
     fun newBrowserTab() {
         applyBrowserWorkspace(
             uiState.browserWorkspace.openTab(BrowserPage.Search(
@@ -485,7 +521,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectBrowserTab(tabId: String) {
-        if (tabId == uiState.browserWorkspace.activeTabId) return
         applyBrowserWorkspace(uiState.browserWorkspace.selectTab(tabId), navigate = true, reload = true)
     }
 
@@ -610,29 +645,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadReader(galleryId: Long) {
-        if (uiState.isReaderLoading) return
-        if (uiState.readerGalleryId == galleryId && uiState.readerPages.isNotEmpty()) return
+        if (galleryId in uiState.readerLoadingGalleryIds) return
+        if (uiState.readerPagesByGalleryId[galleryId].isNullOrEmpty().not()) return
         val profile = uiState.profiles.firstOrNull { it.id == uiState.selectedProfileId }
         if (profile == null) {
-            uiState = uiState.copy(readerError = "연결된 데스크톱이 없습니다.")
+            uiState = uiState.copy(
+                readerErrorsByGalleryId = uiState.readerErrorsByGalleryId +
+                    (galleryId to "연결된 데스크톱이 없습니다."),
+            )
             return
         }
         viewModelScope.launch {
             uiState = uiState.copy(
-                readerGalleryId = galleryId,
-                readerPages = emptyList(),
-                isReaderLoading = true,
-                readerError = null,
+                readerLoadingGalleryIds = uiState.readerLoadingGalleryIds + galleryId,
+                readerErrorsByGalleryId = uiState.readerErrorsByGalleryId - galleryId,
             )
             try {
                 val pages = client.getGalleryPages(profile, galleryId)
-                uiState = uiState.copy(readerPages = pages)
+                uiState = uiState.copy(
+                    readerPagesByGalleryId = uiState.readerPagesByGalleryId + (galleryId to pages),
+                )
             } catch (error: Exception) {
                 uiState = uiState.copy(
-                    readerError = error.message ?: "페이지 목록을 불러오지 못했습니다.",
+                    readerErrorsByGalleryId = uiState.readerErrorsByGalleryId +
+                        (galleryId to (error.message ?: "페이지 목록을 불러오지 못했습니다.")),
                 )
             } finally {
-                uiState = uiState.copy(isReaderLoading = false)
+                uiState = uiState.copy(
+                    readerLoadingGalleryIds = uiState.readerLoadingGalleryIds - galleryId,
+                )
             }
         }
     }
@@ -1554,9 +1595,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateOnlineReaderProgress(galleryId: Long, page: Int) {
         val normalizedPage = page.coerceAtLeast(0)
-        val pageCount = uiState.activeGallery?.takeIf { it.id == galleryId }?.pageCount
-            ?: uiState.galleryCache[galleryId]?.pageCount
-            ?: uiState.readerPages.takeIf { uiState.readerGalleryId == galleryId }?.size
+        val pageCount = uiState.galleryCache[galleryId]?.pageCount
+            ?: uiState.readerPagesByGalleryId[galleryId]?.size
             ?: 0
         val viewedIds = if (reachedLastPage(normalizedPage, pageCount)) {
             rememberViewedGallery(galleryId)

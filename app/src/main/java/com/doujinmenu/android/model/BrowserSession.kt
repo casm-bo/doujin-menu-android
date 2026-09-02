@@ -29,6 +29,20 @@ sealed interface BrowserPage {
         val title: String,
         override val key: String = UUID.randomUUID().toString(),
     ) : BrowserPage
+
+    data class OnlineReader(
+        val galleryId: Long,
+        val title: String,
+        val startPage: Int,
+        override val key: String = UUID.randomUUID().toString(),
+    ) : BrowserPage
+
+    data class LibraryReader(
+        val bookId: String,
+        val title: String,
+        val startPage: Int,
+        override val key: String = UUID.randomUUID().toString(),
+    ) : BrowserPage
 }
 
 data class BrowserTab(
@@ -120,4 +134,6 @@ val BrowserPage.label: String
         is BrowserPage.Search -> query.ifBlank { "새 검색" }
         is BrowserPage.OnlineGallery -> title.ifBlank { "갤러리 $galleryId" }
         is BrowserPage.LibraryBook -> title.ifBlank { "다운로드 작품" }
+        is BrowserPage.OnlineReader -> title.ifBlank { "갤러리 $galleryId" }
+        is BrowserPage.LibraryReader -> title.ifBlank { "다운로드 작품" }
     }

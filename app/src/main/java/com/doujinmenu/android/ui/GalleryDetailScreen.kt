@@ -79,7 +79,7 @@ fun GalleryDetailScreen(
 
         LaunchedEffect(gallery.id) { onLoadPreview(gallery.id) }
         val context = LocalContext.current
-        val previewPages = state.readerPages.takeIf { state.readerGalleryId == gallery.id }.orEmpty()
+        val previewPages = state.readerPagesByGalleryId[gallery.id].orEmpty()
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
@@ -207,13 +207,13 @@ fun GalleryDetailScreen(
                     }
                     Text("갤러리 미리보기", style = MaterialTheme.typography.titleMedium)
                     when {
-                        state.isReaderLoading && state.readerGalleryId == gallery.id -> {
+                        gallery.id in state.readerLoadingGalleryIds -> {
                             Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
                         }
-                        state.readerError != null && state.readerGalleryId == gallery.id -> {
-                            Text(state.readerError, color = MaterialTheme.colorScheme.error)
+                        state.readerErrorsByGalleryId[gallery.id] != null -> {
+                            Text(state.readerErrorsByGalleryId.getValue(gallery.id), color = MaterialTheme.colorScheme.error)
                         }
                         previewPages.isEmpty() -> {
                             Text("미리보기 이미지가 없습니다.")

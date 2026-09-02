@@ -60,7 +60,7 @@ internal fun buildDiagnosticReport(
     appendLine("Downloads: ${state.downloadQueue.size}")
     appendLine(
         "Errors present: library=${state.libraryScanError != null}, " +
-            "sync=${state.librarySyncError != null}, reader=${state.readerError != null}, " +
+            "sync=${state.librarySyncError != null}, reader=${state.readerErrorsByGalleryId.isNotEmpty()}, " +
             "download=${state.downloadQueueError != null}",
     )
     appendLine("Viewer scale: ${state.viewerPreferences.scale}")

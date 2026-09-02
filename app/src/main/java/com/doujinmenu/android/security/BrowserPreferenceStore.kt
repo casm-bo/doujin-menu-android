@@ -216,6 +216,18 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
         .put("key", key)
         .put("bookId", bookId)
         .put("title", title)
+    is BrowserPage.OnlineReader -> JSONObject()
+        .put("type", "onlineReader")
+        .put("key", key)
+        .put("galleryId", galleryId)
+        .put("title", title)
+        .put("startPage", startPage)
+    is BrowserPage.LibraryReader -> JSONObject()
+        .put("type", "libraryReader")
+        .put("key", key)
+        .put("bookId", bookId)
+        .put("title", title)
+        .put("startPage", startPage)
 }
 
 private fun JSONObject.toBrowserPage(): BrowserPage? {
@@ -236,6 +248,22 @@ private fun JSONObject.toBrowserPage(): BrowserPage? {
         }
         "library" -> optString("bookId").takeIf(String::isNotBlank)?.let { bookId ->
             BrowserPage.LibraryBook(bookId, optString("title"), key)
+        }
+        "onlineReader" -> optLong("galleryId").takeIf { it > 0 }?.let { galleryId ->
+            BrowserPage.OnlineReader(
+                galleryId = galleryId,
+                title = optString("title"),
+                startPage = optInt("startPage", 0).coerceAtLeast(0),
+                key = key,
+            )
+        }
+        "libraryReader" -> optString("bookId").takeIf(String::isNotBlank)?.let { bookId ->
+            BrowserPage.LibraryReader(
+                bookId = bookId,
+                title = optString("title"),
+                startPage = optInt("startPage", 0).coerceAtLeast(0),
+                key = key,
+            )
         }
         else -> null
     }
