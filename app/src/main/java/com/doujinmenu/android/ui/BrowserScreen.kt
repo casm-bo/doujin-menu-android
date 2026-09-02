@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -35,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,6 +63,7 @@ import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.network.FilterSuggestion
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,6 +85,10 @@ fun BrowserScreen(
     onGalleryClick: (Long) -> Unit,
     onToggleLibraryFavorite: (String) -> Unit,
     onConnect: () -> Unit,
+    pageKey: String,
+    initialScrollIndex: Int,
+    initialScrollOffset: Int,
+    onScrollChange: (Int, Int) -> Unit,
 ) {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -108,6 +115,17 @@ fun BrowserScreen(
             ),
         )
     }
+    val listState = remember(pageKey) {
+        LazyListState(
+            firstVisibleItemIndex = initialScrollIndex,
+            firstVisibleItemScrollOffset = initialScrollOffset,
+        )
+    }
+    LaunchedEffect(pageKey, listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .distinctUntilChanged()
+            .collect { (index, offset) -> onScrollChange(index, offset) }
+    }
     val queryFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(state.searchQuery) {
@@ -126,6 +144,7 @@ fun BrowserScreen(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {

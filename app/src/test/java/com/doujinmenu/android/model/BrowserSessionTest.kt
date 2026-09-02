@@ -65,4 +65,16 @@ class BrowserSessionTest {
         assertEquals(3, workspace.activeTab.history.size)
         assertEquals("three", (workspace.activeTab.currentPage as BrowserPage.Search).query)
     }
+
+    @Test
+    fun activeTabCanMoveWithoutChangingSelection() {
+        val first = BrowserWorkspace.initial(BrowserPage.Search(query = "first"))
+        val second = first.openTab(BrowserPage.Search(query = "second"))
+        val activeId = second.activeTabId
+
+        val moved = second.moveTab(activeId, -1)
+
+        assertEquals(activeId, moved.activeTabId)
+        assertEquals(activeId, moved.tabs.first().id)
+    }
 }

@@ -176,9 +176,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
             }
             composable("library-detail/{bookId}") { entry ->
                 val bookId = entry.arguments?.getString("bookId") ?: return@composable
-                LaunchedEffect(bookId) { viewModel.openLibraryBook(bookId) }
                 BackHandler(onBack = browserBack)
                 val currentBook = viewModel.uiState.libraryBooks.firstOrNull { it.id == bookId }
+                LaunchedEffect(bookId, currentBook?.id) {
+                    if (currentBook != null) viewModel.openLibraryBook(bookId)
+                }
                 val nextBook = currentBook?.let { viewModel.nextLibrarySeriesBook(it.id) }
                 val previousBook = currentBook?.let { viewModel.previousLibrarySeriesBook(it.id) }
                 val isSeriesBook = currentBook?.id in viewModel.uiState.customSeriesByBookId
@@ -214,6 +216,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     onSearchLanguage = { language ->
                         viewModel.searchFromLanguage(language)
                     },
+                    tabBar = { AppBrowserTabStrip(viewModel) },
                 )
             }
             composable(
@@ -224,9 +227,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 }),
             ) { entry ->
                 val bookId = entry.arguments?.getString("bookId") ?: return@composable
-                LaunchedEffect(bookId) { viewModel.openLibraryBook(bookId) }
                 BackHandler(onBack = browserBack)
                 val book = viewModel.uiState.libraryBooks.firstOrNull { it.id == bookId }
+                LaunchedEffect(bookId, book?.id) {
+                    if (book != null) viewModel.openLibraryBook(bookId)
+                }
                 val nextBook = book?.let { viewModel.nextLibrarySeriesBook(it.id) }
                 val requestedPage = entry.arguments?.getInt("startPage") ?: -1
                 LocalReaderScreen(
@@ -268,6 +273,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         viewModel.searchFromLanguage(language)
                     },
                     onDownload = viewModel::downloadGallery,
+                    tabBar = { AppBrowserTabStrip(viewModel) },
                 )
             }
             composable(
@@ -342,6 +348,17 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     }
 }
 
+@Composable
+private fun AppBrowserTabStrip(viewModel: MainViewModel) {
+    BrowserTabStrip(
+        workspace = viewModel.uiState.browserWorkspace,
+        onSelect = viewModel::selectBrowserTab,
+        onClose = viewModel::closeBrowserTab,
+        onMove = viewModel::moveBrowserTab,
+        onNew = viewModel::newBrowserTab,
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainShell(
@@ -378,36 +395,41 @@ private fun MainShell(
         )
     }
     val topBar: @Composable () -> Unit = {
-        TopAppBar(
-            title = { Text(selected.label) },
-            actions = {
-                if (selected == MainDestination.Library) {
-                    TextButton(
-                        onClick = viewModel::syncLibraryNow,
-                        enabled = !viewModel.uiState.isLibrarySyncing &&
-                            viewModel.uiState.selectedProfileId != null,
-                    ) {
-                        if (viewModel.uiState.isLibrarySyncing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
+        Column {
+            TopAppBar(
+                title = { Text(selected.label) },
+                actions = {
+                    if (selected == MainDestination.Library) {
+                        TextButton(
+                            onClick = viewModel::syncLibraryNow,
+                            enabled = !viewModel.uiState.isLibrarySyncing &&
+                                viewModel.uiState.selectedProfileId != null,
+                        ) {
+                            if (viewModel.uiState.isLibrarySyncing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            }
+                            val pending = viewModel.uiState.librarySyncPendingCount
+                            Text(
+                                text = when {
+                                    viewModel.uiState.isLibrarySyncing -> "동기화 중"
+                                    pending > 0 -> "동기화 · 대기 $pending"
+                                    else -> "동기화"
+                                },
+                                modifier = Modifier.padding(
+                                    start = if (viewModel.uiState.isLibrarySyncing) 7.dp else 0.dp,
+                                ),
                             )
                         }
-                        val pending = viewModel.uiState.librarySyncPendingCount
-                        Text(
-                            text = when {
-                                viewModel.uiState.isLibrarySyncing -> "동기화 중"
-                                pending > 0 -> "동기화 · 대기 $pending"
-                                else -> "동기화"
-                            },
-                            modifier = Modifier.padding(
-                                start = if (viewModel.uiState.isLibrarySyncing) 7.dp else 0.dp,
-                            ),
-                        )
                     }
-                }
-            },
-        )
+                },
+            )
+            if (selected == MainDestination.Browser || selected == MainDestination.Library) {
+                AppBrowserTabStrip(viewModel)
+            }
+        }
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -548,6 +570,7 @@ private fun MainTabContent(
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (current) {
         MainDestination.Browser -> {
+            val search = viewModel.uiState.browserWorkspace.activeTab.currentPage as? BrowserPage.Search
             BrowserScreen(
                 state = viewModel.uiState,
                 contentPadding = contentPadding,
@@ -566,6 +589,10 @@ private fun MainTabContent(
                 onGalleryClick = onGalleryClick,
                 onToggleLibraryFavorite = viewModel::toggleLibraryFavorite,
                 onConnect = openConnectionSettings,
+                pageKey = search?.key.orEmpty(),
+                initialScrollIndex = search?.scrollIndex ?: 0,
+                initialScrollOffset = search?.scrollOffset ?: 0,
+                onScrollChange = viewModel::updateBrowserScroll,
             )
         }
         MainDestination.Library -> {

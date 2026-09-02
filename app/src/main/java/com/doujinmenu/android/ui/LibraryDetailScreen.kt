@@ -59,13 +59,17 @@ fun LibraryDetailScreen(
     onOpenSeriesList: () -> Unit,
     onSearchFacet: (String) -> Unit,
     onSearchLanguage: (String) -> Unit,
+    tabBar: @Composable () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("갤러리 상세") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("<") } },
-            )
+            Column {
+                TopAppBar(
+                    title = { Text("갤러리 상세") },
+                    navigationIcon = { TextButton(onClick = onBack) { Text("<") } },
+                )
+                tabBar()
+            }
         },
     ) { padding ->
         if (book == null) {

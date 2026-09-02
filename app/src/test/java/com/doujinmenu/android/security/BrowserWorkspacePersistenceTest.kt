@@ -33,6 +33,7 @@ class BrowserWorkspacePersistenceTest {
         assertEquals(2, search.currentPage)
         assertEquals(12, search.scrollIndex)
         assertTrue(search.resultIds.isEmpty())
+        assertTrue(search.results.isEmpty())
     }
 
     @Test

@@ -1778,7 +1778,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 preferredLanguages = page.preferredLanguages,
                 submittedSearchQuery = page.submittedQuery,
                 submittedSearchQueries = page.submittedQueries,
-                galleries = page.resultIds.mapNotNull(uiState.galleryCache::get),
+                galleries = page.results.ifEmpty {
+                    page.resultIds.mapNotNull(uiState.galleryCache::get)
+                },
                 currentPage = page.currentPage,
                 hasNextPage = page.hasNextPage,
                 isLoadingPage = false,
@@ -1809,6 +1811,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 submittedQuery = uiState.submittedSearchQuery,
                 submittedQueries = uiState.submittedSearchQueries,
                 resultIds = uiState.galleries.map(GallerySummary::id),
+                results = uiState.galleries,
                 currentPage = uiState.currentPage,
                 hasNextPage = uiState.hasNextPage,
             )

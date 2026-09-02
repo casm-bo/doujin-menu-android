@@ -12,6 +12,7 @@ sealed interface BrowserPage {
         val submittedQuery: String = "",
         val submittedQueries: List<String> = emptyList(),
         val resultIds: List<Long> = emptyList(),
+        val results: List<GallerySummary> = emptyList(),
         val currentPage: Int = 0,
         val hasNextPage: Boolean = false,
         val scrollIndex: Int = 0,
