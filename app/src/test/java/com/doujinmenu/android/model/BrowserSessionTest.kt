@@ -87,4 +87,27 @@ class BrowserSessionTest {
         assertEquals(50, workspace.activeTab.history.size)
         assertEquals(60L, (workspace.activeTab.currentPage as BrowserPage.OnlineGallery).galleryId)
     }
+
+    @Test
+    fun searchTabIsReusedRegardlessOfQueryOrder() {
+        val first = BrowserWorkspace.initial(BrowserPage.Search(query = "tag:full_color artist:sample"))
+        val second = first.openTab(BrowserPage.Search(query = "tag:other"))
+
+        val selected = second.selectSearchTab("ARTIST:sample   tag:full_color")
+
+        assertEquals(first.activeTabId, selected?.activeTabId)
+        assertEquals("tag:full_color artist:sample", (selected?.activeTab?.currentPage as BrowserPage.Search).query)
+    }
+
+    @Test
+    fun missingSearchCreatesStandaloneTabWithoutBackHistory() {
+        val workspace = BrowserWorkspace.initial(BrowserPage.Search(query = "tag:first"))
+        val query = "tag:second"
+        val selected = workspace.selectSearchTab(query)
+            ?: workspace.openTab(BrowserPage.Search(query = query))
+
+        assertEquals(2, selected.tabs.size)
+        assertEquals(query, (selected.activeTab.currentPage as BrowserPage.Search).query)
+        assertFalse(selected.activeTab.canGoBack)
+    }
 }

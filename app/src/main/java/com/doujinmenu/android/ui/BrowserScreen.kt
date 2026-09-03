@@ -2,6 +2,7 @@ package com.doujinmenu.android.ui
 
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -83,6 +84,7 @@ fun BrowserScreen(
     onRefresh: () -> Unit,
     onLoadNextPage: () -> Unit,
     onGalleryClick: (Long) -> Unit,
+    onSearchFacet: (String) -> Unit,
     onToggleLibraryFavorite: (String) -> Unit,
     onConnect: () -> Unit,
     pageKey: String,
@@ -339,6 +341,7 @@ fun BrowserScreen(
                         libraryBook?.id?.let(onToggleLibraryFavorite)
                     },
                     onClick = { onGalleryClick(gallery.id) },
+                    onSearchFacet = onSearchFacet,
                 )
             }
         }
@@ -418,6 +421,7 @@ private fun GalleryCard(
     favorite: Boolean,
     onToggleFavorite: () -> Unit,
     onClick: () -> Unit,
+    onSearchFacet: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val request = gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id) }
@@ -483,7 +487,14 @@ private fun GalleryCard(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
-                        tags.forEach { TagPill(tagDisplayInfo(it.name, it.type)) }
+                        tags.forEach { tag ->
+                            TagPill(
+                                info = tagDisplayInfo(tag.name, tag.type),
+                                modifier = Modifier.clickable {
+                                    onSearchFacet(tagSearchFacet(tag.name, tag.type))
+                                },
+                            )
+                        }
                     }
                 }
                 gallery.loadError?.let { error ->

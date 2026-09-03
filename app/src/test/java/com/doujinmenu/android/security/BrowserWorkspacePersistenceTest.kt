@@ -43,4 +43,20 @@ class BrowserWorkspacePersistenceTest {
         assertEquals(1, restored.tabs.size)
         assertTrue(restored.activeTab.currentPage is BrowserPage.Search)
     }
+
+    @Test
+    fun legacyMixedWorkspaceSplitsSearchAndGalleryHistory() {
+        val mixed = BrowserWorkspace.initial(BrowserPage.Search(query = "tag:first"))
+            .pushPage(BrowserPage.OnlineGallery(1, "Online"))
+            .openTab(BrowserPage.LibraryBook("file:book", "Downloaded"))
+
+        val search = mixed.searchWorkspace()
+        val gallery = mixed.galleryWorkspace()
+
+        assertEquals(1, search.tabs.size)
+        assertTrue(search.activeTab.currentPage is BrowserPage.OnlineGallery)
+        assertEquals(1, gallery.tabs.size)
+        assertTrue(gallery.activeTab.history.first() is BrowserPage.LibraryHome)
+        assertTrue(gallery.activeTab.currentPage is BrowserPage.LibraryBook)
+    }
 }

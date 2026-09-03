@@ -117,6 +117,10 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     val browserNavigationRevision = viewModel.uiState.browserNavigationRevision
     LaunchedEffect(browserNavigationRevision) {
         when (val page = viewModel.activeBrowserPage()) {
+            is BrowserPage.LibraryHome -> {
+                lastMainDestination = MainDestination.Library.route
+                navController.popBackStack("main", inclusive = false)
+            }
             is BrowserPage.Search -> {
                 lastMainDestination = MainDestination.Browser.route
                 navController.popBackStack("main", inclusive = false)
@@ -144,8 +148,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
-    val browserBack: () -> Unit = {
+    val searchBack: () -> Unit = {
         if (!viewModel.goBackInBrowserTab()) navController.popBackStack()
+    }
+    val galleryBack: () -> Unit = {
+        if (!viewModel.goBackInGalleryTab()) navController.popBackStack()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -176,7 +183,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
             }
             composable("library-detail/{bookId}") { entry ->
                 val bookId = entry.arguments?.getString("bookId") ?: return@composable
-                BackHandler(onBack = browserBack)
+                BackHandler(onBack = galleryBack)
                 val currentBook = viewModel.uiState.libraryBooks.firstOrNull { it.id == bookId }
                 LaunchedEffect(bookId, currentBook?.id) {
                     if (currentBook != null) viewModel.openLibraryBook(bookId)
@@ -192,7 +199,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     progress = currentBook?.let { viewModel.uiState.libraryProgress[it.id] } ?: 0,
                     isLoading = viewModel.uiState.isLibraryBookLoading,
                     error = viewModel.uiState.libraryScanError,
-                    onBack = browserBack,
+                    onBack = galleryBack,
                     onOpenReader = { page -> viewModel.openLibraryReaderTab(bookId, page) },
                     onOpenPreviousBook = {
                         previousBook?.let { viewModel.openLibraryBookTab(it.id) }
@@ -216,7 +223,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     onSearchLanguage = { language ->
                         viewModel.searchFromLanguage(language)
                     },
-                    tabBar = { AppBrowserTabStrip(viewModel) },
+                    tabBar = { AppGalleryTabStrip(viewModel) },
                 )
             }
             composable(
@@ -227,7 +234,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 }),
             ) { entry ->
                 val bookId = entry.arguments?.getString("bookId") ?: return@composable
-                BackHandler(onBack = browserBack)
+                BackHandler(onBack = galleryBack)
                 val book = viewModel.uiState.libraryBooks.firstOrNull { it.id == bookId }
                 LaunchedEffect(bookId, book?.id) {
                     if (book != null) viewModel.openLibraryBook(bookId)
@@ -242,7 +249,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     error = viewModel.uiState.libraryScanError,
                     favorite = book?.id in viewModel.uiState.libraryFavoriteIds,
                     preferences = viewModel.uiState.viewerPreferences,
-                    onBack = browserBack,
+                    onBack = galleryBack,
                     onToggleFavorite = { book?.let { viewModel.toggleLibraryFavorite(it.id) } },
                     onProgress = { page -> book?.let { viewModel.updateLibraryProgress(it.id, page) } },
                     nextBookTitle = nextBook?.title,
@@ -258,13 +265,13 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 val galleryId = entry.arguments?.getString("galleryId")?.toLongOrNull()
                     ?: return@composable
                 LaunchedEffect(galleryId) { viewModel.ensureGalleryLoaded(galleryId) }
-                BackHandler(onBack = browserBack)
+                BackHandler(onBack = searchBack)
                 GalleryDetailScreen(
                     gallery = viewModel.uiState.galleryCache[galleryId]
                         ?: viewModel.uiState.galleries.firstOrNull { it.id == galleryId },
                     state = viewModel.uiState,
                     onLoadPreview = viewModel::loadReader,
-                    onBack = browserBack,
+                    onBack = searchBack,
                     onOpenReader = { page -> viewModel.openOnlineReaderTab(galleryId, page) },
                     onSearchFacet = { facet ->
                         viewModel.searchFromFacet(facet)
@@ -273,7 +280,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         viewModel.searchFromLanguage(language)
                     },
                     onDownload = viewModel::downloadGallery,
-                    tabBar = { AppBrowserTabStrip(viewModel) },
+                    tabBar = { AppSearchTabStrip(viewModel) },
                 )
             }
             composable(
@@ -287,7 +294,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
             ) { entry ->
                 val galleryId = entry.arguments?.getString("galleryId")?.toLongOrNull()
                     ?: return@composable
-                BackHandler(onBack = browserBack)
+                BackHandler(onBack = searchBack)
                 val requestedPage = entry.arguments?.getInt("startPage") ?: -1
                 ReaderScreen(
                     galleryId = galleryId,
@@ -296,7 +303,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     state = viewModel.uiState,
                     preferences = viewModel.uiState.viewerPreferences,
                     onLoad = viewModel::loadReader,
-                    onBack = browserBack,
+                    onBack = searchBack,
                     onProgress = { page -> viewModel.updateOnlineReaderProgress(galleryId, page) },
                     onPreferencesChange = viewModel::updateViewerPreferences,
                 )
@@ -349,13 +356,24 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
 }
 
 @Composable
-private fun AppBrowserTabStrip(viewModel: MainViewModel) {
+private fun AppSearchTabStrip(viewModel: MainViewModel) {
     BrowserTabStrip(
         workspace = viewModel.uiState.browserWorkspace,
         onSelect = viewModel::selectBrowserTab,
         onClose = viewModel::closeBrowserTab,
         onMove = viewModel::moveBrowserTab,
         onNew = viewModel::newBrowserTab,
+    )
+}
+
+@Composable
+private fun AppGalleryTabStrip(viewModel: MainViewModel) {
+    BrowserTabStrip(
+        workspace = viewModel.uiState.galleryWorkspace,
+        onSelect = viewModel::selectGalleryTab,
+        onClose = viewModel::closeGalleryTab,
+        onMove = viewModel::moveGalleryTab,
+        onNew = viewModel::newGalleryTab,
     )
 }
 
@@ -380,8 +398,15 @@ private fun MainShell(
         }
     }
     BackHandler(
-        enabled = selected == MainDestination.Browser && viewModel.canGoBackInBrowserTab(),
-        onBack = { viewModel.goBackInBrowserTab() },
+        enabled = when (selected) {
+            MainDestination.Browser -> viewModel.canGoBackInBrowserTab()
+            MainDestination.Library -> viewModel.canGoBackInGalleryTab()
+            else -> false
+        },
+        onBack = {
+            if (selected == MainDestination.Browser) viewModel.goBackInBrowserTab()
+            else viewModel.goBackInGalleryTab()
+        },
     )
 
     val content: @Composable (PaddingValues) -> Unit = { padding ->
@@ -426,8 +451,10 @@ private fun MainShell(
                     }
                 },
             )
-            if (selected == MainDestination.Browser || selected == MainDestination.Library) {
-                AppBrowserTabStrip(viewModel)
+            when (selected) {
+                MainDestination.Browser -> AppSearchTabStrip(viewModel)
+                MainDestination.Library -> AppGalleryTabStrip(viewModel)
+                else -> Unit
             }
         }
     }
@@ -587,6 +614,7 @@ private fun MainTabContent(
                 onRefresh = viewModel::refresh,
                 onLoadNextPage = viewModel::loadNextPage,
                 onGalleryClick = onGalleryClick,
+                onSearchFacet = viewModel::searchFromFacet,
                 onToggleLibraryFavorite = viewModel::toggleLibraryFavorite,
                 onConnect = openConnectionSettings,
                 pageKey = search?.key.orEmpty(),

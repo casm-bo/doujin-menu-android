@@ -84,12 +84,25 @@ class BrowserPreferenceStore(context: Context) {
     }
 
     fun loadBrowserWorkspace(): BrowserWorkspace {
-        val raw = preferences.getString(KEY_BROWSER_WORKSPACE, null) ?: return BrowserWorkspace.initial()
-        return browserWorkspaceFromJson(raw)
+        val raw = preferences.getString(KEY_SEARCH_WORKSPACE, null)
+            ?: preferences.getString(KEY_BROWSER_WORKSPACE, null)
+            ?: return BrowserWorkspace.initial()
+        return browserWorkspaceFromJson(raw).searchWorkspace()
     }
 
     fun saveBrowserWorkspace(workspace: BrowserWorkspace) {
-        preferences.edit().putString(KEY_BROWSER_WORKSPACE, browserWorkspaceToJson(workspace)).apply()
+        preferences.edit().putString(KEY_SEARCH_WORKSPACE, browserWorkspaceToJson(workspace)).apply()
+    }
+
+    fun loadGalleryWorkspace(): BrowserWorkspace {
+        val raw = preferences.getString(KEY_GALLERY_WORKSPACE, null)
+            ?: preferences.getString(KEY_BROWSER_WORKSPACE, null)
+            ?: return BrowserWorkspace.initial(BrowserPage.LibraryHome())
+        return browserWorkspaceFromJson(raw).galleryWorkspace()
+    }
+
+    fun saveGalleryWorkspace(workspace: BrowserWorkspace) {
+        preferences.edit().putString(KEY_GALLERY_WORKSPACE, browserWorkspaceToJson(workspace)).apply()
     }
 
     fun loadLibraryLocations(): List<StorageLocation> =
@@ -146,6 +159,8 @@ class BrowserPreferenceStore(context: Context) {
         const val KEY_KNOWN_FILTERS = "known_filter_tokens"
         const val KEY_VIEWED_GALLERIES = "viewed_gallery_ids"
         const val KEY_BROWSER_WORKSPACE = "browser_workspace"
+        const val KEY_SEARCH_WORKSPACE = "search_workspace"
+        const val KEY_GALLERY_WORKSPACE = "gallery_workspace"
         const val KEY_LIBRARY_LOCATIONS = "library_locations"
         const val KEY_DOWNLOAD_LOCATION = "download_location"
     }
@@ -199,6 +214,9 @@ internal fun browserWorkspaceFromJson(raw: String): BrowserWorkspace = runCatchi
 }.getOrElse { BrowserWorkspace.initial() }
 
 private fun BrowserPage.toJson(): JSONObject = when (this) {
+    is BrowserPage.LibraryHome -> JSONObject()
+        .put("type", "libraryHome")
+        .put("key", key)
     is BrowserPage.Search -> JSONObject()
         .put("type", "search")
         .put("key", key)
@@ -236,6 +254,7 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
 private fun JSONObject.toBrowserPage(): BrowserPage? {
     val key = optString("key").takeIf(String::isNotBlank) ?: UUID.randomUUID().toString()
     return when (optString("type")) {
+        "libraryHome" -> BrowserPage.LibraryHome(key)
         "search" -> BrowserPage.Search(
             key = key,
             query = optString("query"),
@@ -270,6 +289,47 @@ private fun JSONObject.toBrowserPage(): BrowserPage? {
         }
         else -> null
     }
+}
+
+internal fun BrowserWorkspace.searchWorkspace(): BrowserWorkspace = onlyPages(
+    fallback = BrowserPage.Search(),
+) { page ->
+    page is BrowserPage.Search || page is BrowserPage.OnlineGallery || page is BrowserPage.OnlineReader
+}
+
+internal fun BrowserWorkspace.galleryWorkspace(): BrowserWorkspace = onlyPages(
+    fallback = BrowserPage.LibraryHome(),
+    prependLibraryHome = true,
+) { page ->
+    page is BrowserPage.LibraryHome || page is BrowserPage.LibraryBook || page is BrowserPage.LibraryReader
+}
+
+private fun BrowserWorkspace.onlyPages(
+    fallback: BrowserPage,
+    prependLibraryHome: Boolean = false,
+    keep: (BrowserPage) -> Boolean,
+): BrowserWorkspace {
+    val filteredTabs = tabs.mapNotNull { tab ->
+        val pages = tab.history.filter(keep)
+        if (pages.isEmpty()) return@mapNotNull null
+        val keptThroughCurrent = tab.history.take(tab.currentIndex + 1).count(keep)
+        val history = if (prependLibraryHome && pages.first() !is BrowserPage.LibraryHome) {
+            listOf(BrowserPage.LibraryHome()) + pages
+        } else {
+            pages
+        }
+        val prefix = history.size - pages.size
+        tab.copy(
+            history = history,
+            currentIndex = (keptThroughCurrent - 1 + prefix).coerceIn(history.indices),
+        )
+    }
+    if (filteredTabs.isEmpty()) return BrowserWorkspace.initial(fallback)
+    return BrowserWorkspace(
+        tabs = filteredTabs,
+        activeTabId = activeTabId.takeIf { id -> filteredTabs.any { it.id == id } }
+            ?: filteredTabs.first().id,
+    )
 }
 
 private fun JSONArray?.stringList(): List<String> = buildList {

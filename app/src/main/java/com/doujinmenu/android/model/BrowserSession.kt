@@ -5,6 +5,10 @@ import java.util.UUID
 sealed interface BrowserPage {
     val key: String
 
+    data class LibraryHome(
+        override val key: String = UUID.randomUUID().toString(),
+    ) : BrowserPage
+
     data class Search(
         override val key: String = UUID.randomUUID().toString(),
         val query: String = "",
@@ -76,6 +80,26 @@ data class BrowserWorkspace(
 fun BrowserWorkspace.selectTab(tabId: String): BrowserWorkspace =
     if (tabs.any { it.id == tabId }) copy(activeTabId = tabId) else this
 
+fun BrowserWorkspace.selectSearchTab(
+    query: String,
+    preferredLanguages: Set<String> = emptySet(),
+): BrowserWorkspace? {
+    val queryKey = searchTabKey(query, preferredLanguages)
+    tabs.forEach { tab ->
+        tab.history.forEachIndexed { index, page ->
+            if (page is BrowserPage.Search && searchTabKey(page.query, page.preferredLanguages) == queryKey) {
+                return copy(
+                    tabs = tabs.map { current ->
+                        if (current.id == tab.id) current.copy(currentIndex = index) else current
+                    },
+                    activeTabId = tab.id,
+                )
+            }
+        }
+    }
+    return null
+}
+
 fun BrowserWorkspace.openTab(
     page: BrowserPage = BrowserPage.Search(),
     maxTabs: Int = 20,
@@ -132,11 +156,22 @@ private fun BrowserWorkspace.updateActiveTab(
 
 val BrowserPage.label: String
     get() = when (this) {
+        is BrowserPage.LibraryHome -> "새 갤러리"
         is BrowserPage.Search -> query.ifBlank { "새 검색" }
         is BrowserPage.OnlineGallery -> title.ifBlank { "갤러리 $galleryId" }
         is BrowserPage.LibraryBook -> title.ifBlank { "다운로드 작품" }
         is BrowserPage.OnlineReader -> title.ifBlank { "갤러리 $galleryId" }
         is BrowserPage.LibraryReader -> title.ifBlank { "다운로드 작품" }
     }
+
+internal fun searchTabKey(
+    query: String,
+    preferredLanguages: Set<String> = emptySet(),
+): String = (query.trim().split(Regex("\\s+")) + preferredLanguages.map { "language:$it" })
+    .filter(String::isNotBlank)
+    .map(String::lowercase)
+    .distinct()
+    .sorted()
+    .joinToString("\u0000")
 
 private const val MAX_TAB_HISTORY = 50
