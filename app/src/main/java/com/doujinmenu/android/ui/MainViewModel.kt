@@ -736,9 +736,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun checkForUpdates(manual: Boolean = true) {
         if (uiState.isCheckingForUpdates) return
         val now = System.currentTimeMillis()
-        if (!manual && now - updatePreferences.getLong(LAST_UPDATE_CHECK_KEY, 0L) < UPDATE_CHECK_INTERVAL_MS) {
-            return
-        }
         viewModelScope.launch {
             uiState = uiState.copy(isCheckingForUpdates = true)
             try {
@@ -2903,7 +2900,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val FILE_UPLOAD_RETRY_BASE_DELAY_MS = 750L
         const val BOOK_STATE_SYNC_MAX_RETRIES = 3
         const val BOOK_STATE_SYNC_RETRY_BASE_DELAY_MS = 500L
-        const val UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1_000L
         const val LAST_UPDATE_CHECK_KEY = "last_update_check"
         const val SKIPPED_UPDATE_KEY = "skipped_update"
         val FILTER_TYPES = listOf(
