@@ -88,6 +88,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
     var lastMainDestination by rememberSaveable { mutableStateOf(MainDestination.Browser.route) }
+    var searchOpenedFromGallery by rememberSaveable { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -122,8 +123,16 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 navController.popBackStack("main", inclusive = false)
             }
             is BrowserPage.Search -> {
-                lastMainDestination = MainDestination.Browser.route
-                navController.popBackStack("main", inclusive = false)
+                if (searchOpenedFromGallery) {
+                    when {
+                        navController.currentDestination?.route == SEARCH_FROM_GALLERY_ROUTE -> Unit
+                        navController.popBackStack(SEARCH_FROM_GALLERY_ROUTE, inclusive = false) -> Unit
+                        else -> navController.navigate(SEARCH_FROM_GALLERY_ROUTE) { launchSingleTop = true }
+                    }
+                } else {
+                    lastMainDestination = MainDestination.Browser.route
+                    navController.popBackStack("main", inclusive = false)
+                }
             }
             is BrowserPage.OnlineGallery -> navController.navigate("gallery/${page.galleryId}") {
                 popUpTo("main")
@@ -181,6 +190,23 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     onLibraryBookClick = viewModel::openLibraryBookTab,
                 )
             }
+            composable(SEARCH_FROM_GALLERY_ROUTE) {
+                MainShell(
+                    viewModel = viewModel,
+                    initialDestinationRoute = MainDestination.Browser.route,
+                    onDestinationChanged = {},
+                    onGalleryClick = {
+                        val libraryBookId = viewModel.libraryBookIdForGallery(it)
+                        if (libraryBookId != null) viewModel.openLibraryBookTab(libraryBookId)
+                        else viewModel.selectGallery(it)
+                    },
+                    onLibraryBookClick = viewModel::openLibraryBookTab,
+                    onBackToOrigin = {
+                        searchOpenedFromGallery = false
+                        navController.popBackStack()
+                    },
+                )
+            }
             composable("library-detail/{bookId}") { entry ->
                 val bookId = entry.arguments?.getString("bookId") ?: return@composable
                 BackHandler(onBack = galleryBack)
@@ -218,9 +244,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         }
                     },
                     onSearchFacet = { facet ->
+                        searchOpenedFromGallery = true
                         viewModel.searchFromFacet(facet)
                     },
                     onSearchLanguage = { language ->
+                        searchOpenedFromGallery = true
                         viewModel.searchFromLanguage(language)
                     },
                     tabBar = { AppGalleryTabStrip(viewModel) },
@@ -385,6 +413,7 @@ private fun MainShell(
     onDestinationChanged: (String) -> Unit,
     onGalleryClick: (Long) -> Unit,
     onLibraryBookClick: (String) -> Unit,
+    onBackToOrigin: (() -> Unit)? = null,
 ) {
     var selectedRoute by rememberSaveable(initialDestinationRoute) { mutableStateOf(initialDestinationRoute) }
     val selected = MainDestination.entries.firstOrNull { it.route == selectedRoute }
@@ -398,14 +427,17 @@ private fun MainShell(
         }
     }
     BackHandler(
-        enabled = when (selected) {
-            MainDestination.Browser -> viewModel.canGoBackInBrowserTab()
-            MainDestination.Library -> viewModel.canGoBackInGalleryTab()
-            else -> false
-        },
+        enabled = onBackToOrigin != null || when (selected) {
+                MainDestination.Browser -> viewModel.canGoBackInBrowserTab()
+                MainDestination.Library -> viewModel.canGoBackInGalleryTab()
+                else -> false
+            },
         onBack = {
-            if (selected == MainDestination.Browser) viewModel.goBackInBrowserTab()
-            else viewModel.goBackInGalleryTab()
+            when {
+                onBackToOrigin != null -> onBackToOrigin()
+                selected == MainDestination.Browser -> viewModel.goBackInBrowserTab()
+                else -> viewModel.goBackInGalleryTab()
+            }
         },
     )
 
@@ -496,6 +528,8 @@ private fun MainShell(
         }
     }
 }
+
+private const val SEARCH_FROM_GALLERY_ROUTE = "search-from-gallery"
 
 @Composable
 private fun MainDestinationIcon(destination: MainDestination) {
