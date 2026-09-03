@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.DownloadStatus
+import com.doujinmenu.android.model.GallerySummary
+import com.doujinmenu.android.model.LibraryBook
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -50,6 +52,9 @@ fun DownloadsScreen(
     onConnect: () -> Unit,
     onLeave: () -> Unit,
 ) {
+    val originalTitles = remember(state.galleryCache, state.galleries, state.libraryBooks) {
+        downloadOriginalTitles(state.galleryCache.values + state.galleries, state.libraryBooks)
+    }
     DisposableEffect(Unit) {
         onDispose(onLeave)
     }
@@ -147,6 +152,7 @@ fun DownloadsScreen(
                     items(state.downloadQueue, key = { it.id }) { item ->
                         DownloadQueueCard(
                             item = item,
+                            displayTitle = originalTitles[item.galleryId] ?: item.galleryTitle,
                             actionInProgress = item.id in state.activeDownloadActionIds,
                             onPause = { onPause(item.id) },
                             onResume = { onResume(item.id) },
@@ -163,6 +169,7 @@ fun DownloadsScreen(
 @Composable
 private fun DownloadQueueCard(
     item: DownloadQueueItem,
+    displayTitle: String,
     actionInProgress: Boolean,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -182,7 +189,7 @@ private fun DownloadQueueCard(
         ) {
             AsyncImage(
                 model = thumbnailRequest,
-                contentDescription = item.galleryTitle,
+                contentDescription = displayTitle,
                 modifier = Modifier.size(width = 76.dp, height = 104.dp),
                 contentScale = ContentScale.Crop,
             )
@@ -191,7 +198,7 @@ private fun DownloadQueueCard(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
-                    item.galleryTitle,
+                    preferredLocalizedTitle(displayTitle),
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -244,6 +251,20 @@ private fun DownloadQueueCard(
                 }
             }
         }
+    }
+}
+
+internal fun downloadOriginalTitles(
+    galleries: Collection<GallerySummary>,
+    books: List<LibraryBook>,
+): Map<Long, String> = buildMap {
+    books.forEach { book ->
+        book.metadata.hitomiId?.toLongOrNull()?.let { galleryId ->
+            book.originalTitle.takeIf(String::isNotBlank)?.let { put(galleryId, it) }
+        }
+    }
+    galleries.forEach { gallery ->
+        gallery.title.takeIf(String::isNotBlank)?.let { put(gallery.id, it) }
     }
 }
 
