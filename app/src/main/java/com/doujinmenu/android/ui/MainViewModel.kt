@@ -31,6 +31,7 @@ import com.doujinmenu.android.model.ViewerPreferences
 import com.doujinmenu.android.model.closeTab
 import com.doujinmenu.android.model.goBack
 import com.doujinmenu.android.model.moveTab
+import com.doujinmenu.android.model.normalizeSearchSeparators
 import com.doujinmenu.android.model.openTab
 import com.doujinmenu.android.model.pushPage
 import com.doujinmenu.android.model.selectTab
@@ -2018,11 +2019,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         query: String,
         preferredLanguages: Set<String>,
     ): List<String> {
-        val baseQuery = query
+        val normalizedQuery = normalizeSearchSeparators(query)
+        val baseQuery = normalizedQuery
             .replace(Regex("(?i)(^|\\s)-?language:[^\\s]+"), " ")
             .trim()
             .replace(Regex("\\s+"), " ")
-        if (preferredLanguages.isEmpty()) return listOf(query).filter { it.isNotBlank() }
+        if (preferredLanguages.isEmpty()) return listOf(normalizedQuery).filter { it.isNotBlank() }
         return preferredLanguages.sorted().map { language ->
             listOf(baseQuery, "language:$language").filter { it.isNotBlank() }.joinToString(" ")
         }

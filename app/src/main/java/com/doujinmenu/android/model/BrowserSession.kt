@@ -167,11 +167,16 @@ val BrowserPage.label: String
 internal fun searchTabKey(
     query: String,
     preferredLanguages: Set<String> = emptySet(),
-): String = (query.trim().split(Regex("\\s+")) + preferredLanguages.map { "language:$it" })
+): String = (normalizeSearchSeparators(query).split(' ') + preferredLanguages.map { "language:$it" })
     .filter(String::isNotBlank)
     .map(String::lowercase)
     .distinct()
     .sorted()
     .joinToString("\u0000")
+
+internal fun normalizeSearchSeparators(query: String): String = query
+    .replace(Regex("\\s*,+\\s*"), " ")
+    .trim()
+    .replace(Regex("\\s+"), " ")
 
 private const val MAX_TAB_HISTORY = 50

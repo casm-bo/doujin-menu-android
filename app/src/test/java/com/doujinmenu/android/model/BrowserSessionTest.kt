@@ -124,4 +124,14 @@ class BrowserSessionTest {
         assertEquals("book-b", (second.activeTab.currentPage as BrowserPage.LibraryBook).bookId)
         assertTrue(second.activeTab.canGoBack)
     }
+
+    @Test
+    fun commaAndSpaceSeparatedSearchesShareOneFormat() {
+        assertEquals("tag1 tag2 tag3", normalizeSearchSeparators("tag1,tag2,tag3"))
+        assertEquals("tag1 tag2 tag3", normalizeSearchSeparators("tag1, tag2, tag3"))
+        assertEquals(
+            searchTabKey("tag1 tag2 tag3"),
+            searchTabKey("tag3, tag1,tag2"),
+        )
+    }
 }
