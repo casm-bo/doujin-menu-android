@@ -1,6 +1,7 @@
 package com.doujinmenu.android.security
 
 import android.content.Context
+import com.doujinmenu.android.model.AppThemeMode
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserTab
 import com.doujinmenu.android.model.BrowserWorkspace
@@ -83,6 +84,14 @@ class BrowserPreferenceStore(context: Context) {
         ).apply()
     }
 
+    fun loadThemeMode(): AppThemeMode = runCatching {
+        AppThemeMode.valueOf(preferences.getString(KEY_THEME_MODE, null).orEmpty())
+    }.getOrDefault(AppThemeMode.SYSTEM)
+
+    fun saveThemeMode(mode: AppThemeMode) {
+        preferences.edit().putString(KEY_THEME_MODE, mode.name).apply()
+    }
+
     fun loadBrowserWorkspace(): BrowserWorkspace {
         val raw = preferences.getString(KEY_SEARCH_WORKSPACE, null)
             ?: preferences.getString(KEY_BROWSER_WORKSPACE, null)
@@ -158,6 +167,7 @@ class BrowserPreferenceStore(context: Context) {
         const val KEY_CUSTOM_LANGUAGES = "custom_languages"
         const val KEY_KNOWN_FILTERS = "known_filter_tokens"
         const val KEY_VIEWED_GALLERIES = "viewed_gallery_ids"
+        const val KEY_THEME_MODE = "theme_mode"
         const val KEY_BROWSER_WORKSPACE = "browser_workspace"
         const val KEY_SEARCH_WORKSPACE = "search_workspace"
         const val KEY_GALLERY_WORKSPACE = "gallery_workspace"

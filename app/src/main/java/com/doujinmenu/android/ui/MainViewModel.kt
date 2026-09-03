@@ -14,6 +14,7 @@ import com.doujinmenu.android.data.LibraryFileDeleter
 import com.doujinmenu.android.data.LibraryIdentityStore
 import com.doujinmenu.android.data.LibraryUploadPreparer
 import com.doujinmenu.android.model.DesktopProfile
+import com.doujinmenu.android.model.AppThemeMode
 import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.DownloadStatus
 import com.doujinmenu.android.model.BrowserPage
@@ -74,6 +75,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 data class MainUiState(
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val host: String = "",
     val port: String = EndpointNormalizer.DEFAULT_PORT.toString(),
     val pairingCode: String = "",
@@ -203,6 +205,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val activeSearch = browserWorkspace.activeTab.currentPage as? BrowserPage.Search
         uiState = uiState.copy(
+            themeMode = browserPreferenceStore.loadThemeMode(),
             profiles = profiles,
             selectedProfileId = profiles.firstOrNull()?.id,
             browserWorkspace = browserWorkspace,
@@ -244,6 +247,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         copy(pairingCode = value.filter(Char::isDigit).take(PAIRING_CODE_LENGTH))
     }
     fun setDeviceName(value: String) = update { copy(deviceName = value) }
+    fun setThemeMode(value: AppThemeMode) {
+        browserPreferenceStore.saveThemeMode(value)
+        uiState = uiState.copy(themeMode = value)
+    }
     fun setSearchQuery(value: String) {
         update { copy(searchQuery = value) }
         syncActiveSearch()

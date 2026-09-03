@@ -723,6 +723,7 @@ private fun MainTabContent(
                 onSetDownloadLocation = viewModel::setDownloadLocation,
                 onClearDownloadLocation = viewModel::clearDownloadLocation,
                 onViewerPreferencesChange = viewModel::updateViewerPreferences,
+                onThemeModeChange = viewModel::setThemeMode,
                 onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
                 openConnectionRequested = connectionSettingsRequested,
                 onConnectionRequestHandled = { connectionSettingsRequested = false },

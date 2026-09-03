@@ -43,12 +43,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.doujinmenu.android.BuildConfig
+import com.doujinmenu.android.model.AppThemeMode
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.StorageLocation
 import com.doujinmenu.android.model.ViewerPreferences
 
 private enum class SettingsSection {
     HOME,
+    APPEARANCE,
     VIEWER,
     LIBRARY,
     CONNECTION,
@@ -73,6 +75,7 @@ fun SettingsScreen(
     onSetDownloadLocation: (String, String) -> Unit,
     onClearDownloadLocation: () -> Unit,
     onViewerPreferencesChange: (ViewerPreferences) -> Unit,
+    onThemeModeChange: (AppThemeMode) -> Unit,
     onCheckForUpdates: () -> Unit,
     openConnectionRequested: Boolean,
     onConnectionRequestHandled: () -> Unit,
@@ -97,6 +100,12 @@ fun SettingsScreen(
             state = state,
             contentPadding = contentPadding,
             onOpenSection = openSection,
+        )
+        SettingsSection.APPEARANCE -> AppearanceSettingsScreen(
+            themeMode = state.themeMode,
+            contentPadding = contentPadding,
+            onBack = { openSection(SettingsSection.HOME) },
+            onChange = onThemeModeChange,
         )
         SettingsSection.VIEWER -> ViewerSettingsScreen(
             preferences = state.viewerPreferences,
@@ -153,6 +162,17 @@ private fun SettingsHomeScreen(
     ) {
         item {
             SettingsCategoryCard(
+                title = "화면 설정",
+                description = when (state.themeMode) {
+                    AppThemeMode.SYSTEM -> "시스템 설정에 따라 라이트·다크 테마 전환"
+                    AppThemeMode.LIGHT -> "라이트 테마 사용 중"
+                    AppThemeMode.DARK -> "다크 테마 사용 중"
+                },
+                onClick = { onOpenSection(SettingsSection.APPEARANCE) },
+            )
+        }
+        item {
+            SettingsCategoryCard(
                 title = "리더 설정",
                 description = "읽기 방향, 페이지 표시, 화면 맞춤과 제스처",
                 onClick = { onOpenSection(SettingsSection.VIEWER) },
@@ -178,6 +198,51 @@ private fun SettingsHomeScreen(
                 title = "정보",
                 description = "버전, 업데이트 내역, 진단 및 문제 신고",
                 onClick = { onOpenSection(SettingsSection.SUPPORT) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AppearanceSettingsScreen(
+    themeMode: AppThemeMode,
+    contentPadding: PaddingValues,
+    onBack: () -> Unit,
+    onChange: (AppThemeMode) -> Unit,
+) {
+    SettingsDetailLayout("화면 설정", contentPadding, onBack) {
+        SectionCard("테마") {
+            ThemeModeOption("시스템 설정", "기기의 화면 모드를 따릅니다.", AppThemeMode.SYSTEM, themeMode, onChange)
+            HorizontalDivider()
+            ThemeModeOption("라이트", "항상 밝은 화면을 사용합니다.", AppThemeMode.LIGHT, themeMode, onChange)
+            HorizontalDivider()
+            ThemeModeOption("다크", "항상 어두운 화면을 사용합니다.", AppThemeMode.DARK, themeMode, onChange)
+        }
+    }
+}
+
+@Composable
+private fun ThemeModeOption(
+    title: String,
+    description: String,
+    mode: AppThemeMode,
+    selectedMode: AppThemeMode,
+    onChange: (AppThemeMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(
+            selected = mode == selectedMode,
+            onClick = { onChange(mode) },
+        )
+        Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
+            Text(title, fontWeight = FontWeight.Medium)
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

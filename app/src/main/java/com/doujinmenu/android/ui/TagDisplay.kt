@@ -1,6 +1,5 @@
 package com.doujinmenu.android.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.padding
@@ -11,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -75,7 +75,7 @@ internal fun TagPill(info: TagDisplayInfo, modifier: Modifier = Modifier) {
 
 @Composable
 internal fun tagColors(style: TagStyle): Pair<Color, Color> {
-    val dark = isSystemInDarkTheme()
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     return when (style) {
         TagStyle.FEMALE -> if (dark) Color(0xFF9D174D) to Color(0xFFFCE7F3)
         else Color(0xFFFCE7F3) to Color(0xFF9D174D)
