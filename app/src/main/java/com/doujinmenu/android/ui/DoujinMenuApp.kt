@@ -652,12 +652,14 @@ private fun MainTabContent(
                 onToggleLibraryFavorite = viewModel::toggleLibraryFavorite,
                 onConnect = openConnectionSettings,
                 pageKey = search?.key.orEmpty(),
+                initialScrollAnchorKey = search?.scrollAnchorKey,
                 initialScrollIndex = search?.scrollIndex ?: 0,
                 initialScrollOffset = search?.scrollOffset ?: 0,
                 onScrollChange = viewModel::updateBrowserScroll,
             )
         }
         MainDestination.Library -> {
+            val libraryHome = viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome
             LibraryScreen(
                 state = viewModel.uiState,
                 contentPadding = contentPadding,
@@ -690,6 +692,11 @@ private fun MainTabContent(
                 onBackToSearch = {
                     onNavigate(MainDestination.Browser)
                 },
+                pageKey = libraryHome?.key.orEmpty(),
+                initialScrollAnchorKey = libraryHome?.scrollAnchorKey,
+                initialScrollIndex = libraryHome?.scrollIndex ?: 0,
+                initialScrollOffset = libraryHome?.scrollOffset ?: 0,
+                onScrollChange = viewModel::updateGalleryScroll,
             )
         }
         MainDestination.Downloads -> {

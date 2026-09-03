@@ -65,6 +65,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -93,10 +94,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.doujinmenu.android.model.LibraryBook
+import com.doujinmenu.android.model.resolveScrollIndex
 import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.LibraryReadFilter
 import com.doujinmenu.android.model.LibrarySort
 import com.doujinmenu.android.model.LibraryVisibilityFilter
+import kotlinx.coroutines.flow.distinctUntilChanged
 import com.doujinmenu.android.security.LibraryPreferenceStore
 
 private enum class LibraryViewMode { GRID, LIST }
@@ -120,6 +123,11 @@ private sealed interface LibraryMainEntry {
         override val title: String = name
         override val modifiedAt: Long = books.maxOfOrNull(LibraryBook::modifiedAt) ?: 0L
     }
+}
+
+private fun LibraryMainEntry.scrollKey(): String = when (this) {
+    is LibraryMainEntry.Book -> "book:${book.id}"
+    is LibraryMainEntry.Series -> "series:$name"
 }
 
 private fun LibraryBook.primaryArtist(): String? =
@@ -196,6 +204,11 @@ fun LibraryScreen(
     onSeriesModeChange: (Boolean) -> Unit,
     onSelectedSeriesChange: (String?) -> Unit,
     onBackToSearch: () -> Unit,
+    pageKey: String,
+    initialScrollAnchorKey: String?,
+    initialScrollIndex: Int,
+    initialScrollOffset: Int,
+    onScrollChange: (String?, Int, Int) -> Unit,
 ) {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -249,14 +262,20 @@ fun LibraryScreen(
     }
     val shownEntries = remember(shownBooks) { shownBooks.map { LibraryMainEntry.Book(it) } }
     val pullToRefreshState = rememberPullToRefreshState()
-    val mainGridState = rememberLazyGridState()
-    val mainListState = rememberLazyListState()
+    val mainEntryKeys = mainEntries.map(LibraryMainEntry::scrollKey)
+    val savedAnchorKey = remember(pageKey) { initialScrollAnchorKey }
+    val restoredIndex = resolveScrollIndex(savedAnchorKey, initialScrollIndex, mainEntryKeys)
+    val mainGridState = remember(pageKey) { LazyGridState(restoredIndex, initialScrollOffset) }
+    val mainListState = remember(pageKey) { LazyListState(restoredIndex, initialScrollOffset) }
     val seriesBooksGridState = rememberLazyGridState()
     val seriesBooksListState = rememberLazyListState()
     val seriesOverviewGridState = rememberLazyGridState()
     val seriesOverviewListState = rememberLazyListState()
     val filterSignature = libraryFilterSignature(state)
     var previousFilterSignature by rememberSaveable { mutableStateOf(filterSignature) }
+    var scrollRestored by remember(pageKey) {
+        mutableStateOf(savedAnchorKey == null || savedAnchorKey in mainEntryKeys)
+    }
     val openSeries: (String) -> Unit = { name ->
         onSeriesModeChange(true)
         onSelectedSeriesChange(name)
@@ -291,6 +310,32 @@ fun LibraryScreen(
             seriesOverviewListState.scrollToItem(0)
         }
         previousFilterSignature = filterSignature
+    }
+
+    LaunchedEffect(pageKey, mainEntryKeys) {
+        if (!scrollRestored && mainEntryKeys.isNotEmpty()) {
+            val target = resolveScrollIndex(savedAnchorKey, initialScrollIndex, mainEntryKeys)
+            mainGridState.scrollToItem(target, initialScrollOffset)
+            mainListState.scrollToItem(target, initialScrollOffset)
+            scrollRestored = true
+        }
+    }
+
+    LaunchedEffect(pageKey, viewMode, seriesMode, mainEntryKeys, scrollRestored) {
+        if (seriesMode || !scrollRestored) return@LaunchedEffect
+        if (viewMode == LibraryViewMode.GRID) {
+            snapshotFlow { mainGridState.firstVisibleItemIndex to mainGridState.firstVisibleItemScrollOffset }
+                .distinctUntilChanged()
+                .collect { (index, offset) ->
+                    onScrollChange(mainEntryKeys.getOrNull(index), index, offset)
+                }
+        } else {
+            snapshotFlow { mainListState.firstVisibleItemIndex to mainListState.firstVisibleItemScrollOffset }
+                .distinctUntilChanged()
+                .collect { (index, offset) ->
+                    onScrollChange(mainEntryKeys.getOrNull(index), index, offset)
+                }
+        }
     }
 
     BackHandler {
@@ -1143,12 +1188,7 @@ private fun LibraryGrid(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(entries, key = { entry ->
-            when (entry) {
-                is LibraryMainEntry.Book -> "book:${entry.book.id}"
-                is LibraryMainEntry.Series -> "series:${entry.name}"
-            }
-        }) { entry ->
+        items(entries, key = LibraryMainEntry::scrollKey) { entry ->
             when (entry) {
                 is LibraryMainEntry.Book -> LibraryBookCard(
                     book = entry.book,
@@ -1207,12 +1247,7 @@ private fun LibraryList(
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        listItems(entries, key = { entry ->
-            when (entry) {
-                is LibraryMainEntry.Book -> "book:${entry.book.id}"
-                is LibraryMainEntry.Series -> "series:${entry.name}"
-            }
-        }) { entry ->
+        listItems(entries, key = LibraryMainEntry::scrollKey) { entry ->
             when (entry) {
                 is LibraryMainEntry.Book -> LibraryBookListItem(
                     book = entry.book,

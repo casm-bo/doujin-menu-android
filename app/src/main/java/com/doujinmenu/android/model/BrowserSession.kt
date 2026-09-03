@@ -7,6 +7,9 @@ sealed interface BrowserPage {
 
     data class LibraryHome(
         override val key: String = UUID.randomUUID().toString(),
+        val scrollAnchorKey: String? = null,
+        val scrollIndex: Int = 0,
+        val scrollOffset: Int = 0,
     ) : BrowserPage
 
     data class Search(
@@ -19,6 +22,7 @@ sealed interface BrowserPage {
         val results: List<GallerySummary> = emptyList(),
         val currentPage: Int = 0,
         val hasNextPage: Boolean = false,
+        val scrollAnchorKey: String? = null,
         val scrollIndex: Int = 0,
         val scrollOffset: Int = 0,
     ) : BrowserPage
@@ -137,6 +141,22 @@ fun BrowserWorkspace.updateActiveSearch(
         this[tab.currentIndex] = transform(search)
     })
 }
+
+fun BrowserWorkspace.updateActiveLibraryHome(
+    transform: (BrowserPage.LibraryHome) -> BrowserPage.LibraryHome,
+): BrowserWorkspace = updateActiveTab { tab ->
+    val page = tab.currentPage as? BrowserPage.LibraryHome ?: return@updateActiveTab tab
+    tab.copy(history = tab.history.toMutableList().apply {
+        this[tab.currentIndex] = transform(page)
+    })
+}
+
+internal fun resolveScrollIndex(
+    anchorKey: String?,
+    fallbackIndex: Int,
+    itemKeys: List<String>,
+): Int = anchorKey?.let(itemKeys::indexOf)?.takeIf { it >= 0 }
+    ?: fallbackIndex.coerceIn(0, itemKeys.lastIndex.coerceAtLeast(0))
 
 fun BrowserWorkspace.moveTab(tabId: String, offset: Int): BrowserWorkspace {
     val from = tabs.indexOfFirst { it.id == tabId }

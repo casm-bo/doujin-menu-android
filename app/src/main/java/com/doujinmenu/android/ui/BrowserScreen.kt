@@ -63,6 +63,7 @@ import coil3.size.Precision
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.SearchFavorite
+import com.doujinmenu.android.model.resolveScrollIndex
 import com.doujinmenu.android.network.FilterSuggestion
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -88,9 +89,10 @@ fun BrowserScreen(
     onToggleLibraryFavorite: (String) -> Unit,
     onConnect: () -> Unit,
     pageKey: String,
+    initialScrollAnchorKey: String?,
     initialScrollIndex: Int,
     initialScrollOffset: Int,
-    onScrollChange: (Int, Int) -> Unit,
+    onScrollChange: (String?, Int, Int) -> Unit,
 ) {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -117,16 +119,48 @@ fun BrowserScreen(
             ),
         )
     }
+    val contentKeys = buildList {
+        add("search-controls")
+        if (state.isLoadingPage && state.galleries.isEmpty()) add("initial-loader")
+        if (state.galleries.isNotEmpty()) {
+            add("result-count")
+            state.galleries.forEach { add("gallery:${it.id}") }
+        }
+        if (state.galleries.isNotEmpty() && (state.hasNextPage || state.isLoadingPage)) {
+            add("page-loader-${state.currentPage}")
+        }
+    }
+    val savedAnchorKey = remember(pageKey) { initialScrollAnchorKey }
+    val restoredIndex = resolveScrollIndex(savedAnchorKey, initialScrollIndex, contentKeys)
     val listState = remember(pageKey) {
         LazyListState(
-            firstVisibleItemIndex = initialScrollIndex,
+            firstVisibleItemIndex = restoredIndex,
             firstVisibleItemScrollOffset = initialScrollOffset,
         )
     }
-    LaunchedEffect(pageKey, listState) {
+    var scrollRestored by remember(pageKey) {
+        mutableStateOf(savedAnchorKey == null || savedAnchorKey in contentKeys)
+    }
+    LaunchedEffect(pageKey, contentKeys, state.isLoadingPage) {
+        if (!scrollRestored) {
+            val anchorIndex = contentKeys.indexOf(savedAnchorKey)
+            if (anchorIndex >= 0) {
+                listState.scrollToItem(anchorIndex, initialScrollOffset)
+                scrollRestored = true
+            } else if (!state.isLoadingPage && state.galleries.isNotEmpty()) {
+                listState.scrollToItem(resolveScrollIndex(null, initialScrollIndex, contentKeys))
+                scrollRestored = true
+            }
+        }
+    }
+    LaunchedEffect(pageKey, listState, scrollRestored) {
+        if (!scrollRestored) return@LaunchedEffect
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
             .distinctUntilChanged()
-            .collect { (index, offset) -> onScrollChange(index, offset) }
+            .collect { (index, offset) ->
+                val anchorKey = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key?.toString()
+                onScrollChange(anchorKey, index, offset)
+            }
     }
     val queryFocusRequester = remember { FocusRequester() }
 
@@ -150,7 +184,7 @@ fun BrowserScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-        item {
+        item(key = "search-controls") {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -318,18 +352,18 @@ fun BrowserScreen(
         }
 
         if (state.isLoadingPage && state.galleries.isEmpty()) {
-            item { LoadingRow("불러오는 중…") }
+            item(key = "initial-loader") { LoadingRow("불러오는 중…") }
         }
 
         if (state.galleries.isNotEmpty()) {
-            item {
+            item(key = "result-count") {
                 Text(
                     "검색 결과 ${state.galleries.size}개",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            items(state.galleries, key = { it.id }) { gallery ->
+            items(state.galleries, key = { "gallery:${it.id}" }) { gallery ->
                 val libraryBook = libraryBookByGalleryId[gallery.id]
                 GalleryCard(
                     gallery = gallery,

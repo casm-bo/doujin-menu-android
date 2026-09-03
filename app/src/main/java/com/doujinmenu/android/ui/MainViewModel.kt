@@ -38,6 +38,7 @@ import com.doujinmenu.android.model.pushPage
 import com.doujinmenu.android.model.selectTab
 import com.doujinmenu.android.model.selectSearchTab
 import com.doujinmenu.android.model.updateActiveSearch
+import com.doujinmenu.android.model.updateActiveLibraryHome
 import com.doujinmenu.android.network.CompanionClient
 import com.doujinmenu.android.network.CompanionApiException
 import com.doujinmenu.android.network.BookStateSyncResult
@@ -595,12 +596,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
-    fun updateBrowserScroll(index: Int, offset: Int) {
+    fun updateBrowserScroll(anchorKey: String?, index: Int, offset: Int) {
         val workspace = uiState.browserWorkspace.updateActiveSearch { search ->
-            search.copy(scrollIndex = index.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0))
+            search.copy(
+                scrollAnchorKey = anchorKey,
+                scrollIndex = index.coerceAtLeast(0),
+                scrollOffset = offset.coerceAtLeast(0),
+            )
         }
         if (workspace != uiState.browserWorkspace) {
             uiState = uiState.copy(browserWorkspace = workspace)
+        }
+    }
+
+    fun updateGalleryScroll(anchorKey: String?, index: Int, offset: Int) {
+        val workspace = uiState.galleryWorkspace.updateActiveLibraryHome { page ->
+            page.copy(
+                scrollAnchorKey = anchorKey,
+                scrollIndex = index.coerceAtLeast(0),
+                scrollOffset = offset.coerceAtLeast(0),
+            )
+        }
+        if (workspace != uiState.galleryWorkspace) {
+            uiState = uiState.copy(galleryWorkspace = workspace)
         }
     }
 

@@ -227,6 +227,9 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
     is BrowserPage.LibraryHome -> JSONObject()
         .put("type", "libraryHome")
         .put("key", key)
+        .put("scrollAnchorKey", scrollAnchorKey)
+        .put("scrollIndex", scrollIndex)
+        .put("scrollOffset", scrollOffset)
     is BrowserPage.Search -> JSONObject()
         .put("type", "search")
         .put("key", key)
@@ -235,6 +238,7 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
         .put("submittedQuery", submittedQuery)
         .put("submittedQueries", JSONArray(submittedQueries))
         .put("currentPage", currentPage)
+        .put("scrollAnchorKey", scrollAnchorKey)
         .put("scrollIndex", scrollIndex)
         .put("scrollOffset", scrollOffset)
     is BrowserPage.OnlineGallery -> JSONObject()
@@ -264,7 +268,12 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
 private fun JSONObject.toBrowserPage(): BrowserPage? {
     val key = optString("key").takeIf(String::isNotBlank) ?: UUID.randomUUID().toString()
     return when (optString("type")) {
-        "libraryHome" -> BrowserPage.LibraryHome(key)
+        "libraryHome" -> BrowserPage.LibraryHome(
+            key = key,
+            scrollAnchorKey = optString("scrollAnchorKey").takeIf(String::isNotBlank),
+            scrollIndex = optInt("scrollIndex", 0).coerceAtLeast(0),
+            scrollOffset = optInt("scrollOffset", 0).coerceAtLeast(0),
+        )
         "search" -> BrowserPage.Search(
             key = key,
             query = optString("query"),
@@ -272,6 +281,7 @@ private fun JSONObject.toBrowserPage(): BrowserPage? {
             submittedQuery = optString("submittedQuery"),
             submittedQueries = optJSONArray("submittedQueries").stringList(),
             currentPage = optInt("currentPage", 0).coerceAtLeast(0),
+            scrollAnchorKey = optString("scrollAnchorKey").takeIf(String::isNotBlank),
             scrollIndex = optInt("scrollIndex", 0).coerceAtLeast(0),
             scrollOffset = optInt("scrollOffset", 0).coerceAtLeast(0),
         )
