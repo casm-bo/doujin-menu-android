@@ -178,7 +178,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                             viewModel.selectGallery(it)
                         }
                     },
-                    onLibraryBookClick = viewModel::openLibraryBookInNewTab,
+                    onLibraryBookClick = viewModel::openLibraryBookTab,
                 )
             }
             composable("library-detail/{bookId}") { entry ->

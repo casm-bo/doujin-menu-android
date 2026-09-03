@@ -468,14 +468,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun openLibraryBookInNewTab(bookId: String) {
-        val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
-        openLibraryBook(bookId)
-        applyGalleryWorkspace(
-            uiState.galleryWorkspace.openTab(BrowserPage.LibraryBook(bookId, book.title)),
-        )
-    }
-
     fun openOnlineReaderTab(galleryId: Long, startPage: Int) {
         val gallery = uiState.galleryCache[galleryId]
             ?: uiState.galleries.firstOrNull { it.id == galleryId }

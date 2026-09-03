@@ -110,4 +110,18 @@ class BrowserSessionTest {
         assertEquals(query, (selected.activeTab.currentPage as BrowserPage.Search).query)
         assertFalse(selected.activeTab.canGoBack)
     }
+
+    @Test
+    fun galleryOnlyOpensNewWindowAfterManualTabCreation() {
+        val first = BrowserWorkspace.initial(BrowserPage.LibraryHome())
+            .pushPage(BrowserPage.LibraryBook("book-a", "Gallery A"))
+        val firstId = first.activeTabId
+        val second = first.openTab(BrowserPage.LibraryHome())
+            .pushPage(BrowserPage.LibraryBook("book-b", "Gallery B"))
+
+        assertEquals(2, second.tabs.size)
+        assertEquals("book-a", (second.tabs.first { it.id == firstId }.currentPage as BrowserPage.LibraryBook).bookId)
+        assertEquals("book-b", (second.activeTab.currentPage as BrowserPage.LibraryBook).bookId)
+        assertTrue(second.activeTab.canGoBack)
+    }
 }
