@@ -1180,6 +1180,7 @@ private fun LibraryGrid(
     onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
 ) {
+    Box(modifier = Modifier.fillMaxSize()) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         state = gridState,
@@ -1222,6 +1223,8 @@ private fun LibraryGrid(
             }
         }
     }
+    DynamicVerticalScrollbar(gridState)
+    }
 }
 
 @Composable
@@ -1241,6 +1244,7 @@ private fun LibraryList(
     onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
 ) {
+    Box(modifier = Modifier.fillMaxSize()) {
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -1279,6 +1283,8 @@ private fun LibraryList(
                 }
             }
         }
+    }
+    DynamicVerticalScrollbar(listState)
     }
 }
 
@@ -1619,6 +1625,7 @@ private fun LibrarySeriesOverview(
         return
     }
     if (viewMode == LibraryViewMode.GRID) {
+        Box(modifier = Modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
             state = gridState,
@@ -1643,7 +1650,10 @@ private fun LibrarySeriesOverview(
                 )
             }
         }
+        DynamicVerticalScrollbar(gridState)
+        }
     } else {
+        Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
@@ -1665,6 +1675,8 @@ private fun LibrarySeriesOverview(
                     onToggleFavorite = { onToggleFavorite(name) },
                 )
             }
+        }
+        DynamicVerticalScrollbar(listState)
         }
     }
 }

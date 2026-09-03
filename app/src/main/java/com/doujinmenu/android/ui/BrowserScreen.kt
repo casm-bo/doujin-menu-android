@@ -178,6 +178,7 @@ fun BrowserScreen(
         onRefresh = onRefresh,
         modifier = Modifier.fillMaxSize().padding(contentPadding),
     ) {
+        Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             state = listState,
@@ -391,7 +392,9 @@ fun BrowserScreen(
                 )
             }
         }
-    }
+        }
+        DynamicVerticalScrollbar(listState)
+        }
     }
 
     if (addLanguageDialog) {
