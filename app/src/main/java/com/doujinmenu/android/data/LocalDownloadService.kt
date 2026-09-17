@@ -55,7 +55,8 @@ class LocalDownloadService : Service() {
                             }
                             if (!claimed) continue
                             val uri = LocalGalleryDownloader(this@LocalDownloadService).download(request) { done, total ->
-                                getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(done, total))
+                                // Update the service notification without posting a separate notification.
+                                startForeground(NOTIFICATION_ID, notification(done, total))
                             }
                             withContext(Dispatchers.IO) {
                                 store.change(request.id) { it.copy(status = RequestStatus.COMPLETED, outputUri = uri, error = null) }

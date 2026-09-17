@@ -9,6 +9,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DownloadRequestApiTest {
+    @Test fun `unreachable PC is distinct from an ambiguous response timeout`() {
+        assertTrue(downloadDefinitelyNotSubmitted(java.net.ConnectException("refused")))
+        assertTrue(downloadDefinitelyNotSubmitted(java.net.UnknownHostException("offline")))
+        assertTrue(downloadDefinitelyNotSubmitted(CompanionApiException("unauthorized", 401)))
+        assertFalse(downloadDefinitelyNotSubmitted(java.net.SocketTimeoutException("response lost")))
+        assertFalse(downloadDefinitelyNotSubmitted(CompanionApiException("receipt write failed", 500)))
+    }
+
     @Test fun `download requests carry the same durable ID on retry`() = runBlocking {
         val received = mutableListOf<JSONObject>()
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)

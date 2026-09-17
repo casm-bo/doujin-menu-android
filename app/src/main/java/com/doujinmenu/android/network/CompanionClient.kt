@@ -725,3 +725,8 @@ private fun org.json.JSONArray?.toStringList(): List<String> = buildList {
 }
 
 class CompanionApiException(message: String, val statusCode: Int? = null) : Exception(message)
+
+internal fun downloadDefinitelyNotSubmitted(error: Throwable): Boolean =
+    error is java.net.ConnectException || error is java.net.NoRouteToHostException ||
+        error is java.net.UnknownHostException ||
+        (error is CompanionApiException && error.statusCode in setOf(401, 403, 404))

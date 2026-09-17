@@ -12,9 +12,17 @@ class DirectHitomiTest {
         val client = HitomiClient()
         val result = client.search("language:korean", 1)
         assertTrue(result.galleryIds.isNotEmpty())
+        val next = client.search("language:korean", 2)
+        assertTrue(next.galleryIds.intersect(result.galleryIds.toSet()).isEmpty())
         val gallery = client.getGallery(result.galleryIds.first())
         assertEquals(gallery.pageCount, client.getGalleryPages(gallery.id).size)
         assertTrue(client.search("test", 1).galleryIds.isNotEmpty())
+    }
+
+    @Test fun `tag resource paths preserve namespaces and escape tag names`() {
+        assertEquals("/n/index-korean.nozomi", hitomiNozomiPath("language:korean"))
+        assertEquals("/n/artist/a%20b-all.nozomi", hitomiNozomiPath("artist:a_b"))
+        assertEquals("/n/tag/female:a%2Fb-all.nozomi", hitomiNozomiPath("female:a/b"))
     }
     @Test fun `binary search index and unsigned gallery IDs are decoded`() {
         val node = ByteBuffer.allocate(464).putInt(1).putInt(4).put(byteArrayOf(1, 2, 3, -1))

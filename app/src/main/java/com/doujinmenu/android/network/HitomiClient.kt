@@ -25,6 +25,11 @@ class HitomiClient {
         val terms = query.split(Regex("\\s+")).filter(String::isNotBlank)
         val directId = terms.firstNotNullOfOrNull { it.removePrefix("id:").toLongOrNull()?.takeIf { id -> id > 0 } }
         if (directId != null) return@withContext SearchResult(if (page == 1) listOf(directId) else emptyList(), false)
+        if (terms.size == 1 && ':' in terms[0] && !terms[0].startsWith('-')) {
+            val start = (page.toLong() - 1) * 30 * 4
+            val ids = decodeHitomiIds(readResource(hitomiNozomiPath(terms[0]), start..start + 123, missingIsEmpty = true))
+            return@withContext SearchResult(ids.take(30), ids.size > 30)
+        }
         val cached = synchronized(searches) { searches[query] }
         val ids = if (cached != null && System.currentTimeMillis() - cached.first < 300_000) cached.second else {
             var result: MutableSet<Long>? = null
@@ -46,24 +51,12 @@ class HitomiClient {
             }
         }
         val start = ((page.toLong() - 1) * 30).coerceAtMost(ids.size.toLong()).toInt()
-        SearchResult(ids.drop(start).take(30), start + 30 < ids.size)
+        SearchResult(ids.subList(start, minOf(start + 30, ids.size)), start + 30 < ids.size)
     }
 
     private suspend fun termIds(term: String): List<Long> {
         if (':' !in term) return titleIds(term)
-        val type = term.substringBefore(':')
-        val value = term.substringAfter(':').replace('_', ' ')
-        require(type in setOf("language", "artist", "group", "series", "character", "type", "tag", "male", "female")) {
-            "지원하지 않는 검색 필터: $type"
-        }
-        require(value.isNotBlank()) { "검색 필터 값이 비어 있습니다." }
-        val encoded = URLEncoder.encode(value, "UTF-8").replace("+", "%20")
-        val path = when (type) {
-            "language" -> "/n/index-$encoded.nozomi"
-            "male", "female" -> "/n/tag/$type:$encoded-all.nozomi"
-            else -> "/n/$type/$encoded-all.nozomi"
-        }
-        return nozomi(path)
+        return nozomi(hitomiNozomiPath(term))
     }
 
     private suspend fun nozomi(path: String): List<Long> = decodeHitomiIds(readResource(path, missingIsEmpty = true))
@@ -118,7 +111,7 @@ class HitomiClient {
                     connection.setRequestProperty("Accept-Encoding", "identity")
                 }
                 val status = connection.responseCode
-                if (status == 404 && missingIsEmpty) return@withContext byteArrayOf()
+                if (status in listOf(404, 416) && missingIsEmpty) return@withContext byteArrayOf()
                 if (status !in listOf(200, 206)) throw IOException("Hitomi 요청 실패 (HTTP $status)")
                 if (range != null && (status != 206 || !connection.getHeaderField("Content-Range").orEmpty().startsWith("bytes ${range.first}-"))) {
                     throw IOException("Hitomi 검색 범위 응답이 올바르지 않습니다.")
@@ -206,4 +199,19 @@ internal fun parseDirectGallery(raw: JSONObject, id: Long): GallerySummary {
         pageCount = files.length(), language = raw.optString("language_localname").ifBlank { raw.optString("language") },
         publishedDate = raw.optString("datepublished").ifBlank { raw.optString("date") }.takeIf(String::isNotBlank),
     )
+}
+
+internal fun hitomiNozomiPath(term: String): String {
+    val type = term.substringBefore(':')
+    val value = term.substringAfter(':').replace('_', ' ')
+    require(type in setOf("language", "artist", "group", "series", "character", "type", "tag", "male", "female")) {
+        "지원하지 않는 검색 필터: $type"
+    }
+    require(value.isNotBlank()) { "검색 필터 값이 비어 있습니다." }
+    val encoded = URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+    return when (type) {
+        "language" -> "/n/index-$encoded.nozomi"
+        "male", "female" -> "/n/tag/$type:$encoded-all.nozomi"
+        else -> "/n/$type/$encoded-all.nozomi"
+    }
 }
