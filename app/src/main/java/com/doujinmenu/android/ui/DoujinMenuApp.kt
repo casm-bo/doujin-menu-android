@@ -711,6 +711,7 @@ private fun MainTabContent(
                 onClearCompleted = viewModel::clearCompletedDownloads,
                 onConnect = openConnectionSettings,
                 onLeave = viewModel::resetDownloadConnectionAttempt,
+                onRemoveRequest = viewModel::removeDownloadRequest,
             )
         }
         MainDestination.Settings -> {

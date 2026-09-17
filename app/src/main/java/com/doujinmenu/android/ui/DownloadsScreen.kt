@@ -51,6 +51,7 @@ fun DownloadsScreen(
     onClearCompleted: () -> Unit,
     onConnect: () -> Unit,
     onLeave: () -> Unit,
+    onRemoveRequest: (String) -> Unit,
 ) {
     val originalTitles = remember(state.galleryCache, state.galleries, state.libraryBooks) {
         downloadOriginalTitles(state.galleryCache.values + state.galleries, state.libraryBooks)
@@ -59,22 +60,9 @@ fun DownloadsScreen(
         onDispose(onLeave)
     }
 
-    if (state.profiles.none { it.id == state.selectedProfileId }) {
-        ConnectionRequiredScreen(contentPadding, onConnect)
-        return
-    }
-    if (state.isDownloadConnectionUnavailable) {
-        ConnectionRequiredScreen(
-            contentPadding = contentPadding,
-            onConnect = onConnect,
-            title = "PC에 연결할 수 없습니다",
-            description = "등록된 PC가 응답하지 않습니다. 연결 설정을 확인한 뒤 PC를 다시 선택해주세요.",
-            buttonLabel = "연결 설정",
-        )
-        return
-    }
-
-    LaunchedEffect(state.selectedProfileId, state.isDownloadConnectionUnavailable) {
+    val hasProfile = state.profiles.any { it.id == state.selectedProfileId }
+    LaunchedEffect(state.selectedProfileId) {
+        if (!hasProfile) return@LaunchedEffect
         onRefresh(false)
         while (isActive) {
             delay(DOWNLOAD_REFRESH_INTERVAL_MS)
@@ -94,7 +82,7 @@ fun DownloadsScreen(
                 it.status == DownloadStatus.PENDING || it.status == DownloadStatus.DOWNLOADING
             }
             Text(
-                "전체 ${state.downloadQueue.size} · 진행 중 $activeCount",
+                "전체 ${state.downloadQueue.size + state.downloadRequests.count { !it.isFinished }} · PC 진행 중 $activeCount",
                 modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -104,10 +92,16 @@ fun DownloadsScreen(
             ) { Text("완료 항목 정리") }
             OutlinedButton(
                 onClick = { onRefresh(false) },
-                enabled = !state.isDownloadQueueLoading,
+                enabled = hasProfile && !state.isDownloadQueueLoading,
             ) { Text("새로고침") }
         }
 
+        if (!hasProfile || state.isDownloadConnectionUnavailable) {
+            Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("PC 미연결 · 대기 목록은 기기에 보관됩니다.", Modifier.weight(1f))
+                TextButton(onClick = onConnect) { Text("연결 설정") }
+            }
+        }
         state.downloadQueueError?.let { error ->
             Text(
                 error,
@@ -126,17 +120,17 @@ fun DownloadsScreen(
         }
 
         when {
-            state.isDownloadQueueLoading && state.downloadQueue.isEmpty() -> {
+            state.isDownloadQueueLoading && state.downloadQueue.isEmpty() && state.downloadRequests.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             }
-            state.downloadQueue.isEmpty() -> {
+            state.downloadQueue.isEmpty() && state.downloadRequests.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("다운로드 큐가 비어 있습니다.", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "갤러리 상세 화면에서 데스크톱 다운로드를 추가할 수 있습니다.",
+                            "갤러리 상세 화면에서 다운로드를 추가할 수 있습니다.",
                             modifier = Modifier.padding(top = 6.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -149,7 +143,21 @@ fun DownloadsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(state.downloadQueue, key = { it.id }) { item ->
+                    items(state.downloadRequests, key = { "request:${it.id}" }) { request ->
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(preferredLocalizedTitle(request.title), fontWeight = FontWeight.SemiBold)
+                                Text(if (request.isFinished) "PC 큐에 전달됨" else if (request.isBusy) "PC에 전달 중…" else "PC 동기화 대기")
+                                val desktop = state.profiles.firstOrNull { it.id == request.profileId }
+                                Text("대상: ${desktop?.name ?: if (request.profileId == null) "다음 동기화 PC" else "삭제된 PC"}", style = MaterialTheme.typography.bodySmall)
+                                request.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                                TextButton(onClick = { onRemoveRequest(request.id) }, enabled = !request.isBusy) {
+                                    Text(if (request.isFinished) "기록 정리" else "대기 취소")
+                                }
+                            }
+                        }
+                    }
+                    items(state.downloadQueue, key = { "desktop:${it.id}" }) { item ->
                         DownloadQueueCard(
                             item = item,
                             displayTitle = originalTitles[item.galleryId] ?: item.galleryTitle,

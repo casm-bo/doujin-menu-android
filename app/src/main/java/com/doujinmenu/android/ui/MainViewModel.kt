@@ -8,6 +8,11 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.doujinmenu.android.BuildConfig
+import com.doujinmenu.android.data.DownloadRequest
+import com.doujinmenu.android.data.DownloadRequestStore
+import com.doujinmenu.android.data.DownloadTarget
+import com.doujinmenu.android.data.RequestStatus
+import com.doujinmenu.android.data.addDownloadRequest
 import com.doujinmenu.android.data.LibraryScanner
 import com.doujinmenu.android.data.LibraryArchiveExtractor
 import com.doujinmenu.android.data.LibraryFileDeleter
@@ -140,6 +145,7 @@ data class MainUiState(
     val readerErrorsByGalleryId: Map<Long, String> = emptyMap(),
     val downloadingGalleryIds: Set<Long> = emptySet(),
     val downloadQueue: List<DownloadQueueItem> = emptyList(),
+    val downloadRequests: List<DownloadRequest> = emptyList(),
     val isDownloadQueueLoading: Boolean = false,
     val downloadQueueError: String? = null,
     val isDownloadConnectionUnavailable: Boolean = false,
@@ -155,6 +161,7 @@ data class MainUiState(
 enum class DesktopConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val requestStore = DownloadRequestStore.get(application)
     private val client = CompanionClient()
     private val suggestionClient = HitomiSuggestionClient()
     private val hitomiClient = com.doujinmenu.android.network.HitomiClient()
@@ -235,6 +242,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
         )
+        viewModelScope.launch {
+            requestStore.requests.collect { requests ->
+                uiState = uiState.copy(downloadRequests = requests)
+            }
+        }
+        requestStore.readError?.let { uiState = uiState.copy(downloadQueueError = it) }
         navigationPage = browserWorkspace.activeTab.currentPage
         if (activeSearch?.resultIds.isNullOrEmpty() && (activeSearch?.currentPage ?: 0) > 0) {
             startBrowserSearch(reset = true)
@@ -745,40 +758,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun downloadGallery(gallery: GallerySummary) {
         if (gallery.id in uiState.downloadingGalleryIds) return
-        val profile = uiState.profiles.firstOrNull { it.id == uiState.selectedProfileId }
-        if (profile == null) {
-            uiState = uiState.copy(message = "연결된 데스크톱이 없습니다.", isError = true)
+        if (requestStore.requests.value.any { it.galleryId == gallery.id && !it.isFinished }) {
+            uiState = uiState.copy(message = "다운로드 목록에 이미 있습니다.")
             return
         }
+        val profile = selectedProfile()
+        val request = DownloadRequest(galleryId = gallery.id, title = gallery.title,
+            thumbnailUrl = gallery.thumbnailUrl, profileId = profile?.id)
         viewModelScope.launch {
-            uiState = uiState.copy(
-                downloadingGalleryIds = uiState.downloadingGalleryIds + gallery.id,
-                message = null,
-                isError = false,
-            )
+            uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds + gallery.id)
             try {
-                val item = client.requestDownload(profile, gallery.id)
-                uiState = uiState.copy(
-                    downloadQueue = sortDownloadQueueNewest(
-                        (uiState.downloadQueue + item).distinctBy { it.id },
-                    ),
-                    message = "${gallery.title} · 데스크톱 다운로드 큐에 추가됨",
-                    isError = false,
-                )
+                withContext(Dispatchers.IO) { requestStore.update { addDownloadRequest(it, request) } }
+                if (profile != null && uiState.desktopConnectionState == DesktopConnectionState.CONNECTED) {
+                    requestStore.change(request.id) { it.copy(status = RequestStatus.SENDING) }
+                    val item = client.requestDownload(profile, gallery.id)
+                    requestStore.change(request.id) { it.copy(status = RequestStatus.SENT) }
+                    uiState = uiState.copy(
+                        downloadQueue = sortDownloadQueueNewest((uiState.downloadQueue + item).distinctBy { it.id }),
+                        message = "데스크톱 다운로드 큐에 추가됨", isError = false,
+                    )
+                } else {
+                    uiState = uiState.copy(message = "PC 동기화 대기 목록에 추가됨 · 기기에 자동 다운로드하지 않습니다.", isError = false)
+                }
             } catch (error: Exception) {
-                val unsupported = error.message?.contains("Not found", ignoreCase = true) == true
-                uiState = uiState.copy(
-                    message = if (unsupported) {
-                        "현재 Companion Server에는 다운로드 API가 없습니다. 데스크톱 업데이트가 필요합니다."
-                    } else {
-                        error.message ?: "다운로드 요청에 실패했습니다."
-                    },
-                    isError = true,
-                )
+                if (error is CancellationException) throw error
+                runCatching { requestStore.change(request.id) { it.copy(status = RequestStatus.WAITING, error = error.message) } }
+                uiState = uiState.copy(message = "다운로드 요청을 완료하지 못했습니다: ${error.message}", isError = true)
             } finally {
-                uiState = uiState.copy(
-                    downloadingGalleryIds = uiState.downloadingGalleryIds - gallery.id,
-                )
+                uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds - gallery.id)
+            }
+        }
+    }
+
+    fun removeDownloadRequest(id: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    requestStore.update { list -> list.filterNot { it.id == id && !it.isBusy } }
+                }
+            } catch (error: Exception) {
+                uiState = uiState.copy(downloadQueueError = error.message)
             }
         }
     }
