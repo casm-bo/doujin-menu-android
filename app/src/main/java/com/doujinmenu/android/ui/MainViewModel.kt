@@ -157,6 +157,7 @@ enum class DesktopConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val client = CompanionClient()
     private val suggestionClient = HitomiSuggestionClient()
+    private val hitomiClient = com.doujinmenu.android.network.HitomiClient()
     private val releaseChecker = GitHubReleaseChecker()
     private val updatePreferences = application.getSharedPreferences("updates", Application.MODE_PRIVATE)
     private val profileStore = SecureProfileStore(application)
@@ -624,9 +625,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun ensureGalleryLoaded(galleryId: Long) {
         if (galleryId in uiState.galleryCache || uiState.galleries.any { it.id == galleryId }) return
-        val profile = selectedProfile() ?: return
         viewModelScope.launch {
-            runCatching { client.getGallery(profile, galleryId) }.onSuccess { gallery ->
+            runCatching { hitomiClient.getGallery(galleryId) }.onSuccess { gallery ->
                 uiState = uiState.copy(
                     activeGallery = gallery,
                     galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)),
@@ -720,21 +720,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadReader(galleryId: Long) {
         if (galleryId in uiState.readerLoadingGalleryIds) return
         if (uiState.readerPagesByGalleryId[galleryId].isNullOrEmpty().not()) return
-        val profile = uiState.profiles.firstOrNull { it.id == uiState.selectedProfileId }
-        if (profile == null) {
-            uiState = uiState.copy(
-                readerErrorsByGalleryId = uiState.readerErrorsByGalleryId +
-                    (galleryId to "연결된 데스크톱이 없습니다."),
-            )
-            return
-        }
         viewModelScope.launch {
             uiState = uiState.copy(
                 readerLoadingGalleryIds = uiState.readerLoadingGalleryIds + galleryId,
                 readerErrorsByGalleryId = uiState.readerErrorsByGalleryId - galleryId,
             )
             try {
-                val pages = client.getGalleryPages(profile, galleryId)
+                val pages = hitomiClient.getGalleryPages(galleryId)
                 uiState = uiState.copy(
                     readerPagesByGalleryId = uiState.readerPagesByGalleryId + (galleryId to pages),
                 )
@@ -1916,13 +1908,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         preserveResults: Boolean = false,
         searchKey: String,
     ) {
-        val profile = uiState.profiles.firstOrNull { it.id == uiState.selectedProfileId }
-        if (profile == null) {
-            if (isActiveSearch(searchKey)) {
-                uiState = uiState.copy(message = "먼저 데스크톱을 페어링하거나 선택하세요.", isError = true)
-            }
-            return
-        }
         if (!isActiveSearch(searchKey)) return
         val query = if (reset) uiState.searchQuery.trim() else uiState.submittedSearchQuery
         val searchQueries = if (reset) {
@@ -1952,11 +1937,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         try {
             val searchResults = coroutineScope {
                 searchQueries.map { resolvedQuery ->
-                    async { client.search(profile, resolvedQuery, page = page) }
+                    async { hitomiClient.search(resolvedQuery, page = page) }
                 }.awaitAll()
             }
             val galleryIds = searchResults.flatMap { it.galleryIds }.distinct()
-            val summaries = fetchGallerySummaries(profile, galleryIds)
+            val summaries = fetchGallerySummaries(galleryIds)
             if (!isActiveSearch(searchKey)) return
             val merged = if (reset) summaries else (uiState.galleries + summaries).distinctBy { it.id }
             val knownFilters = rememberFilterTokens(summaries)
@@ -1995,14 +1980,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun fetchGallerySummaries(
-        profile: DesktopProfile,
         galleryIds: List<Long>,
     ): List<GallerySummary> = coroutineScope {
         val semaphore = Semaphore(GALLERY_DETAIL_CONCURRENCY)
         galleryIds.map { galleryId ->
             async {
                 semaphore.withPermit {
-                    runCatching { client.getGallery(profile, galleryId) }
+                    runCatching { hitomiClient.getGallery(galleryId) }
                         .getOrElse { error ->
                             GallerySummary(
                                 id = galleryId,

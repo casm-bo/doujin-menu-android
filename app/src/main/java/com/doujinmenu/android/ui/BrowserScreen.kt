@@ -96,11 +96,6 @@ fun BrowserScreen(
 ) {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
-    val selected = state.profiles.firstOrNull { it.id == state.selectedProfileId }
-    if (selected == null) {
-        ConnectionRequiredScreen(contentPadding, onConnect)
-        return
-    }
     var expandedPanel by rememberSaveable { mutableStateOf<String?>(null) }
     var addLanguageDialog by rememberSaveable { mutableStateOf(false) }
     var languageInput by rememberSaveable { mutableStateOf("") }
@@ -189,7 +184,7 @@ fun BrowserScreen(
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        "연결 대상: ${selected.name}",
+                        "Hitomi 직접 검색",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(8.dp))
