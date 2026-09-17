@@ -188,6 +188,7 @@ fun GalleryDetailScreen(
                             }
                         }
                     }
+                    val pendingRequest = state.downloadRequests.any { it.galleryId == gallery.id && !it.isFinished }
                     val queuedDownload = state.downloadQueue.firstOrNull {
                         it.galleryId == gallery.id
                     }
@@ -197,12 +198,13 @@ fun GalleryDetailScreen(
                         }
                         OutlinedButton(
                             onClick = { onDownload(gallery) },
-                            enabled = gallery.id !in state.downloadingGalleryIds && queuedDownload == null,
+                            enabled = gallery.id !in state.downloadingGalleryIds && queuedDownload == null && !pendingRequest,
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
                                 when {
                                     gallery.id in state.downloadingGalleryIds -> "요청 중…"
+                                    pendingRequest -> "다운로드 목록에 있음"
                                     queuedDownload != null -> "다운로드 큐에 있음"
                                     else -> "다운로드하기"
                                 },

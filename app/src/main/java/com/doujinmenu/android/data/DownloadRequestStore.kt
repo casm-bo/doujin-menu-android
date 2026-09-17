@@ -10,7 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 enum class DownloadTarget { DESKTOP, LOCAL }
-enum class RequestStatus { WAITING, SENDING, SENT, RUNNING, PAUSED, FAILED, COMPLETED }
+enum class RequestStatus { WAITING, SENDING, SENT, RUNNING, PAUSING, PAUSED, FAILED, COMPLETED }
 
 data class DownloadRequest(
     val id: String = UUID.randomUUID().toString(),
@@ -27,11 +27,11 @@ data class DownloadRequest(
     val outputUri: String? = null,
     val locationUri: String? = null,
 ) {
-    val isBusy: Boolean get() = status == RequestStatus.RUNNING || status == RequestStatus.SENDING
+    val isBusy: Boolean get() = status in setOf(RequestStatus.RUNNING, RequestStatus.PAUSING, RequestStatus.SENDING)
     val isFinished: Boolean get() = status == RequestStatus.COMPLETED || status == RequestStatus.SENT
     fun recover(): DownloadRequest = when {
         status == RequestStatus.SENDING -> copy(status = RequestStatus.WAITING)
-        target == DownloadTarget.LOCAL && (status == RequestStatus.RUNNING || status == RequestStatus.WAITING) ->
+        target == DownloadTarget.LOCAL && status in setOf(RequestStatus.RUNNING, RequestStatus.PAUSING, RequestStatus.WAITING) ->
             copy(status = RequestStatus.PAUSED, error = "중단된 다운로드입니다. 재개를 눌러 계속하세요.")
         else -> this
     }

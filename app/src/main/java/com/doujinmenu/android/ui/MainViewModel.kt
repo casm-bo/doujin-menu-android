@@ -244,7 +244,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         viewModelScope.launch {
             requestStore.requests.collect { requests ->
+                val completed = requests.any { request -> request.status == RequestStatus.COMPLETED &&
+                    uiState.downloadRequests.none { it.id == request.id && it.status == RequestStatus.COMPLETED } }
                 uiState = uiState.copy(downloadRequests = requests)
+                if (completed) requestImportantLibraryRefresh()
             }
         }
         requestStore.readError?.let { uiState = uiState.copy(downloadQueueError = it) }
@@ -790,11 +793,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun startLocalDownload(id: String) {
+        val request = requestStore.requests.value.firstOrNull { it.id == id } ?: return
+        if (request.isBusy || request.isFinished) return
+        val location = uiState.downloadLocation ?: run {
+            uiState = uiState.copy(downloadQueueError = "다운로드 폴더를 먼저 선택하세요.")
+            return
+        }
+        if (uiState.libraryBooks.any { !it.isCloud && it.metadata.hitomiId?.toLongOrNull() == request.galleryId }) {
+            uiState = uiState.copy(downloadQueueError = "이미 기기 라이브러리에 있는 작품입니다.")
+            return
+        }
+        // Register the chosen folder once; the existing scanner/reader handles completed CBZs.
+        if (uiState.libraryLocations.none { it.uri == location.uri }) addLibraryLocation(location.uri, location.displayName)
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    requestStore.change(id) {
+                        if (it.isBusy || it.isFinished) it else it.copy(target = DownloadTarget.LOCAL,
+                            status = RequestStatus.WAITING, profileId = null, locationUri = location.uri, error = null)
+                    }
+                }
+                val context = getApplication<Application>()
+                context.startForegroundService(android.content.Intent(context, com.doujinmenu.android.data.LocalDownloadService::class.java))
+                uiState = uiState.copy(downloadQueueError = null, message = "기기 다운로드에 추가됨", isError = false)
+            } catch (error: Exception) {
+                runCatching { requestStore.change(id) { it.copy(status = RequestStatus.PAUSED, error = error.message) } }
+                uiState = uiState.copy(downloadQueueError = error.message)
+            }
+        }
+    }
+
+    fun pauseLocalDownload(id: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { requestStore.change(id) {
+                    if (it.target == DownloadTarget.LOCAL && !it.isFinished) it.copy(
+                        status = if (it.status == RequestStatus.RUNNING) RequestStatus.PAUSING else RequestStatus.PAUSED,
+                    ) else it
+                } }
+            } catch (error: Exception) { uiState = uiState.copy(downloadQueueError = error.message) }
+        }
+    }
+
     fun removeDownloadRequest(id: String) {
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
+                    val request = requestStore.requests.value.firstOrNull { it.id == id } ?: return@withContext
+                    if (request.isBusy) return@withContext
                     requestStore.update { list -> list.filterNot { it.id == id && !it.isBusy } }
+                    com.doujinmenu.android.data.stagingDirectory(getApplication<Application>().filesDir, id).deleteRecursively()
+                    if (!request.isFinished) request.outputUri?.let { uri ->
+                        runCatching { android.provider.DocumentsContract.deleteDocument(getApplication<Application>().contentResolver, android.net.Uri.parse(uri)) }
+                    }
                 }
             } catch (error: Exception) {
                 uiState = uiState.copy(downloadQueueError = error.message)

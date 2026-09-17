@@ -1,5 +1,12 @@
 package com.doujinmenu.android.ui
 
+import android.content.Intent
+import android.provider.DocumentsContract
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.doujinmenu.android.data.DownloadTarget
+import com.doujinmenu.android.data.RequestStatus
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,7 +59,19 @@ fun DownloadsScreen(
     onConnect: () -> Unit,
     onLeave: () -> Unit,
     onRemoveRequest: (String) -> Unit,
+    onLocalDownload: (String) -> Unit,
+    onPauseLocal: (String) -> Unit,
+    onSetDownloadLocation: (String, String) -> Unit,
 ) {
+    val context = LocalContext.current
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            val granted = runCatching { context.contentResolver.takePersistableUriPermission(uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }.isSuccess
+            if (granted) onSetDownloadLocation(uri.toString(), DocumentsContract.getTreeDocumentId(uri).substringAfterLast(':'))
+            else android.widget.Toast.makeText(context, "폴더 접근 권한을 저장하지 못했습니다.", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
     val originalTitles = remember(state.galleryCache, state.galleries, state.libraryBooks) {
         downloadOriginalTitles(state.galleryCache.values + state.galleries, state.libraryBooks)
     }
@@ -96,6 +115,10 @@ fun DownloadsScreen(
             ) { Text("새로고침") }
         }
 
+        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("기기 저장: ${state.downloadLocation?.displayName ?: "폴더 미선택"}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { folderPicker.launch(null) }) { Text("폴더 선택") }
+        }
         if (!hasProfile || state.isDownloadConnectionUnavailable) {
             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("PC 미연결 · 대기 목록은 기기에 보관됩니다.", Modifier.weight(1f))
@@ -147,12 +170,38 @@ fun DownloadsScreen(
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(preferredLocalizedTitle(request.title), fontWeight = FontWeight.SemiBold)
-                                Text(if (request.isFinished) "PC 큐에 전달됨" else if (request.isBusy) "PC에 전달 중…" else "PC 동기화 대기")
-                                val desktop = state.profiles.firstOrNull { it.id == request.profileId }
-                                Text("대상: ${desktop?.name ?: if (request.profileId == null) "다음 동기화 PC" else "삭제된 PC"}", style = MaterialTheme.typography.bodySmall)
+                                val local = request.target == DownloadTarget.LOCAL
+                                Text(when (request.status) {
+                                    RequestStatus.WAITING -> if (local) "기기 다운로드 대기" else "PC 동기화 대기"
+                                    RequestStatus.SENDING -> "PC에 전달 중…"
+                                    RequestStatus.SENT -> "PC 큐에 전달됨"
+                                    RequestStatus.RUNNING -> "기기에 다운로드 중"
+                                    RequestStatus.PAUSING -> "일시정지 중…"
+                                    RequestStatus.PAUSED -> "기기 다운로드 일시정지"
+                                    RequestStatus.FAILED -> "기기 다운로드 실패"
+                                    RequestStatus.COMPLETED -> "기기 저장 완료"
+                                })
+                                if (local) {
+                                    Text("${request.downloadedFiles}/${request.totalFiles} 페이지", style = MaterialTheme.typography.bodySmall)
+                                    if (request.totalFiles > 0) LinearProgressIndicator(
+                                        progress = { request.downloadedFiles.toFloat() / request.totalFiles }, modifier = Modifier.fillMaxWidth())
+                                } else {
+                                    val desktop = state.profiles.firstOrNull { it.id == request.profileId }
+                                    Text("대상: ${desktop?.name ?: if (request.profileId == null) "다음 동기화 PC" else "삭제된 PC"}", style = MaterialTheme.typography.bodySmall)
+                                }
                                 request.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                                TextButton(onClick = { onRemoveRequest(request.id) }, enabled = !request.isBusy) {
-                                    Text(if (request.isFinished) "기록 정리" else "대기 취소")
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (!request.isBusy && !request.isFinished) {
+                                        TextButton(onClick = { onLocalDownload(request.id) }, enabled = state.downloadLocation != null) {
+                                            Text(if (local) "기기 다운로드 재개" else "로컬 다운로드에 추가")
+                                        }
+                                    }
+                                    if (local && (request.status == RequestStatus.RUNNING || request.status == RequestStatus.WAITING)) {
+                                        TextButton(onClick = { onPauseLocal(request.id) }) { Text("일시정지") }
+                                    }
+                                    TextButton(onClick = { onRemoveRequest(request.id) }, enabled = !request.isBusy) {
+                                        Text(if (request.isFinished) "기록 정리" else "취소 및 삭제")
+                                    }
                                 }
                             }
                         }

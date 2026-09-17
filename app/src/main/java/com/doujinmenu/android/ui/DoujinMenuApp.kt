@@ -712,6 +712,9 @@ private fun MainTabContent(
                 onConnect = openConnectionSettings,
                 onLeave = viewModel::resetDownloadConnectionAttempt,
                 onRemoveRequest = viewModel::removeDownloadRequest,
+                onLocalDownload = viewModel::startLocalDownload,
+                onPauseLocal = viewModel::pauseLocalDownload,
+                onSetDownloadLocation = viewModel::setDownloadLocation,
             )
         }
         MainDestination.Settings -> {
