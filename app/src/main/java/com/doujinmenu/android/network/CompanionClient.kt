@@ -94,6 +94,7 @@ class CompanionClient {
             version = data.optInt("version", 0),
             pairingAvailable = data.optBoolean("pairingAvailable", false),
             syncGeneration = data.optLong("syncGeneration", 0L),
+            downloadRequestIds = data.optBoolean("downloadRequestIds", false),
         )
     }
 
@@ -437,13 +438,13 @@ class CompanionClient {
         }
     }
 
-    suspend fun requestDownload(profile: DesktopProfile, galleryId: Long): DownloadQueueItem =
+    suspend fun requestDownload(profile: DesktopProfile, galleryId: Long, requestId: String? = null): DownloadQueueItem =
         withContext(Dispatchers.IO) {
             val data = request(
                 url = "${profile.baseUrl}/v1/downloads",
                 method = "POST",
                 token = profile.token,
-                body = JSONObject().put("galleryId", galleryId),
+                body = JSONObject().put("galleryId", galleryId).also { body -> requestId?.let { body.put("requestId", it) } },
             ).requireSuccess()
             data.toDownloadQueueItem()
         }

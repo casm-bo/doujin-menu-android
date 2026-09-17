@@ -146,6 +146,7 @@ data class MainUiState(
     val downloadingGalleryIds: Set<Long> = emptySet(),
     val downloadQueue: List<DownloadQueueItem> = emptyList(),
     val downloadRequests: List<DownloadRequest> = emptyList(),
+    val isDownloadSyncing: Boolean = false,
     val isDownloadQueueLoading: Boolean = false,
     val downloadQueueError: String? = null,
     val isDownloadConnectionUnavailable: Boolean = false,
@@ -162,6 +163,7 @@ enum class DesktopConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val requestStore = DownloadRequestStore.get(application)
+    private val downloadSyncMutex = Mutex()
     private val client = CompanionClient()
     private val suggestionClient = HitomiSuggestionClient()
     private val hitomiClient = com.doujinmenu.android.network.HitomiClient()
@@ -773,19 +775,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 withContext(Dispatchers.IO) { requestStore.update { addDownloadRequest(it, request) } }
                 if (profile != null && uiState.desktopConnectionState == DesktopConnectionState.CONNECTED) {
-                    requestStore.change(request.id) { it.copy(status = RequestStatus.SENDING) }
-                    val item = client.requestDownload(profile, gallery.id)
-                    requestStore.change(request.id) { it.copy(status = RequestStatus.SENT) }
+                    var claimed = false
+                    withContext(Dispatchers.IO) { requestStore.change(request.id) {
+                        if (!it.pendingForDesktop(profile.id)) it else {
+                            claimed = true
+                            it.copy(status = RequestStatus.SENDING, desktopAttempted = true)
+                        }
+                    } }
+                    if (!claimed) return@launch
+                    val item = client.requestDownload(profile, gallery.id, request.id)
+                    withContext(Dispatchers.IO) { requestStore.change(request.id) { it.copy(status = RequestStatus.SENT) } }
                     uiState = uiState.copy(
-                        downloadQueue = sortDownloadQueueNewest((uiState.downloadQueue + item).distinctBy { it.id }),
+                        downloadQueue = if (selectedProfile()?.id == profile.id)
+                            sortDownloadQueueNewest((uiState.downloadQueue + item).distinctBy { it.id }) else uiState.downloadQueue,
                         message = "데스크톱 다운로드 큐에 추가됨", isError = false,
                     )
                 } else {
                     uiState = uiState.copy(message = "PC 동기화 대기 목록에 추가됨 · 기기에 자동 다운로드하지 않습니다.", isError = false)
                 }
             } catch (error: Exception) {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                    runCatching { requestStore.change(request.id) {
+                        if (it.target == DownloadTarget.DESKTOP && !it.isFinished) it.copy(status = RequestStatus.WAITING, error = error.message) else it
+                    } }
+                }
                 if (error is CancellationException) throw error
-                runCatching { requestStore.change(request.id) { it.copy(status = RequestStatus.WAITING, error = error.message) } }
                 uiState = uiState.copy(message = "다운로드 요청을 완료하지 못했습니다: ${error.message}", isError = true)
             } finally {
                 uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds - gallery.id)
@@ -795,7 +809,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startLocalDownload(id: String) {
         val request = requestStore.requests.value.firstOrNull { it.id == id } ?: return
-        if (request.isBusy || request.isFinished) return
+        if (!request.canDownloadLocally) return
         val location = uiState.downloadLocation ?: run {
             uiState = uiState.copy(downloadQueueError = "다운로드 폴더를 먼저 선택하세요.")
             return
@@ -808,12 +822,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (uiState.libraryLocations.none { it.uri == location.uri }) addLibraryLocation(location.uri, location.displayName)
         viewModelScope.launch {
             try {
+                var claimed = false
                 withContext(Dispatchers.IO) {
                     requestStore.change(id) {
-                        if (it.isBusy || it.isFinished) it else it.copy(target = DownloadTarget.LOCAL,
-                            status = RequestStatus.WAITING, profileId = null, locationUri = location.uri, error = null)
+                        if (!it.canDownloadLocally) it else {
+                            claimed = true
+                            it.copy(target = DownloadTarget.LOCAL, status = RequestStatus.WAITING,
+                                profileId = null, locationUri = location.uri, error = null)
+                        }
                     }
                 }
+                if (!claimed) return@launch
                 val context = getApplication<Application>()
                 context.startForegroundService(android.content.Intent(context, com.doujinmenu.android.data.LocalDownloadService::class.java))
                 uiState = uiState.copy(downloadQueueError = null, message = "기기 다운로드에 추가됨", isError = false)
@@ -2699,36 +2718,88 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return acceptedStatesByBookId.keys
     }
 
+    fun syncDownloadRequests() {
+        val profile = selectedProfile() ?: run {
+            uiState = uiState.copy(downloadQueueError = "먼저 데스크톱과 연결하세요.")
+            return
+        }
+        if (uiState.isDownloadSyncing) return
+        viewModelScope.launch { sendPendingDownloadRequests(profile) }
+    }
+
+    private suspend fun sendPendingDownloadRequests(profile: DesktopProfile): List<String> = downloadSyncMutex.withLock {
+        if (requestStore.requests.value.none { it.pendingForDesktop(profile.id) }) return@withLock emptyList()
+        uiState = uiState.copy(isDownloadSyncing = true, downloadQueueError = null)
+        val errors = mutableListOf<String>()
+        try {
+            check(client.getStatus(profile.baseUrl).downloadRequestIds) {
+                "대기 요청 동기화에는 요청 ID를 지원하는 데스크톱 업데이트가 필요합니다. 목록은 유지됩니다."
+            }
+            val pending = requestStore.requests.value.filter { it.pendingForDesktop(profile.id) }
+            for (request in pending) {
+                var claimed = false
+                withContext(Dispatchers.IO) {
+                    requestStore.change(request.id) { current ->
+                        if (!current.pendingForDesktop(profile.id)) current else {
+                            claimed = true
+                            current.copy(profileId = profile.id, status = RequestStatus.SENDING, desktopAttempted = true, error = null)
+                        }
+                    }
+                }
+                if (!claimed) continue
+                try {
+                    val item = client.requestDownload(profile, request.galleryId, request.id)
+                    withContext(Dispatchers.IO) { requestStore.change(request.id) { it.copy(status = RequestStatus.SENT, error = null) } }
+                    if (selectedProfile()?.id == profile.id) uiState = uiState.copy(
+                        downloadQueue = sortDownloadQueueNewest((uiState.downloadQueue + item).distinctBy { it.id }),
+                    )
+                } catch (error: Exception) {
+                    withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                        requestStore.change(request.id) { it.copy(status = RequestStatus.WAITING, error = error.message) }
+                    }
+                    if (error is CancellationException) throw error
+                    errors += "${request.title}: ${error.message}"
+                    // Keep later requests untouched when the server becomes unavailable.
+                    break
+                }
+            }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            errors += error.message ?: "다운로드 요청 동기화에 실패했습니다."
+        } finally {
+            uiState = uiState.copy(isDownloadSyncing = false,
+                downloadQueueError = errors.takeIf { it.isNotEmpty() }?.joinToString("\n"))
+        }
+        if (errors.isEmpty()) uiState = uiState.copy(message = "대기 요청을 PC 다운로드 큐에 전달했습니다.", isError = false)
+        errors
+    }
+
     fun syncLibraryNow() {
         val profile = selectedProfile()
         if (profile == null || uiState.isLibrarySyncing) {
-            if (profile == null) {
-                uiState = uiState.copy(
-                    librarySyncError = "먼저 데스크톱과 연결하세요.",
-                    message = "먼저 데스크톱과 연결하세요.",
-                    isError = true,
-                )
-            }
+            if (profile == null) uiState = uiState.copy(librarySyncError = "먼저 데스크톱과 연결하세요.",
+                message = "먼저 데스크톱과 연결하세요.", isError = true)
             return
         }
         viewModelScope.launch {
             librarySyncDebounceJob?.cancel()
             uiState = uiState.copy(isLibrarySyncing = true, librarySyncError = null)
-            val queuedIds = libraryPreferenceStore.loadPendingSeriesSyncIds() +
-                libraryPreferenceStore.loadPendingBookStateSyncIds()
-            flushPendingLibrarySync(profile, uiState.libraryBooks)
-            val remainingIds = uiState.libraryBooks.asSequence()
-                .mapTo(linkedSetOf(), LibraryBook::id) - queuedIds
-            val failures = uploadMissingLocalBooks(profile, uiState.libraryBooks, remainingIds)
-            if (failures.isNotEmpty()) {
-                uiState = uiState.copy(
-                    isLibrarySyncing = false,
-                    librarySyncError = failures.joinToString("\n"),
-                    message = "${failures.size}개 파일을 데스크톱으로 전송하지 못했습니다.",
-                    isError = true,
-                )
+            try {
+                val downloadErrors = sendPendingDownloadRequests(profile)
+                val queuedIds = libraryPreferenceStore.loadPendingSeriesSyncIds() + libraryPreferenceStore.loadPendingBookStateSyncIds()
+                flushPendingLibrarySync(profile, uiState.libraryBooks)
+                val remainingIds = uiState.libraryBooks.asSequence().mapTo(linkedSetOf(), LibraryBook::id) - queuedIds
+                val failures = uploadMissingLocalBooks(profile, uiState.libraryBooks, remainingIds)
+                val errors = downloadErrors + failures
+                if (errors.isNotEmpty()) uiState = uiState.copy(librarySyncError = errors.joinToString("\n"),
+                    message = "일부 항목을 동기화하지 못했습니다. 대기 목록에서 확인하세요.", isError = true)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                uiState = uiState.copy(librarySyncError = error.message, message = error.message, isError = true)
+            } finally {
+                uiState = uiState.copy(isLibrarySyncing = false)
+                refreshLibrarySilently()
             }
-            refreshLibrarySilently()
         }
     }
 

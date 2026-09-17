@@ -62,6 +62,7 @@ fun DownloadsScreen(
     onLocalDownload: (String) -> Unit,
     onPauseLocal: (String) -> Unit,
     onSetDownloadLocation: (String, String) -> Unit,
+    onSyncRequests: () -> Unit,
 ) {
     val context = LocalContext.current
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -79,6 +80,10 @@ fun DownloadsScreen(
         onDispose(onLeave)
     }
 
+    val visibleRequests = state.downloadRequests.filterNot { request ->
+        request.status == RequestStatus.SENT && request.profileId == state.selectedProfileId &&
+            state.downloadQueue.any { it.galleryId == request.galleryId }
+    }
     val hasProfile = state.profiles.any { it.id == state.selectedProfileId }
     LaunchedEffect(state.selectedProfileId) {
         if (!hasProfile) return@LaunchedEffect
@@ -101,7 +106,7 @@ fun DownloadsScreen(
                 it.status == DownloadStatus.PENDING || it.status == DownloadStatus.DOWNLOADING
             }
             Text(
-                "전체 ${state.downloadQueue.size + state.downloadRequests.count { !it.isFinished }} · PC 진행 중 $activeCount",
+                "전체 ${state.downloadQueue.size + visibleRequests.size} · PC 진행 중 $activeCount",
                 modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -115,6 +120,13 @@ fun DownloadsScreen(
             ) { Text("새로고침") }
         }
 
+        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("PC 대기 ${state.downloadRequests.count { it.target == DownloadTarget.DESKTOP && !it.isFinished }}개", Modifier.weight(1f))
+            TextButton(onClick = onSyncRequests, enabled = hasProfile && !state.isDownloadSyncing &&
+                state.downloadRequests.any { it.pendingForDesktop(state.selectedProfileId.orEmpty()) }) {
+                Text(if (state.isDownloadSyncing) "동기화 중…" else "PC와 동기화")
+            }
+        }
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("기기 저장: ${state.downloadLocation?.displayName ?: "폴더 미선택"}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { folderPicker.launch(null) }) { Text("폴더 선택") }
@@ -166,7 +178,7 @@ fun DownloadsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(state.downloadRequests, key = { "request:${it.id}" }) { request ->
+                    items(visibleRequests, key = { "request:${it.id}" }) { request ->
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(preferredLocalizedTitle(request.title), fontWeight = FontWeight.SemiBold)
@@ -189,9 +201,12 @@ fun DownloadsScreen(
                                     val desktop = state.profiles.firstOrNull { it.id == request.profileId }
                                     Text("대상: ${desktop?.name ?: if (request.profileId == null) "다음 동기화 PC" else "삭제된 PC"}", style = MaterialTheme.typography.bodySmall)
                                 }
+                                if (request.desktopAttempted && !request.isFinished && !request.isBusy) {
+                                    Text("전송 결과 확인 필요 · PC와 동기화하세요.", style = MaterialTheme.typography.bodySmall)
+                                }
                                 request.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    if (!request.isBusy && !request.isFinished) {
+                                    if (request.canDownloadLocally) {
                                         TextButton(onClick = { onLocalDownload(request.id) }, enabled = state.downloadLocation != null) {
                                             Text(if (local) "기기 다운로드 재개" else "로컬 다운로드에 추가")
                                         }
@@ -200,7 +215,7 @@ fun DownloadsScreen(
                                         TextButton(onClick = { onPauseLocal(request.id) }) { Text("일시정지") }
                                     }
                                     TextButton(onClick = { onRemoveRequest(request.id) }, enabled = !request.isBusy) {
-                                        Text(if (request.isFinished) "기록 정리" else "취소 및 삭제")
+                                        Text(if (request.isFinished || request.desktopAttempted) "기록 정리" else "취소 및 삭제")
                                     }
                                 }
                             }

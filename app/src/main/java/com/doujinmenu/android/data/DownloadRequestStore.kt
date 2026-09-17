@@ -21,6 +21,7 @@ data class DownloadRequest(
     val target: DownloadTarget = DownloadTarget.DESKTOP,
     val status: RequestStatus = RequestStatus.WAITING,
     val profileId: String? = null,
+    val desktopAttempted: Boolean = false,
     val error: String? = null,
     val downloadedFiles: Int = 0,
     val totalFiles: Int = 0,
@@ -29,6 +30,9 @@ data class DownloadRequest(
 ) {
     val isBusy: Boolean get() = status in setOf(RequestStatus.RUNNING, RequestStatus.PAUSING, RequestStatus.SENDING)
     val isFinished: Boolean get() = status == RequestStatus.COMPLETED || status == RequestStatus.SENT
+    val canDownloadLocally: Boolean get() = !isBusy && !isFinished && !desktopAttempted
+    fun pendingForDesktop(id: String): Boolean = target == DownloadTarget.DESKTOP &&
+        status == RequestStatus.WAITING && (profileId == null || profileId == id)
     fun recover(): DownloadRequest = when {
         status == RequestStatus.SENDING -> copy(status = RequestStatus.WAITING)
         target == DownloadTarget.LOCAL && status in setOf(RequestStatus.RUNNING, RequestStatus.PAUSING, RequestStatus.WAITING) ->
@@ -85,6 +89,7 @@ internal fun encodeDownloadRequests(requests: List<DownloadRequest>): String = J
         .put("id", item.id).put("galleryId", item.galleryId).put("title", item.title)
         .put("thumbnailUrl", item.thumbnailUrl).put("addedAt", item.addedAt)
         .put("target", item.target.name).put("status", item.status.name).put("profileId", item.profileId)
+        .put("desktopAttempted", item.desktopAttempted)
         .put("error", item.error).put("downloadedFiles", item.downloadedFiles).put("totalFiles", item.totalFiles)
         .put("outputUri", item.outputUri).put("locationUri", item.locationUri)) }
 }.toString()
@@ -98,7 +103,8 @@ internal fun decodeDownloadRequests(raw: String): List<DownloadRequest> {
             id = item.getString("id"), galleryId = item.getLong("galleryId"), title = item.getString("title"),
             thumbnailUrl = optional("thumbnailUrl"), addedAt = item.getLong("addedAt"),
             target = DownloadTarget.valueOf(item.getString("target")), status = RequestStatus.valueOf(item.getString("status")),
-            profileId = optional("profileId"), error = optional("error"), downloadedFiles = item.optInt("downloadedFiles"),
+            profileId = optional("profileId"), desktopAttempted = item.optBoolean("desktopAttempted"),
+            error = optional("error"), downloadedFiles = item.optInt("downloadedFiles"),
             totalFiles = item.optInt("totalFiles"), outputUri = optional("outputUri"), locationUri = optional("locationUri"),
         ).also { require(it.galleryId > 0 && it.id.isNotBlank() && it.downloadedFiles >= 0 && it.totalFiles >= 0) }
     }

@@ -12,6 +12,7 @@ data class CompanionStatus(
     val version: Int,
     val pairingAvailable: Boolean,
     val syncGeneration: Long = 0L,
+    val downloadRequestIds: Boolean = false,
 )
 
 data class PairingResult(
