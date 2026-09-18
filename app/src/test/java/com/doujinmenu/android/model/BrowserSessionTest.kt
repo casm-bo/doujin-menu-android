@@ -7,6 +7,39 @@ import org.junit.Test
 
 class BrowserSessionTest {
     @Test
+    fun backgroundGalleryPreservesSearchAndCanBeSelectedAndClosed() {
+        val search = BrowserPage.Search(query = "artist:sample", resultIds = listOf(42),
+            currentPage = 3, hasNextPage = true, scrollAnchorKey = "gallery:42", scrollIndex = 12, scrollOffset = 30)
+        val original = BrowserWorkspace.initial(search)
+        val opened = original.openGalleryInBackground(42, "Example")
+
+        assertEquals(original.activeTabId, opened.workspace.activeTabId)
+        assertEquals(original.activeTab, opened.workspace.activeTab)
+        assertEquals(2, opened.workspace.tabs.size)
+        assertFalse(opened.alreadyOpen)
+        val selected = opened.workspace.selectTab(requireNotNull(opened.tabId))
+        assertEquals(42L, (selected.activeTab.currentPage as BrowserPage.OnlineGallery).galleryId)
+        assertEquals(original, selected.closeTab(selected.activeTabId))
+    }
+
+    @Test
+    fun backgroundDuplicatesAreReusedEvenAtTheTabLimit() {
+        val original = BrowserWorkspace.initial()
+        val opened = original.openGalleryInBackground(42, "Example")
+        val full = (1..18).fold(opened.workspace) { workspace, id ->
+            workspace.openTab(BrowserPage.OnlineGallery(id.toLong(), "Other"), activate = false)
+        }
+        val duplicate = full.openGalleryInBackground(42, "Example")
+        assertTrue(duplicate.alreadyOpen)
+        assertEquals(opened.tabId, duplicate.tabId)
+        assertEquals(full, duplicate.workspace)
+        val rejected = full.openGalleryInBackground(99, "New")
+        assertEquals(null, rejected.tabId)
+        assertEquals(full, rejected.workspace)
+        assertEquals(original.activeTabId, rejected.workspace.activeTabId)
+    }
+
+    @Test
     fun backRestoresEachSearchSnapshot() {
         val fullColor = BrowserPage.Search(query = "tag:full_color")
         val gallery = BrowserPage.OnlineGallery(1, "Gallery A")

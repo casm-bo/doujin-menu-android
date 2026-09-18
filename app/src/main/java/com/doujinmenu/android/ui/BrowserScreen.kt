@@ -85,6 +85,7 @@ fun BrowserScreen(
     onRefresh: () -> Unit,
     onLoadNextPage: () -> Unit,
     onGalleryClick: (Long) -> Unit,
+    onGalleryLongClick: (Long) -> Unit,
     onSearchFacet: (String) -> Unit,
     onToggleLibraryFavorite: (String) -> Unit,
     onConnect: () -> Unit,
@@ -371,6 +372,7 @@ fun BrowserScreen(
                         libraryBook?.id?.let(onToggleLibraryFavorite)
                     },
                     onClick = { onGalleryClick(gallery.id) },
+                    onLongClick = { onGalleryLongClick(gallery.id) },
                     onSearchFacet = onSearchFacet,
                 )
             }
@@ -453,12 +455,17 @@ private fun GalleryCard(
     favorite: Boolean,
     onToggleFavorite: () -> Unit,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onSearchFacet: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val request = gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id) }
 
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth().combinedClickable(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        onLongClickLabel = "새 탭에서 열기",
+    )) {
         Row(modifier = Modifier.padding(12.dp)) {
             Box(
                 modifier = Modifier

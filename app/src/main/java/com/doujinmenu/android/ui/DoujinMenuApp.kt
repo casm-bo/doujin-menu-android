@@ -35,6 +35,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -86,6 +90,30 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
+    var backgroundTabNotice by remember { mutableStateOf<Job?>(null) }
+    val openGalleryInNewTab: (Long) -> Unit = { galleryId ->
+        viewModel.openGalleryBackgroundTab(galleryId)?.let { result ->
+            backgroundTabNotice?.cancel()
+            backgroundTabNotice = snackbarScope.launch {
+                snackbarHostState.currentSnackbarData?.dismiss()
+                val action = snackbarHostState.showSnackbar(
+                    message = when {
+                        result.tabId == null -> "탭은 최대 20개까지 열 수 있습니다. 기존 탭을 닫아주세요."
+                        result.alreadyOpen -> "이미 열린 탭이 있습니다."
+                        else -> "새 탭에 열었습니다."
+                    },
+                    actionLabel = result.tabId?.let { "이동" },
+                    withDismissAction = true,
+                    duration = SnackbarDuration.Long,
+                )
+                if (action == SnackbarResult.ActionPerformed &&
+                    viewModel.uiState.browserWorkspace.tabs.any { it.id == result.tabId }) {
+                    viewModel.selectBrowserTab(requireNotNull(result.tabId))
+                }
+            }
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     var lastMainDestination by rememberSaveable { mutableStateOf(MainDestination.Browser.route) }
     var searchOpenedFromGallery by rememberSaveable { mutableStateOf(false) }
@@ -187,6 +215,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                             viewModel.selectGallery(it)
                         }
                     },
+                    onGalleryLongClick = openGalleryInNewTab,
                     onLibraryBookClick = viewModel::openLibraryBookTab,
                 )
             }
@@ -200,6 +229,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         if (libraryBookId != null) viewModel.openLibraryBookTab(libraryBookId)
                         else viewModel.selectGallery(it)
                     },
+                    onGalleryLongClick = openGalleryInNewTab,
                     onLibraryBookClick = viewModel::openLibraryBookTab,
                     onBackToOrigin = {
                         searchOpenedFromGallery = false
@@ -412,6 +442,7 @@ private fun MainShell(
     initialDestinationRoute: String,
     onDestinationChanged: (String) -> Unit,
     onGalleryClick: (Long) -> Unit,
+    onGalleryLongClick: (Long) -> Unit,
     onLibraryBookClick: (String) -> Unit,
     onBackToOrigin: (() -> Unit)? = null,
 ) {
@@ -447,6 +478,7 @@ private fun MainShell(
             viewModel = viewModel,
             contentPadding = padding,
             onGalleryClick = onGalleryClick,
+            onGalleryLongClick = onGalleryLongClick,
             onLibraryBookClick = onLibraryBookClick,
             onNavigate = navigate,
         )
@@ -607,6 +639,7 @@ private fun MainTabContent(
     viewModel: MainViewModel,
     contentPadding: PaddingValues,
     onGalleryClick: (Long) -> Unit,
+    onGalleryLongClick: (Long) -> Unit,
     onLibraryBookClick: (String) -> Unit,
     onNavigate: (MainDestination) -> Unit,
 ) {
@@ -648,6 +681,7 @@ private fun MainTabContent(
                 onRefresh = viewModel::refresh,
                 onLoadNextPage = viewModel::loadNextPage,
                 onGalleryClick = onGalleryClick,
+                onGalleryLongClick = onGalleryLongClick,
                 onSearchFacet = viewModel::searchFromFacet,
                 onToggleLibraryFavorite = viewModel::toggleLibraryFavorite,
                 onConnect = openConnectionSettings,

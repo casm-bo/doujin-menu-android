@@ -39,6 +39,8 @@ import com.doujinmenu.android.model.goBack
 import com.doujinmenu.android.model.moveTab
 import com.doujinmenu.android.model.normalizeSearchSeparators
 import com.doujinmenu.android.model.openTab
+import com.doujinmenu.android.model.openGalleryInBackground
+import com.doujinmenu.android.model.BackgroundGalleryTab
 import com.doujinmenu.android.model.pushPage
 import com.doujinmenu.android.model.selectTab
 import com.doujinmenu.android.model.selectSearchTab
@@ -465,6 +467,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun search() {
         if (uiState.isLoadingPage) return
         startBrowserSearch(reset = true)
+    }
+
+    fun openGalleryBackgroundTab(galleryId: Long): BackgroundGalleryTab? {
+        val gallery = uiState.galleryCache[galleryId]
+            ?: uiState.galleries.firstOrNull { it.id == galleryId } ?: return null
+        val result = uiState.browserWorkspace.openGalleryInBackground(galleryId, gallery.title)
+        if (result.workspace != uiState.browserWorkspace) {
+            // Do not navigate or cancel the active search when adding a background tab.
+            uiState = uiState.copy(browserWorkspace = result.workspace)
+            browserPreferenceStore.saveBrowserWorkspace(result.workspace)
+        }
+        return result
     }
 
     fun selectGallery(galleryId: Long) {

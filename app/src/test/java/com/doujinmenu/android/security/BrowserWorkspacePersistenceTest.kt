@@ -3,12 +3,24 @@ package com.doujinmenu.android.security
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserWorkspace
 import com.doujinmenu.android.model.openTab
+import com.doujinmenu.android.model.openGalleryInBackground
 import com.doujinmenu.android.model.pushPage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
+    @Test
+    fun backgroundGalleryRoundTripKeepsSearchSelected() {
+        val original = BrowserWorkspace.initial(BrowserPage.Search(query = "example", scrollIndex = 12, scrollOffset = 40))
+        val opened = original.openGalleryInBackground(42, "Example")
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(opened.workspace))
+        assertEquals(original.activeTabId, restored.activeTabId)
+        assertEquals(original.activeTab.currentPage, restored.activeTab.currentPage)
+        assertEquals(opened.tabId, restored.tabs.last().id)
+        assertEquals(42L, (restored.tabs.last().currentPage as BrowserPage.OnlineGallery).galleryId)
+    }
+
     @Test
     fun roundTripPreservesTabsAndHistoryWithoutHeavyResults() {
         val workspace = BrowserWorkspace.initial(BrowserPage.Search(
