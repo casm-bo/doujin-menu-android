@@ -7,6 +7,18 @@ internal data class AppChangelog(
 
 internal val appChangelog = listOf(
     AppChangelog(
+        version = "0.9.0",
+        changes = listOf(
+            "PC 연결 없이 Hitomi 검색·상세 조회·온라인 읽기를 사용할 수 있습니다.",
+            "PC 미연결 시 다운로드 요청을 보관하고 다음 수동 동기화 때 PC 큐에 전달합니다.",
+            "선택한 작품만 기기에 다운로드하고 완료된 CBZ를 라이브러리에 등록합니다.",
+            "기기 다운로드의 일시정지·재개와 중단된 다운로드 복원을 지원합니다.",
+            "검색 결과를 길게 누르면 현재 검색을 유지한 채 새 상세 탭을 엽니다.",
+            "중복 상세 탭을 재사용하고 20개 한도에서 기존 탭을 보호합니다.",
+            "PC 대기 동기화에는 요청 ID를 지원하는 데스크톱 업데이트가 필요합니다.",
+        ),
+    ),
+    AppChangelog(
         version = "0.8.0",
         changes = listOf(
             "검색과 갤러리의 탭 기록을 분리하고 각 탭의 화면 상태를 독립적으로 관리합니다.",
