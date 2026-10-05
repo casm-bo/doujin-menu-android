@@ -58,6 +58,7 @@ data class BrowserTab(
     val id: String = UUID.randomUUID().toString(),
     val history: List<BrowserPage> = listOf(BrowserPage.Search()),
     val currentIndex: Int = 0,
+    val groupId: String? = null,
 ) {
     val currentPage: BrowserPage
         get() = history[currentIndex.coerceIn(history.indices)]
@@ -69,6 +70,8 @@ data class BrowserTab(
 data class BrowserWorkspace(
     val tabs: List<BrowserTab>,
     val activeTabId: String,
+    val groups: List<BrowserTabGroup> = emptyList(),
+    val overviewOrder: List<String> = emptyList(),
 ) {
     val activeTab: BrowserTab
         get() = tabs.firstOrNull { it.id == activeTabId } ?: tabs.first()
@@ -90,6 +93,7 @@ fun BrowserWorkspace.selectSearchTab(
 ): BrowserWorkspace? {
     val queryKey = searchTabKey(query, preferredLanguages)
     tabs.forEach { tab ->
+        if (tab.groupId != activeTab.groupId) return@forEach
         tab.history.forEachIndexed { index, page ->
             if (page is BrowserPage.Search && searchTabKey(page.query, page.preferredLanguages) == queryKey) {
                 return copy(
@@ -107,8 +111,11 @@ fun BrowserWorkspace.selectSearchTab(
 fun BrowserWorkspace.openTab(
     page: BrowserPage = BrowserPage.Search(),
     activate: Boolean = true,
+    groupId: String? = activeTab.groupId,
 ): BrowserWorkspace {
-    val tab = BrowserTab(history = listOf(page))
+    val tab = BrowserTab(history = listOf(page), groupId = groupId?.takeIf { id ->
+        groups.any { it.id == id && !it.isArchived }
+    })
     return copy(tabs = tabs + tab, activeTabId = if (activate) tab.id else activeTabId)
 }
 
@@ -119,22 +126,30 @@ data class BackgroundGalleryTab(
 )
 
 fun BrowserWorkspace.openGalleryInBackground(galleryId: Long, title: String): BackgroundGalleryTab {
-    tabs.firstOrNull { (it.currentPage as? BrowserPage.OnlineGallery)?.galleryId == galleryId }?.let {
+    tabs.firstOrNull { it.groupId == activeTab.groupId &&
+        (it.currentPage as? BrowserPage.OnlineGallery)?.galleryId == galleryId }?.let {
         return BackgroundGalleryTab(this, it.id, alreadyOpen = true)
     }
     val next = openTab(BrowserPage.OnlineGallery(galleryId, title), activate = false)
     return BackgroundGalleryTab(next, next.tabs.last().id.takeIf { next != this })
 }
 
-fun BrowserWorkspace.closeTab(tabId: String): BrowserWorkspace {
+fun BrowserWorkspace.closeTab(
+    tabId: String,
+    fallback: BrowserPage = BrowserPage.Search(),
+): BrowserWorkspace {
     val closingIndex = tabs.indexOfFirst { it.id == tabId }
     if (closingIndex < 0) return this
-    if (tabs.size == 1) return BrowserWorkspace.initial()
+    if (tabs.size == 1) {
+        val tab = BrowserTab(history = listOf(fallback))
+        return copy(tabs = listOf(tab), activeTabId = tab.id).normalizeGroups()
+    }
 
     val remaining = tabs.filterNot { it.id == tabId }
-    if (activeTabId != tabId) return copy(tabs = remaining)
-    val next = remaining.getOrElse(closingIndex.coerceAtMost(remaining.lastIndex)) { remaining.last() }
-    return copy(tabs = remaining, activeTabId = next.id)
+    val sameGroupNeighbor = remaining.firstOrNull { it.groupId == tabs[closingIndex].groupId }
+    val next = sameGroupNeighbor ?: remaining[closingIndex.coerceAtMost(remaining.lastIndex)]
+    return copy(tabs = remaining, activeTabId = if (activeTabId == tabId) next.id else activeTabId)
+        .normalizeGroups()
 }
 
 fun BrowserWorkspace.pushPage(page: BrowserPage): BrowserWorkspace = updateActiveTab { tab ->

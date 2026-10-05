@@ -553,13 +553,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closeBrowserTab(tabId: String) {
         val current = uiState.browserWorkspace
         val closingActiveTab = tabId == current.activeTabId
-        val workspace = if (current.tabs.size == 1 && closingActiveTab) {
-            BrowserWorkspace.initial(BrowserPage.Search(
-                preferredLanguages = uiState.preferredLanguages,
-            ))
-        } else {
-            current.closeTab(tabId)
-        }
+        val workspace = current.closeTab(tabId, BrowserPage.Search(
+            preferredLanguages = uiState.preferredLanguages,
+        ))
         if (closingActiveTab) {
             applyBrowserWorkspace(workspace, reload = true)
         } else {
@@ -595,11 +591,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closeGalleryTab(tabId: String) {
         val current = uiState.galleryWorkspace
         val closingActiveTab = tabId == current.activeTabId
-        val workspace = if (current.tabs.size == 1 && closingActiveTab) {
-            BrowserWorkspace.initial(BrowserPage.LibraryHome())
-        } else {
-            current.closeTab(tabId)
-        }
+        val workspace = current.closeTab(tabId, BrowserPage.LibraryHome())
         if (closingActiveTab) {
             applyGalleryWorkspace(workspace)
         } else {
@@ -612,6 +604,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val workspace = uiState.galleryWorkspace.moveTab(tabId, offset)
         uiState = uiState.copy(galleryWorkspace = workspace)
         browserPreferenceStore.saveGalleryWorkspace(workspace)
+    }
+
+    fun updateTabWorkspace(workspace: BrowserWorkspace, isGallery: Boolean) {
+        val previous = if (isGallery) uiState.galleryWorkspace else uiState.browserWorkspace
+        if (workspace == previous) return
+        if (workspace.activeTabId != previous.activeTabId) {
+            if (isGallery) applyGalleryWorkspace(workspace) else applyBrowserWorkspace(workspace, reload = true)
+        } else if (isGallery) {
+            uiState = uiState.copy(galleryWorkspace = workspace)
+            browserPreferenceStore.saveGalleryWorkspace(workspace)
+        } else {
+            uiState = uiState.copy(browserWorkspace = workspace)
+            browserPreferenceStore.saveBrowserWorkspace(workspace)
+        }
     }
 
     fun canGoBackInGalleryTab(): Boolean = uiState.galleryWorkspace.activeTab.canGoBack

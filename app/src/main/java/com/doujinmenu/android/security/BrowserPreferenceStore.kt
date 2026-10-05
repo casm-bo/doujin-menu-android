@@ -4,7 +4,9 @@ import android.content.Context
 import com.doujinmenu.android.model.AppThemeMode
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserTab
+import com.doujinmenu.android.model.BrowserTabGroup
 import com.doujinmenu.android.model.BrowserWorkspace
+import com.doujinmenu.android.model.normalizeGroups
 import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.model.StorageLocation
 import java.util.UUID
@@ -177,24 +179,57 @@ class BrowserPreferenceStore(context: Context) {
 }
 
 internal fun browserWorkspaceToJson(workspace: BrowserWorkspace): String = JSONObject()
-    .put("version", 1)
+    .put("version", 2)
     .put("activeTabId", workspace.activeTabId)
-    .put("tabs", JSONArray().apply {
-        workspace.tabs.forEach { tab ->
-            put(JSONObject()
-                .put("id", tab.id)
-                .put("currentIndex", tab.currentIndex)
-                .put("history", JSONArray().apply {
-                    tab.history.forEach { page -> put(page.toJson()) }
-                }))
+    .put("tabs", workspace.tabs.toJson())
+    .put("overviewOrder", JSONArray(workspace.overviewOrder))
+    .put("groups", JSONArray().apply {
+        workspace.groups.forEach { group ->
+            put(JSONObject().put("id", group.id).put("name", group.name)
+                .put("colorIndex", group.colorIndex).put("archivedTabs", group.archivedTabs.toJson()))
         }
     })
     .toString()
 
 internal fun browserWorkspaceFromJson(raw: String): BrowserWorkspace = runCatching {
     val root = JSONObject(raw)
-    val tabsJson = root.optJSONArray("tabs") ?: return@runCatching BrowserWorkspace.initial()
-    val tabs = buildList {
+    val tabs = root.optJSONArray("tabs").browserTabs().ifEmpty { BrowserWorkspace.initial().tabs }
+    val usedIds = tabs.mapTo(mutableSetOf()) { it.id }
+    val groupsJson = root.optJSONArray("groups")
+    val groups = buildList {
+        repeat(groupsJson?.length() ?: 0) { index ->
+            val item = groupsJson?.optJSONObject(index) ?: return@repeat
+            val id = item.optString("id").takeIf(String::isNotBlank) ?: return@repeat
+            add(BrowserTabGroup(
+                id = id,
+                name = item.optString("name").ifBlank { "새 그룹" },
+                colorIndex = item.optInt("colorIndex").coerceIn(0, 5),
+                archivedTabs = item.optJSONArray("archivedTabs").browserTabs()
+                    .filter { usedIds.add(it.id) }.map { it.copy(groupId = id) },
+            ))
+        }
+    }
+    val requestedActiveId = root.optString("activeTabId")
+    BrowserWorkspace(
+        tabs = tabs,
+        activeTabId = requestedActiveId.takeIf { id -> tabs.any { it.id == id } } ?: tabs.first().id,
+        groups = groups,
+        overviewOrder = root.optJSONArray("overviewOrder").stringList(),
+    ).normalizeGroups()
+}.getOrElse { BrowserWorkspace.initial() }
+
+private fun List<BrowserTab>.toJson(): JSONArray = JSONArray().apply {
+    this@toJson.forEach { tab ->
+        put(JSONObject().put("id", tab.id).put("currentIndex", tab.currentIndex)
+            .put("groupId", tab.groupId).put("history", JSONArray().apply {
+                tab.history.forEach { put(it.toJson()) }
+            }))
+    }
+}
+
+private fun JSONArray?.browserTabs(): List<BrowserTab> {
+    val tabsJson = this ?: return emptyList()
+    return buildList {
         repeat(tabsJson.length()) { index ->
             val item = tabsJson.optJSONObject(index) ?: return@repeat
             val id = item.optString("id").takeIf(String::isNotBlank) ?: return@repeat
@@ -212,16 +247,11 @@ internal fun browserWorkspaceFromJson(raw: String): BrowserWorkspace = runCatchi
                 history = history,
                 currentIndex = (item.optInt("currentIndex", 0) - droppedHistoryCount)
                     .coerceIn(history.indices),
+                groupId = item.optString("groupId").takeIf { it.isNotBlank() && it != "null" },
             ))
         }
-    }
-    if (tabs.isEmpty()) return@runCatching BrowserWorkspace.initial()
-    val requestedActiveId = root.optString("activeTabId")
-    BrowserWorkspace(
-        tabs = tabs,
-        activeTabId = requestedActiveId.takeIf { id -> tabs.any { it.id == id } } ?: tabs.first().id,
-    )
-}.getOrElse { BrowserWorkspace.initial() }
+    }.distinctBy { it.id }
+}
 
 private fun BrowserPage.toJson(): JSONObject = when (this) {
     is BrowserPage.LibraryHome -> JSONObject()
@@ -329,7 +359,7 @@ private fun BrowserWorkspace.onlyPages(
     prependLibraryHome: Boolean = false,
     keep: (BrowserPage) -> Boolean,
 ): BrowserWorkspace {
-    val filteredTabs = tabs.mapNotNull { tab ->
+    fun filterTabs(source: List<BrowserTab>): List<BrowserTab> = source.mapNotNull { tab ->
         val pages = tab.history.filter(keep)
         if (pages.isEmpty()) return@mapNotNull null
         val keptThroughCurrent = tab.history.take(tab.currentIndex + 1).count(keep)
@@ -344,12 +374,19 @@ private fun BrowserWorkspace.onlyPages(
             currentIndex = (keptThroughCurrent - 1 + prefix).coerceIn(history.indices),
         )
     }
-    if (filteredTabs.isEmpty()) return BrowserWorkspace.initial(fallback)
-    return BrowserWorkspace(
+    val filteredTabs = filterTabs(tabs).ifEmpty { BrowserWorkspace.initial(fallback).tabs }
+    val filteredGroups = groups.mapNotNull { group ->
+        if (!group.isArchived) group else {
+            val archived = filterTabs(group.archivedTabs)
+            if (archived.isEmpty()) null else group.copy(archivedTabs = archived)
+        }
+    }
+    return copy(
         tabs = filteredTabs,
         activeTabId = activeTabId.takeIf { id -> filteredTabs.any { it.id == id } }
             ?: filteredTabs.first().id,
-    )
+        groups = filteredGroups,
+    ).normalizeGroups()
 }
 
 private fun JSONArray?.stringList(): List<String> = buildList {

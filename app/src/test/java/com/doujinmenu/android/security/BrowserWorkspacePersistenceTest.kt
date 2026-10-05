@@ -4,12 +4,44 @@ import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserWorkspace
 import com.doujinmenu.android.model.openTab
 import com.doujinmenu.android.model.openGalleryInBackground
+import com.doujinmenu.android.model.createGroup
+import com.doujinmenu.android.model.archiveGroup
+import com.doujinmenu.android.model.moveOverviewItem
+import com.doujinmenu.android.model.overviewItems
 import com.doujinmenu.android.model.pushPage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
+    @Test
+    fun activeAndArchivedGroupsRoundTripInBothWorkspaces() {
+        listOf(BrowserPage.Search(query = "saved"), BrowserPage.LibraryHome()).forEach { page ->
+            val first = BrowserWorkspace.initial(page).let { it.createGroup(setOf(it.activeTabId), "Archived", 1) }
+            val archived = first.archiveGroup(first.groups.single().id, page)
+            val active = archived.createGroup(setOf(archived.activeTabId), "Active", 3)
+                .openTab(page, groupId = null)
+            val ordered = active.moveOverviewItem(active.overviewItems.first().key, active.overviewItems.last().key)
+            val restored = browserWorkspaceFromJson(browserWorkspaceToJson(ordered))
+            assertEquals(ordered, restored)
+            if (page is BrowserPage.Search) assertEquals(ordered, restored.searchWorkspace())
+            else assertEquals(ordered, restored.galleryWorkspace())
+        }
+    }
+
+    @Test
+    fun legacyTabsAndInvalidGroupReferencesRemainUsable() {
+        val restored = browserWorkspaceFromJson("""{
+            "version":1,"activeTabId":"old","tabs":[
+                {"id":"old","groupId":"missing","history":[{"type":"search","query":"legacy"}]}
+            ]
+        }""")
+        assertEquals("old", restored.activeTabId)
+        assertEquals(null, restored.activeTab.groupId)
+        assertEquals("legacy", (restored.activeTab.currentPage as BrowserPage.Search).query)
+        assertTrue(restored.groups.isEmpty())
+    }
+
     @Test
     fun roundTripPreservesMoreThanTwentyTabsInBothWorkspaces() {
         val search = (1..60).fold(BrowserWorkspace.initial()) { workspace, id ->
