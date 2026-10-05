@@ -99,7 +99,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 snackbarHostState.currentSnackbarData?.dismiss()
                 val action = snackbarHostState.showSnackbar(
                     message = when {
-                        result.tabId == null -> "탭은 최대 20개까지 열 수 있습니다. 기존 탭을 닫아주세요."
+                        result.tabId == null -> "새 탭을 열지 못했습니다."
                         result.alreadyOpen -> "이미 열린 탭이 있습니다."
                         else -> "새 탭에 열었습니다."
                     },

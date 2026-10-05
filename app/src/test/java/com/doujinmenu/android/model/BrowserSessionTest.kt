@@ -23,20 +23,34 @@ class BrowserSessionTest {
     }
 
     @Test
-    fun backgroundDuplicatesAreReusedEvenAtTheTabLimit() {
+    fun backgroundTabsCanExceedTwentyAndDuplicatesAreReused() {
         val original = BrowserWorkspace.initial()
         val opened = original.openGalleryInBackground(42, "Example")
-        val full = (1..18).fold(opened.workspace) { workspace, id ->
+        val full = (1..60).fold(opened.workspace) { workspace, id ->
             workspace.openTab(BrowserPage.OnlineGallery(id.toLong(), "Other"), activate = false)
         }
         val duplicate = full.openGalleryInBackground(42, "Example")
         assertTrue(duplicate.alreadyOpen)
         assertEquals(opened.tabId, duplicate.tabId)
         assertEquals(full, duplicate.workspace)
-        val rejected = full.openGalleryInBackground(99, "New")
-        assertEquals(null, rejected.tabId)
-        assertEquals(full, rejected.workspace)
-        assertEquals(original.activeTabId, rejected.workspace.activeTabId)
+        val added = full.openGalleryInBackground(99, "New")
+        assertEquals(63, added.workspace.tabs.size)
+        assertEquals(full.tabs, added.workspace.tabs.dropLast(1))
+        assertEquals(added.tabId, added.workspace.tabs.last().id)
+        assertEquals(original.activeTabId, added.workspace.activeTabId)
+    }
+
+    @Test
+    fun foregroundTabsCanExceedTwentyWithoutDroppingHistory() {
+        val original = BrowserWorkspace.initial(BrowserPage.Search(query = "first"))
+            .pushPage(BrowserPage.OnlineGallery(99, "Original"))
+        val expanded = (1..60).fold(original) { workspace, id ->
+            workspace.openTab(BrowserPage.Search(query = "search $id"))
+        }
+
+        assertEquals(61, expanded.tabs.size)
+        assertEquals(original.activeTab, expanded.tabs.first())
+        assertEquals(expanded.tabs.last().id, expanded.activeTabId)
     }
 
     @Test

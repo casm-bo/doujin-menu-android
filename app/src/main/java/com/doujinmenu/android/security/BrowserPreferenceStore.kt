@@ -214,7 +214,7 @@ internal fun browserWorkspaceFromJson(raw: String): BrowserWorkspace = runCatchi
                     .coerceIn(history.indices),
             ))
         }
-    }.take(20)
+    }
     if (tabs.isEmpty()) return@runCatching BrowserWorkspace.initial()
     val requestedActiveId = root.optString("activeTabId")
     BrowserWorkspace(

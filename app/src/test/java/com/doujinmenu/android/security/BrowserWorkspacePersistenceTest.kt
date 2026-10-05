@@ -11,6 +11,20 @@ import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
     @Test
+    fun roundTripPreservesMoreThanTwentyTabsInBothWorkspaces() {
+        val search = (1..60).fold(BrowserWorkspace.initial()) { workspace, id ->
+            workspace.openTab(BrowserPage.Search(query = "search $id"))
+        }
+        val gallery = (1..60).fold(BrowserWorkspace.initial(BrowserPage.LibraryHome())) { workspace, id ->
+            workspace.openTab(BrowserPage.LibraryHome())
+                .pushPage(BrowserPage.LibraryBook("book-$id", "Book $id"))
+        }
+
+        assertEquals(search, browserWorkspaceFromJson(browserWorkspaceToJson(search)).searchWorkspace())
+        assertEquals(gallery, browserWorkspaceFromJson(browserWorkspaceToJson(gallery)).galleryWorkspace())
+    }
+
+    @Test
     fun backgroundGalleryRoundTripKeepsSearchSelected() {
         val original = BrowserWorkspace.initial(BrowserPage.Search(query = "example", scrollIndex = 12, scrollOffset = 40))
         val opened = original.openGalleryInBackground(42, "Example")

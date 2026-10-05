@@ -106,13 +106,10 @@ fun BrowserWorkspace.selectSearchTab(
 
 fun BrowserWorkspace.openTab(
     page: BrowserPage = BrowserPage.Search(),
-    maxTabs: Int = 20,
     activate: Boolean = true,
 ): BrowserWorkspace {
-    if (!activate && tabs.size >= maxTabs) return this
     val tab = BrowserTab(history = listOf(page))
-    val retained = if (tabs.size < maxTabs) tabs else tabs.drop(1)
-    return copy(tabs = retained + tab, activeTabId = if (activate) tab.id else activeTabId)
+    return copy(tabs = tabs + tab, activeTabId = if (activate) tab.id else activeTabId)
 }
 
 data class BackgroundGalleryTab(
