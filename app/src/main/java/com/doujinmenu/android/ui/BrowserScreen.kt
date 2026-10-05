@@ -137,13 +137,13 @@ fun BrowserScreen(
     var scrollRestored by remember(pageKey) {
         mutableStateOf(savedAnchorKey == null || savedAnchorKey in contentKeys)
     }
-    LaunchedEffect(pageKey, contentKeys, state.isLoadingPage) {
+    LaunchedEffect(pageKey, contentKeys, state.isLoadingPage, state.isRestoringSearch) {
         if (!scrollRestored) {
             val anchorIndex = contentKeys.indexOf(savedAnchorKey)
             if (anchorIndex >= 0) {
                 listState.scrollToItem(anchorIndex, initialScrollOffset)
                 scrollRestored = true
-            } else if (!state.isLoadingPage && state.galleries.isNotEmpty()) {
+            } else if (!state.isLoadingPage && !state.isRestoringSearch && state.galleries.isNotEmpty()) {
                 listState.scrollToItem(resolveScrollIndex(null, initialScrollIndex, contentKeys))
                 scrollRestored = true
             }
@@ -380,8 +380,8 @@ fun BrowserScreen(
 
         if (state.galleries.isNotEmpty() && (state.hasNextPage || state.isLoadingPage)) {
             item(key = "page-loader-${state.currentPage}") {
-                LaunchedEffect(state.currentPage, state.hasNextPage, state.isLoadingPage) {
-                    if (state.hasNextPage && !state.isLoadingPage) onLoadNextPage()
+                LaunchedEffect(state.currentPage, state.hasNextPage, state.isLoadingPage, state.isRestoringSearch) {
+                    if (state.hasNextPage && !state.isLoadingPage && !state.isRestoringSearch) onLoadNextPage()
                 }
                 LoadingRow(
                     if (state.isLoadingPage) "${state.currentPage + 1}페이지 불러오는 중…"

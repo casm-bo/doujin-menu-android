@@ -93,6 +93,7 @@ data class MainUiState(
     val selectedProfileId: String? = null,
     val browserWorkspace: BrowserWorkspace = BrowserWorkspace.initial(),
     val galleryWorkspace: BrowserWorkspace = BrowserWorkspace.initial(BrowserPage.LibraryHome()),
+    val tabOverviewIsGallery: Boolean? = null,
     val browserNavigationRevision: Long = 0,
     val searchQuery: String = "",
     val favoriteName: String = "",
@@ -142,6 +143,7 @@ data class MainUiState(
     val currentPage: Int = 0,
     val hasNextPage: Boolean = false,
     val isLoadingPage: Boolean = false,
+    val isRestoringSearch: Boolean = false,
     val isRefreshing: Boolean = false,
     val readerPagesByGalleryId: Map<Long, List<String>> = emptyMap(),
     val readerLoadingGalleryIds: Set<Long> = emptySet(),
@@ -259,7 +261,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         requestStore.readError?.let { uiState = uiState.copy(downloadQueueError = it) }
         navigationPage = browserWorkspace.activeTab.currentPage
         if (activeSearch?.resultIds.isNullOrEmpty() && (activeSearch?.currentPage ?: 0) > 0) {
-            startBrowserSearch(reset = true)
+            startBrowserSearch(reset = true, restorePageCount = activeSearch?.currentPage?.takeIf { it > 0 })
         }
         refreshLibrarySilently()
         checkForUpdates(manual = false)
@@ -619,6 +621,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             uiState = uiState.copy(browserWorkspace = workspace)
             browserPreferenceStore.saveBrowserWorkspace(workspace)
         }
+    }
+
+    fun showTabOverview(isGallery: Boolean) {
+        uiState = uiState.copy(tabOverviewIsGallery = isGallery)
+    }
+
+    fun dismissTabOverview() {
+        uiState = uiState.copy(tabOverviewIsGallery = null)
     }
 
     fun canGoBackInGalleryTab(): Boolean = uiState.galleryWorkspace.activeTab.canGoBack
@@ -1889,11 +1899,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun isActiveSearch(key: String): Boolean = activeSearchPage()?.key == key
 
-    private fun startBrowserSearch(reset: Boolean) {
+    private fun startBrowserSearch(reset: Boolean, restorePageCount: Int? = null) {
         val searchKey = activeSearchPage()?.key ?: return
         browserSearchJob?.cancel()
+        uiState = uiState.copy(isRestoringSearch = restorePageCount != null)
+        val revision = uiState.browserNavigationRevision
         browserSearchJob = viewModelScope.launch {
-            loadPage(reset = reset, searchKey = searchKey)
+            try {
+                loadPage(reset = reset, searchKey = searchKey, restoreSubmitted = restorePageCount != null)
+                if (restorePageCount != null) repeat((restorePageCount - 1).coerceAtLeast(0)) {
+                    if (!isActiveSearch(searchKey) || !uiState.hasNextPage) return@launch
+                    loadPage(reset = false, searchKey = searchKey)
+                }
+            } finally {
+                if (isActiveSearch(searchKey) && uiState.browserNavigationRevision == revision) {
+                    uiState = uiState.copy(isRestoringSearch = false)
+                }
+            }
         }
     }
 
@@ -1936,6 +1958,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 currentPage = page.currentPage,
                 hasNextPage = page.hasNextPage,
                 isLoadingPage = false,
+                isRestoringSearch = false,
                 isRefreshing = false,
                 filterSuggestions = emptyList(),
                 isLoadingFilterSuggestions = false,
@@ -1944,6 +1967,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 browserWorkspace = workspace,
                 browserNavigationRevision = revision,
                 isLoadingPage = false,
+                isRestoringSearch = false,
                 isRefreshing = false,
                 filterSuggestions = emptyList(),
                 isLoadingFilterSuggestions = false,
@@ -1951,7 +1975,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         browserPreferenceStore.saveBrowserWorkspace(workspace)
         if (reload && page is BrowserPage.Search && page.resultIds.isEmpty() && page.currentPage > 0) {
-            startBrowserSearch(reset = true)
+            startBrowserSearch(reset = true, restorePageCount = page.currentPage)
         }
     }
 
@@ -1963,6 +1987,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             galleryWorkspace = workspace,
             browserNavigationRevision = uiState.browserNavigationRevision + 1,
             isLoadingPage = false,
+            isRestoringSearch = false,
             isRefreshing = false,
             filterSuggestions = emptyList(),
             isLoadingFilterSuggestions = false,
@@ -1993,10 +2018,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         reset: Boolean,
         preserveResults: Boolean = false,
         searchKey: String,
+        restoreSubmitted: Boolean = false,
     ) {
         if (!isActiveSearch(searchKey)) return
-        val query = if (reset) uiState.searchQuery.trim() else uiState.submittedSearchQuery
-        val searchQueries = if (reset) {
+        val query = if (reset && !restoreSubmitted) uiState.searchQuery.trim() else {
+            uiState.submittedSearchQuery.ifBlank {
+                if (uiState.submittedSearchQueries.isEmpty()) uiState.searchQuery.trim() else ""
+            }
+        }
+        val searchQueries = if (reset && !restoreSubmitted) {
             queriesWithPreferredLanguages(query, uiState.preferredLanguages)
         } else {
             uiState.submittedSearchQueries.ifEmpty {
