@@ -165,6 +165,7 @@ data class MainUiState(
 enum class DesktopConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+    val tabPreviews = BrowserTabPreviewCache(application)
     private val requestStore = DownloadRequestStore.get(application)
     private val downloadSyncMutex = Mutex()
     private val client = CompanionClient()

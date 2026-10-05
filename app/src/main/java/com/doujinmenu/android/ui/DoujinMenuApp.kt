@@ -69,6 +69,7 @@ import com.doujinmenu.android.model.BrowserPage
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlin.math.cos
@@ -192,6 +193,21 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
         if (!viewModel.goBackInGalleryTab()) navController.popBackStack()
     }
 
+    val currentEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentEntry?.destination?.route
+    val previewIsGallery = when {
+        currentRoute == SEARCH_FROM_GALLERY_ROUTE -> false
+        currentRoute?.startsWith("library-") == true -> true
+        currentRoute?.startsWith("gallery/") == true || currentRoute?.startsWith("reader/") == true -> false
+        currentRoute == "main" && lastMainDestination == MainDestination.Library.route -> true
+        currentRoute == "main" && lastMainDestination == MainDestination.Browser.route -> false
+        else -> null
+    }
+    val previewWorkspace = if (previewIsGallery == true) viewModel.uiState.galleryWorkspace else viewModel.uiState.browserWorkspace
+    val previewKey = previewIsGallery?.let {
+        BrowserTabPreviewKey(it, previewWorkspace.activeTabId, previewWorkspace.activeTab.currentPage.key)
+    }
+    BrowserTabPreviewHost(viewModel.tabPreviews, previewKey) {
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
@@ -380,6 +396,8 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     else MaterialTheme.colorScheme.inverseOnSurface,
             )
         }
+    }
+
     }
 
     viewModel.uiState.availableUpdate?.let { release ->
