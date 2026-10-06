@@ -9,6 +9,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.doujinmenu.android.BuildConfig
 import com.doujinmenu.android.data.DownloadRequest
+import com.doujinmenu.android.data.SearchResultCache
+import com.doujinmenu.android.data.SearchResultIndex
+import com.doujinmenu.android.data.SearchResultPager
+import com.doujinmenu.android.data.SearchResultWindow
+import com.doujinmenu.android.model.SearchResult
 import com.doujinmenu.android.data.DownloadRequestStore
 import com.doujinmenu.android.data.DownloadTarget
 import com.doujinmenu.android.data.RequestStatus
@@ -44,6 +49,7 @@ import com.doujinmenu.android.model.BackgroundGalleryTab
 import com.doujinmenu.android.model.pushPage
 import com.doujinmenu.android.model.selectTab
 import com.doujinmenu.android.model.selectSearchTab
+import com.doujinmenu.android.model.searchResultSessionIds
 import com.doujinmenu.android.model.updateActiveSearch
 import com.doujinmenu.android.model.updateActiveLibraryHome
 import com.doujinmenu.android.network.CompanionClient
@@ -138,6 +144,8 @@ data class MainUiState(
     val submittedSearchQuery: String = "",
     val submittedSearchQueries: List<String> = emptyList(),
     val galleries: List<GallerySummary> = emptyList(),
+    val searchResultWindow: SearchResultWindow? = null,
+    val nextSearchPageError: String? = null,
     val activeGallery: GallerySummary? = null,
     val galleryCache: Map<Long, GallerySummary> = emptyMap(),
     val currentPage: Int = 0,
@@ -173,6 +181,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val client = CompanionClient()
     private val suggestionClient = HitomiSuggestionClient()
     private val hitomiClient = com.doujinmenu.android.network.HitomiClient()
+    private val searchResultCache = SearchResultCache(java.io.File(application.cacheDir, "search-results"))
+    private val searchResultPager = SearchResultPager(searchResultCache, ::fetchSearchPage, ::fetchGallerySummaries)
     private val releaseChecker = GitHubReleaseChecker()
     private val updatePreferences = application.getSharedPreferences("updates", Application.MODE_PRIVATE)
     private val profileStore = SecureProfileStore(application)
@@ -186,6 +196,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
     private var suggestionJob: Job? = null
     private var browserSearchJob: Job? = null
+    private var searchWindowJob: Job? = null
+    private var requestedSearchPages: IntRange = IntRange.EMPTY
+    private var visibleSearchResults: IntRange = 0..0
     private var connectionMonitorJob: Job? = null
     private var downloadRefreshJob: Job? = null
     private var librarySyncDebounceJob: Job? = null
@@ -261,7 +274,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         requestStore.readError?.let { uiState = uiState.copy(downloadQueueError = it) }
         navigationPage = browserWorkspace.activeTab.currentPage
         if (activeSearch?.resultIds.isNullOrEmpty() && (activeSearch?.currentPage ?: 0) > 0) {
-            startBrowserSearch(reset = true, restorePageCount = activeSearch?.currentPage?.takeIf { it > 0 })
+            restoreBrowserSearch()
         }
         refreshLibrarySilently()
         checkForUpdates(manual = false)
@@ -564,6 +577,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             uiState = uiState.copy(browserWorkspace = workspace)
             browserPreferenceStore.saveBrowserWorkspace(workspace)
+            removeClosedSearchSessions(current, workspace)
         }
     }
 
@@ -620,6 +634,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             uiState = uiState.copy(browserWorkspace = workspace)
             browserPreferenceStore.saveBrowserWorkspace(workspace)
+            removeClosedSearchSessions(previous, workspace)
         }
     }
 
@@ -1899,24 +1914,105 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun isActiveSearch(key: String): Boolean = activeSearchPage()?.key == key
 
-    private fun startBrowserSearch(reset: Boolean, restorePageCount: Int? = null) {
+    private fun startBrowserSearch(reset: Boolean) {
         val searchKey = activeSearchPage()?.key ?: return
         browserSearchJob?.cancel()
-        uiState = uiState.copy(isRestoringSearch = restorePageCount != null)
+        browserSearchJob = viewModelScope.launch {
+            loadPage(reset = reset, searchKey = searchKey)
+        }
+    }
+
+    fun ensureSearchResults() {
+        if (uiState.searchResultWindow == null && !uiState.isRestoringSearch &&
+            (activeSearchPage()?.currentPage ?: 0) > 0) restoreBrowserSearch()
+    }
+
+    private fun cancelSearchWindow() {
+        searchWindowJob?.cancel()
+        requestedSearchPages = IntRange.EMPTY
+    }
+
+    private fun isSearchSessionCurrent(key: String, sessionId: String, revision: Long): Boolean =
+        isActiveSearch(key) && activeSearchPage()?.resultSessionId == sessionId && uiState.browserNavigationRevision == revision
+
+    private fun publishSearchWindow(window: SearchResultWindow) {
+        uiState = uiState.copy(searchResultWindow = window, galleries = window.galleries,
+            currentPage = window.index.pages.size, hasNextPage = window.index.hasNextPage)
+    }
+
+    private fun restoreBrowserSearch() {
+        val search = activeSearchPage() ?: return
+        if (search.currentPage <= 0) return
+        browserSearchJob?.cancel()
+        cancelSearchWindow()
+        val sessionId = search.resultSessionId ?: java.util.UUID.randomUUID().toString()
         val revision = uiState.browserNavigationRevision
+        val queries = search.submittedQueries.ifEmpty {
+            queriesWithPreferredLanguages(search.submittedQuery.ifBlank { search.query }, search.preferredLanguages)
+        }
+        val workspace = uiState.browserWorkspace.updateActiveSearch { it.copy(resultSessionId = sessionId) }
+        uiState = uiState.copy(browserWorkspace = workspace, searchResultWindow = null, galleries = emptyList(),
+            isRestoringSearch = true, isLoadingPage = true)
+        visibleSearchResults = (search.scrollIndex - 2).coerceAtLeast(0).let { it..it }
+        browserPreferenceStore.saveBrowserWorkspace(workspace)
         browserSearchJob = viewModelScope.launch {
             try {
-                loadPage(reset = reset, searchKey = searchKey, restoreSubmitted = restorePageCount != null)
-                if (restorePageCount != null) repeat((restorePageCount - 1).coerceAtLeast(0)) {
-                    if (!isActiveSearch(searchKey) || !uiState.hasNextPage) return@launch
-                    loadPage(reset = false, searchKey = searchKey)
+                val index = searchResultPager.restore(sessionId, queries, search.currentPage)
+                if (!isSearchSessionCurrent(search.key, sessionId, revision)) return@launch
+                publishSearchWindow(SearchResultWindow(index))
+                syncActiveSearch(persist = true)
+                loadVisibleSearchResults(visibleSearchResults.first, visibleSearchResults.last)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (isSearchSessionCurrent(search.key, sessionId, revision)) {
+                    uiState = uiState.copy(message = error.message ?: "검색 결과를 복원하지 못했습니다.", isError = true)
                 }
             } finally {
-                if (isActiveSearch(searchKey) && uiState.browserNavigationRevision == revision) {
-                    uiState = uiState.copy(isRestoringSearch = false)
+                if (isSearchSessionCurrent(search.key, sessionId, revision)) {
+                    uiState = uiState.copy(isLoadingPage = false, isRestoringSearch = false)
                 }
             }
         }
+    }
+
+    fun loadVisibleSearchResults(firstResult: Int, lastResult: Int) {
+        visibleSearchResults = firstResult.coerceAtLeast(0)..lastResult.coerceAtLeast(firstResult).coerceAtLeast(0)
+        val window = uiState.searchResultWindow ?: return
+        val searchKey = activeSearchPage()?.key ?: return
+        if (activeSearchPage()?.resultSessionId != window.index.sessionId) return
+        val pages = window.index.window(visibleSearchResults.first, visibleSearchResults.last)
+        if (pages.isEmpty()) return
+        if (pages == requestedSearchPages && (pages.all { it in window.residentPages } || searchWindowJob?.isActive == true)) return
+        cancelSearchWindow()
+        requestedSearchPages = pages
+        val revision = uiState.browserNavigationRevision
+        val trimmed = window.retainPages(pages)
+        publishSearchWindow(trimmed)
+        searchWindowJob = viewModelScope.launch {
+            try {
+                searchResultPager.loadWindow(trimmed, pages, window.index.pageAt(visibleSearchResults.first)) { page, galleries ->
+                    if (isSearchSessionCurrent(searchKey, window.index.sessionId, revision)) {
+                        val latest = uiState.searchResultWindow
+                        if (latest != null && page in requestedSearchPages) {
+                            publishSearchWindow(latest.copy(residentPages = latest.residentPages + (page to galleries)))
+                            uiState = uiState.copy(galleryCache = cacheGalleries(uiState.galleryCache, galleries))
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (isSearchSessionCurrent(searchKey, window.index.sessionId, revision)) {
+                    uiState = uiState.copy(message = error.message ?: "검색 결과를 불러오지 못했습니다.", isError = true)
+                }
+            }
+        }
+    }
+
+    private suspend fun fetchSearchPage(queries: List<String>, page: Int): SearchResult = coroutineScope {
+        val results = queries.map { query -> async { hitomiClient.search(query, page) } }.awaitAll()
+        SearchResult(results.flatMap { it.galleryIds }.distinct(), results.any { it.hasNextPage })
     }
 
     private fun openSearchTab(query: String, preferredLanguages: Set<String>) {
@@ -1939,7 +2035,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         workspace: BrowserWorkspace,
         reload: Boolean = false,
     ) {
+        val previous = uiState.browserWorkspace
         browserSearchJob?.cancel()
+        cancelSearchWindow()
         suggestionJob?.cancel()
         val page = workspace.activeTab.currentPage
         navigationPage = page
@@ -1952,9 +2050,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 preferredLanguages = page.preferredLanguages,
                 submittedSearchQuery = page.submittedQuery,
                 submittedSearchQueries = page.submittedQueries,
-                galleries = page.results.ifEmpty {
-                    page.resultIds.mapNotNull(uiState.galleryCache::get)
-                },
+                galleries = emptyList(),
+                searchResultWindow = null,
+                nextSearchPageError = null,
                 currentPage = page.currentPage,
                 hasNextPage = page.hasNextPage,
                 isLoadingPage = false,
@@ -1965,6 +2063,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             else -> uiState.copy(
                 browserWorkspace = workspace,
+                galleries = emptyList(),
+                searchResultWindow = null,
+                nextSearchPageError = null,
                 browserNavigationRevision = revision,
                 isLoadingPage = false,
                 isRestoringSearch = false,
@@ -1974,17 +2075,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         browserPreferenceStore.saveBrowserWorkspace(workspace)
-        if (reload && page is BrowserPage.Search && page.resultIds.isEmpty() && page.currentPage > 0) {
-            startBrowserSearch(reset = true, restorePageCount = page.currentPage)
+        removeClosedSearchSessions(previous, workspace)
+        if (reload && page is BrowserPage.Search && page.currentPage > 0) {
+            restoreBrowserSearch()
         }
+    }
+
+    private fun removeClosedSearchSessions(previous: BrowserWorkspace, next: BrowserWorkspace) {
+        val removed = previous.searchResultSessionIds - next.searchResultSessionIds
+        if (removed.isNotEmpty()) viewModelScope.launch { searchResultCache.removeSessions(removed) }
     }
 
     private fun applyGalleryWorkspace(workspace: BrowserWorkspace) {
         browserSearchJob?.cancel()
+        cancelSearchWindow()
         suggestionJob?.cancel()
         navigationPage = workspace.activeTab.currentPage
         uiState = uiState.copy(
             galleryWorkspace = workspace,
+            galleries = emptyList(),
+            searchResultWindow = null,
+            nextSearchPageError = null,
             browserNavigationRevision = uiState.browserNavigationRevision + 1,
             isLoadingPage = false,
             isRestoringSearch = false,
@@ -2002,8 +2113,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 preferredLanguages = uiState.preferredLanguages,
                 submittedQuery = uiState.submittedSearchQuery,
                 submittedQueries = uiState.submittedSearchQueries,
-                resultIds = uiState.galleries.map(GallerySummary::id),
-                results = uiState.galleries,
+                resultIds = emptyList(),
+                results = emptyList(),
                 currentPage = uiState.currentPage,
                 hasNextPage = uiState.hasNextPage,
             )
@@ -2018,15 +2129,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         reset: Boolean,
         preserveResults: Boolean = false,
         searchKey: String,
-        restoreSubmitted: Boolean = false,
     ) {
         if (!isActiveSearch(searchKey)) return
-        val query = if (reset && !restoreSubmitted) uiState.searchQuery.trim() else {
+        val query = if (reset) uiState.searchQuery.trim() else {
             uiState.submittedSearchQuery.ifBlank {
                 if (uiState.submittedSearchQueries.isEmpty()) uiState.searchQuery.trim() else ""
             }
         }
-        val searchQueries = if (reset && !restoreSubmitted) {
+        val searchQueries = if (reset) {
             queriesWithPreferredLanguages(query, uiState.preferredLanguages)
         } else {
             uiState.submittedSearchQueries.ifEmpty {
@@ -2037,37 +2147,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             uiState = uiState.copy(message = "검색어를 입력하세요.", isError = true)
             return
         }
-        val page = if (reset) 1 else uiState.currentPage + 1
+        val index = if (reset) SearchResultIndex(java.util.UUID.randomUUID().toString(), searchQueries)
+            else uiState.searchResultWindow?.index ?: return
+        val revision = uiState.browserNavigationRevision
+        if (reset) {
+            cancelSearchWindow()
+            if (!preserveResults) visibleSearchResults = 0..0
+        }
+        val previousWorkspace = uiState.browserWorkspace
+        val workspace = previousWorkspace.updateActiveSearch { search ->
+            search.copy(resultSessionId = index.sessionId,
+                scrollAnchorKey = if (reset && !preserveResults) null else search.scrollAnchorKey,
+                scrollIndex = if (reset && !preserveResults) 0 else search.scrollIndex,
+                scrollOffset = if (reset && !preserveResults) 0 else search.scrollOffset)
+        }
         uiState = uiState.copy(
+            browserWorkspace = workspace,
             submittedSearchQuery = if (reset) query else uiState.submittedSearchQuery,
             submittedSearchQueries = if (reset) searchQueries else uiState.submittedSearchQueries,
             galleries = if (reset && !preserveResults) emptyList() else uiState.galleries,
+            searchResultWindow = if (reset && !preserveResults) SearchResultWindow(index) else uiState.searchResultWindow,
             currentPage = if (reset) 0 else uiState.currentPage,
             hasNextPage = if (reset) false else uiState.hasNextPage,
             isLoadingPage = true,
+            nextSearchPageError = null,
             message = null,
             isError = false,
         )
         syncActiveSearch()
 
         try {
-            val searchResults = coroutineScope {
-                searchQueries.map { resolvedQuery ->
-                    async { hitomiClient.search(resolvedQuery, page = page) }
-                }.awaitAll()
-            }
-            val galleryIds = searchResults.flatMap { it.galleryIds }.distinct()
-            val summaries = fetchGallerySummaries(galleryIds)
-            if (!isActiveSearch(searchKey)) return
-            val merged = if (reset) summaries else (uiState.galleries + summaries).distinctBy { it.id }
+            val loaded = searchResultPager.append(index)
+            if (!isSearchSessionCurrent(searchKey, index.sessionId, revision)) return
+            val summaries = loaded.galleries
+            val pages = loaded.index.window(visibleSearchResults.first, visibleSearchResults.last)
+            val resident = (if (reset) emptyMap() else uiState.searchResultWindow?.residentPages.orEmpty()) + loaded.residentPages
+            publishSearchWindow(loaded.copy(residentPages = resident).retainPages(pages))
             val knownFilters = rememberFilterTokens(summaries)
             val failedCount = summaries.count { it.loadError != null }
             uiState = uiState.copy(
-                galleries = merged,
-                galleryCache = cacheGalleries(uiState.galleryCache, merged),
+                galleryCache = cacheGalleries(uiState.galleryCache, summaries),
                 knownFilterTokens = knownFilters,
-                currentPage = page,
-                hasNextPage = searchResults.any { it.hasNextPage },
                 message = if (failedCount > 0) {
                     "상세 정보를 불러오지 못한 갤러리가 ${failedCount}개 있습니다."
                 } else {
@@ -2076,19 +2196,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isError = failedCount > 0,
             )
             syncActiveSearch(persist = true)
+            if (reset) removeClosedSearchSessions(previousWorkspace, uiState.browserWorkspace)
+            loadVisibleSearchResults(visibleSearchResults.first, visibleSearchResults.last)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            if (isActiveSearch(searchKey)) {
+            if (isSearchSessionCurrent(searchKey, index.sessionId, revision)) {
                 uiState = uiState.copy(
                     message = error.message ?: "검색 페이지를 불러오지 못했습니다.",
-                    hasNextPage = false,
+                    nextSearchPageError = error.message ?: "검색 페이지를 불러오지 못했습니다.",
                     isError = true,
                 )
                 syncActiveSearch(persist = true)
             }
         } finally {
-            if (isActiveSearch(searchKey)) {
+            if (isSearchSessionCurrent(searchKey, index.sessionId, revision)) {
                 uiState = uiState.copy(isLoadingPage = false)
                 syncActiveSearch()
             }
@@ -2102,8 +2224,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         galleryIds.map { galleryId ->
             async {
                 semaphore.withPermit {
-                    runCatching { hitomiClient.getGallery(galleryId) }
-                        .getOrElse { error ->
+                    try { hitomiClient.getGallery(galleryId) }
+                        catch (cancelled: CancellationException) { throw cancelled }
+                        catch (error: Exception) {
                             GallerySummary(
                                 id = galleryId,
                                 title = "Gallery #$galleryId",

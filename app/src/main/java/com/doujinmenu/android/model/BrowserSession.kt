@@ -88,6 +88,10 @@ data class BrowserWorkspace(
 fun BrowserWorkspace.selectTab(tabId: String): BrowserWorkspace =
     if (tabs.any { it.id == tabId }) copy(activeTabId = tabId) else this
 
+val BrowserWorkspace.searchResultSessionIds: Set<String>
+    get() = (tabs + groups.flatMap { it.archivedTabs }).flatMap { it.history }
+        .filterIsInstance<BrowserPage.Search>().mapNotNull { it.resultSessionId }.toSet()
+
 fun BrowserWorkspace.selectSearchTab(
     query: String,
     preferredLanguages: Set<String> = emptySet(),

@@ -59,7 +59,7 @@ class SearchResultCacheTest {
             val second = first.copy(sessionId = "second")
             cache.writePage(first, 1, listOf(gallery(1)))
             cache.writePage(second, 1, listOf(gallery(1)))
-            cache.retainSessions(setOf(second.sessionId))
+            cache.removeSessions(setOf(first.sessionId))
             assertNull(cache.readPage(first, 1))
             assertNotNull(cache.readPage(second, 1))
             repeat(10) { cache.writePage(first.copy(sessionId = "other-$it"), 1, listOf(gallery(1))) }
@@ -92,6 +92,17 @@ class SearchResultCacheTest {
             assertNotNull(limited.readPage(index, 1))
             assertNull(limited.readPage(index, 2))
             assertNotNull(limited.readPage(index, 3))
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `offline placeholders cannot overwrite a healthy cached page`() = runBlocking {
+        val directory = Files.createTempDirectory("search-pages").toFile()
+        try {
+            val cache = SearchResultCache(directory, minimumFreeBytes = 0)
+            val index = SearchResultIndex("session", listOf("a")).append(listOf(gallery(1)), false)
+            cache.writePage(index, 1, listOf(gallery(1)))
+            assertFalse(cache.writePage(index, 1, listOf(gallery(1).copy(loadError = "offline"))))
+            assertEquals(listOf(gallery(1)), cache.readPage(index, 1))
         } finally { directory.deleteRecursively() }
     }
 }

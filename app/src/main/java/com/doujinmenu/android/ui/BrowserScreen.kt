@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -94,6 +93,8 @@ fun BrowserScreen(
     initialScrollIndex: Int,
     initialScrollOffset: Int,
     onScrollChange: (String?, Int, Int) -> Unit,
+    onEnsureResults: () -> Unit,
+    onVisibleResultsChange: (Int, Int) -> Unit,
 ) {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -115,17 +116,24 @@ fun BrowserScreen(
             ),
         )
     }
-    val contentKeys = buildList {
+    val resultIds = state.searchResultWindow?.index?.let { index -> remember(index) { index.ids } }
+        ?: remember(state.galleries) { state.galleries.map { it.id } }
+    val galleriesById = remember(state.galleries) { state.galleries.associateBy { it.id } }
+    val canRestoreResults = state.searchResultWindow == null && state.currentPage > 0 &&
+        !state.isLoadingPage && !state.isRestoringSearch
+    val contentKeys = remember(resultIds, state.isLoadingPage, state.currentPage, state.hasNextPage, canRestoreResults) { buildList {
         add("search-controls")
-        if (state.isLoadingPage && state.galleries.isEmpty()) add("initial-loader")
-        if (state.galleries.isNotEmpty()) {
+        if (state.isLoadingPage && resultIds.isEmpty()) add("initial-loader")
+        if (canRestoreResults) add("restore-results")
+        if (resultIds.isNotEmpty()) {
             add("result-count")
-            state.galleries.forEach { add("gallery:${it.id}") }
+            resultIds.forEach { add("gallery:$it") }
         }
-        if (state.galleries.isNotEmpty() && (state.hasNextPage || state.isLoadingPage)) {
+        if (resultIds.isNotEmpty() && (state.hasNextPage || state.isLoadingPage)) {
             add("page-loader-${state.currentPage}")
         }
-    }
+    } }
+    LaunchedEffect(pageKey) { onEnsureResults() }
     val savedAnchorKey = remember(pageKey) { initialScrollAnchorKey }
     val restoredIndex = resolveScrollIndex(savedAnchorKey, initialScrollIndex, contentKeys)
     val listState = remember(pageKey) {
@@ -143,7 +151,7 @@ fun BrowserScreen(
             if (anchorIndex >= 0) {
                 listState.scrollToItem(anchorIndex, initialScrollOffset)
                 scrollRestored = true
-            } else if (!state.isLoadingPage && !state.isRestoringSearch && state.galleries.isNotEmpty()) {
+            } else if (!state.isLoadingPage && !state.isRestoringSearch && resultIds.isNotEmpty()) {
                 listState.scrollToItem(resolveScrollIndex(null, initialScrollIndex, contentKeys))
                 scrollRestored = true
             }
@@ -157,6 +165,15 @@ fun BrowserScreen(
                 val anchorKey = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key?.toString()
                 onScrollChange(anchorKey, index, offset)
             }
+    }
+    LaunchedEffect(pageKey, listState, scrollRestored, resultIds.size) {
+        if (!scrollRestored || resultIds.isEmpty()) return@LaunchedEffect
+        snapshotFlow {
+            val visible = listState.layoutInfo.visibleItemsInfo.filter { it.key.toString().startsWith("gallery:") }
+            val first = visible.firstOrNull()?.index?.minus(2)?.coerceAtLeast(0) ?: 0
+            val last = visible.lastOrNull()?.index?.minus(2)?.coerceAtLeast(first) ?: first
+            first to last
+        }.distinctUntilChanged().collect { (first, last) -> onVisibleResultsChange(first, last) }
     }
     val queryFocusRequester = remember { FocusRequester() }
 
@@ -348,42 +365,56 @@ fun BrowserScreen(
             }
         }
 
-        if (state.isLoadingPage && state.galleries.isEmpty()) {
+        if (state.isLoadingPage && resultIds.isEmpty()) {
             item(key = "initial-loader") { LoadingRow("불러오는 중…") }
         }
+        if (canRestoreResults) {
+            item(key = "restore-results") {
+                TextButton(onClick = onEnsureResults, modifier = Modifier.fillMaxWidth()) { Text("검색 결과 다시 불러오기") }
+            }
+        }
 
-        if (state.galleries.isNotEmpty()) {
+        if (resultIds.isNotEmpty()) {
             item(key = "result-count") {
                 Text(
-                    "검색 결과 ${state.galleries.size}개",
+                    "검색 결과 ${resultIds.size}개",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            items(state.galleries, key = { "gallery:${it.id}" }) { gallery ->
-                val libraryBook = libraryBookByGalleryId[gallery.id]
-                GalleryCard(
-                    gallery = gallery,
-                    read = gallery.id in state.viewedGalleryIds ||
-                        libraryBook?.id in state.libraryReadIds,
-                    libraryBook = libraryBook,
-                    favorite = libraryBook?.id?.let { it in state.libraryFavoriteIds } == true,
-                    onToggleFavorite = {
-                        libraryBook?.id?.let(onToggleLibraryFavorite)
-                    },
-                    onClick = { onGalleryClick(gallery.id) },
-                    onLongClick = { onGalleryLongClick(gallery.id) },
-                    onSearchFacet = onSearchFacet,
-                )
+            items(count = resultIds.size, key = { "gallery:${resultIds[it]}" }, contentType = { "gallery" }) { index ->
+                val id = resultIds[index]
+                val gallery = galleriesById[id]
+                if (gallery == null) {
+                    Card(Modifier.fillMaxWidth().height(168.dp)) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("#$id · 불러오는 중…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                } else {
+                    val libraryBook = libraryBookByGalleryId[gallery.id]
+                    GalleryCard(
+                        gallery = gallery,
+                        read = gallery.id in state.viewedGalleryIds || libraryBook?.id in state.libraryReadIds,
+                        libraryBook = libraryBook,
+                        favorite = libraryBook?.id?.let { it in state.libraryFavoriteIds } == true,
+                        onToggleFavorite = { libraryBook?.id?.let(onToggleLibraryFavorite) },
+                        onClick = { onGalleryClick(gallery.id) },
+                        onLongClick = { onGalleryLongClick(gallery.id) },
+                        onSearchFacet = onSearchFacet,
+                    )
+                }
             }
         }
 
-        if (state.galleries.isNotEmpty() && (state.hasNextPage || state.isLoadingPage)) {
+        if (resultIds.isNotEmpty() && (state.hasNextPage || state.isLoadingPage)) {
             item(key = "page-loader-${state.currentPage}") {
-                LaunchedEffect(state.currentPage, state.hasNextPage, state.isLoadingPage, state.isRestoringSearch) {
-                    if (state.hasNextPage && !state.isLoadingPage && !state.isRestoringSearch) onLoadNextPage()
+                LaunchedEffect(state.currentPage, state.hasNextPage, state.isLoadingPage, state.isRestoringSearch, state.nextSearchPageError) {
+                    if (state.hasNextPage && !state.isLoadingPage && !state.isRestoringSearch && state.nextSearchPageError == null) onLoadNextPage()
                 }
-                LoadingRow(
+                if (state.nextSearchPageError != null) {
+                    TextButton(onClick = onLoadNextPage, modifier = Modifier.fillMaxWidth()) { Text("다음 페이지 다시 불러오기") }
+                } else LoadingRow(
                     if (state.isLoadingPage) "${state.currentPage + 1}페이지 불러오는 중…"
                     else "다음 페이지 준비 중…",
                 )

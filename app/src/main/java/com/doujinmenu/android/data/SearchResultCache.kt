@@ -25,8 +25,12 @@ data class SearchResultIndex(
     val ids: List<Long> get() = pages.flatten()
 
     fun append(galleries: List<GallerySummary>, hasNext: Boolean): SearchResultIndex {
+        return appendIds(galleries.map { it.id }, hasNext)
+    }
+
+    fun appendIds(newIds: List<Long>, hasNext: Boolean): SearchResultIndex {
         val seen = ids.toMutableSet()
-        return copy(pages = pages + listOf(galleries.map { it.id }.filter { seen.add(it) }), hasNextPage = hasNext)
+        return copy(pages = pages + listOf(newIds.filter { seen.add(it) }), hasNextPage = hasNext)
     }
 
     fun pageAt(resultIndex: Int): Int {
@@ -79,14 +83,16 @@ class SearchResultCache(
     }
 
     suspend fun writePage(index: SearchResultIndex, page: Int, galleries: List<GallerySummary>): Boolean = io {
+        // Offline/error placeholders must not replace a usable page or become permanent cached results.
+        if (galleries.any { it.loadError != null }) return@io false
         val byId = galleries.associateBy { it.id }
         val ordered = index.pages[page - 1].map { requireNotNull(byId[it]) }
         write(file(index.sessionId, "page-$page"), JSONObject().put("galleries", JSONArray(ordered.map { it.json() })))
     } ?: false
 
-    suspend fun retainSessions(sessionIds: Set<String>) = io {
+    suspend fun removeSessions(sessionIds: Set<String>) = io {
         val prefixes = sessionIds.mapTo(mutableSetOf(), ::prefix)
-        directory.listFiles()?.filter { it.name.substringBefore('.') !in prefixes }?.forEach { it.delete() }
+        directory.listFiles()?.filter { it.name.substringBefore('.') in prefixes }?.forEach { it.delete() }
         true
     }
 
@@ -104,13 +110,13 @@ class SearchResultCache(
 
     private fun write(destination: File, value: JSONObject): Boolean {
         if (!directory.isDirectory && !directory.mkdirs()) return false
-        trim(maxBytes)
-        if (directory.usableSpace < minimumFreeBytes) {
-            trim(0)
-            if (directory.usableSpace < minimumFreeBytes) return false
-        }
         val bytes = value.toString().toByteArray(Charsets.UTF_8)
         if (bytes.size > maxBytes) return false
+        trim(maxBytes)
+        if (directory.usableSpace - bytes.size < minimumFreeBytes) {
+            trim(0)
+            if (directory.usableSpace - bytes.size < minimumFreeBytes) return false
+        }
         val temporary = File(directory, "${destination.name}.tmp")
         try {
             temporary.writeBytes(bytes)

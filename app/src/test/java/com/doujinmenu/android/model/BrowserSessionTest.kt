@@ -7,6 +7,16 @@ import org.junit.Test
 
 class BrowserSessionTest {
     @Test
+    fun archivedGroupsKeepSearchCacheReferencesUntilExplicitlyDeleted() {
+        val original = BrowserWorkspace.initial(BrowserPage.Search(resultSessionId = "saved-search"))
+            .let { it.createGroup(setOf(it.activeTabId)) }
+        val archived = original.archiveGroup(original.groups.single().id)
+        assertEquals(setOf("saved-search"), archived.searchResultSessionIds)
+        assertEquals(setOf("saved-search"), archived.restoreGroup(archived.groups.single().id).searchResultSessionIds)
+        assertTrue(archived.deleteArchivedGroup(archived.groups.single().id).searchResultSessionIds.isEmpty())
+    }
+
+    @Test
     fun backgroundGalleryPreservesSearchAndCanBeSelectedAndClosed() {
         val search = BrowserPage.Search(query = "artist:sample", resultIds = listOf(42),
             currentPage = 3, hasNextPage = true, scrollAnchorKey = "gallery:42", scrollIndex = 12, scrollOffset = 30)

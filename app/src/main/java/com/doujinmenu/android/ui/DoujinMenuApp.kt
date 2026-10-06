@@ -711,11 +711,13 @@ private fun MainTabContent(
                 onSearchFacet = viewModel::searchFromFacet,
                 onToggleLibraryFavorite = viewModel::toggleLibraryFavorite,
                 onConnect = openConnectionSettings,
-                pageKey = search?.key.orEmpty(),
+                pageKey = "${search?.key.orEmpty()}:${search?.resultSessionId.orEmpty()}",
                 initialScrollAnchorKey = search?.scrollAnchorKey,
                 initialScrollIndex = search?.scrollIndex ?: 0,
                 initialScrollOffset = search?.scrollOffset ?: 0,
                 onScrollChange = viewModel::updateBrowserScroll,
+                onEnsureResults = viewModel::ensureSearchResults,
+                onVisibleResultsChange = viewModel::loadVisibleSearchResults,
             )
         }
         MainDestination.Library -> {
