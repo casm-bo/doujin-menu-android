@@ -11,8 +11,8 @@ android {
         applicationId = "com.doujinmenu.android"
         minSdk = 26
         targetSdk = 37
-        versionCode = 10
-        versionName = "0.9.0"
+        versionCode = 11
+        versionName = "0.10.0"
     }
 
     signingConfigs {
@@ -27,6 +27,10 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         getByName("release") {
             signingConfig = signingConfigs.findByName("release")
         }

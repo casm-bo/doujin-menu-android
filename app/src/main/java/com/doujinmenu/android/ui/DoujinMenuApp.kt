@@ -44,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +62,8 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -69,6 +72,7 @@ import com.doujinmenu.android.model.BrowserPage
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlin.math.cos
@@ -99,7 +103,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 snackbarHostState.currentSnackbarData?.dismiss()
                 val action = snackbarHostState.showSnackbar(
                     message = when {
-                        result.tabId == null -> "탭은 최대 20개까지 열 수 있습니다. 기존 탭을 닫아주세요."
+                        result.tabId == null -> "새 탭을 열지 못했습니다."
                         result.alreadyOpen -> "이미 열린 탭이 있습니다."
                         else -> "새 탭에 열었습니다."
                     },
@@ -109,6 +113,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 )
                 if (action == SnackbarResult.ActionPerformed &&
                     viewModel.uiState.browserWorkspace.tabs.any { it.id == result.tabId }) {
+                    viewModel.tabPreviews.captureNow()
                     viewModel.selectBrowserTab(requireNotNull(result.tabId))
                 }
             }
@@ -192,6 +197,21 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
         if (!viewModel.goBackInGalleryTab()) navController.popBackStack()
     }
 
+    val currentEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentEntry?.destination?.route
+    val previewIsGallery = when {
+        currentRoute == SEARCH_FROM_GALLERY_ROUTE -> false
+        currentRoute?.startsWith("library-") == true -> true
+        currentRoute?.startsWith("gallery/") == true || currentRoute?.startsWith("reader/") == true -> false
+        currentRoute == "main" && lastMainDestination == MainDestination.Library.route -> true
+        currentRoute == "main" && lastMainDestination == MainDestination.Browser.route -> false
+        else -> null
+    }
+    val previewWorkspace = if (previewIsGallery == true) viewModel.uiState.galleryWorkspace else viewModel.uiState.browserWorkspace
+    val previewKey = previewIsGallery?.let {
+        BrowserTabPreviewKey(it, previewWorkspace.activeTabId, previewWorkspace.activeTab.currentPage.key)
+    }
+    BrowserTabPreviewHost(viewModel.tabPreviews, previewKey) {
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
@@ -281,7 +301,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         searchOpenedFromGallery = true
                         viewModel.searchFromLanguage(language)
                     },
-                    tabBar = { AppGalleryTabStrip(viewModel) },
+                    tabBar = { AppGalleryTabStrip(viewModel, onBack = galleryBack) },
                 )
             }
             composable(
@@ -338,7 +358,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         viewModel.searchFromLanguage(language)
                     },
                     onDownload = viewModel::downloadGallery,
-                    tabBar = { AppSearchTabStrip(viewModel) },
+                    tabBar = { AppSearchTabStrip(viewModel, onBack = searchBack) },
                 )
             }
             composable(
@@ -382,6 +402,26 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
+    }
+
+    viewModel.uiState.tabOverviewIsGallery?.let { isGallery ->
+        BrowserTabsOverview(
+            workspace = if (isGallery) viewModel.uiState.galleryWorkspace else viewModel.uiState.browserWorkspace,
+            isGallery = isGallery,
+            previews = viewModel.tabPreviews,
+            onSelect = { id ->
+                snackbarScope.launch {
+                    viewModel.tabPreviews.captureNow()
+                    viewModel.dismissTabOverview()
+                    if (isGallery) viewModel.selectGalleryTab(id) else viewModel.selectBrowserTab(id)
+                }
+            },
+            onCloseTab = { id -> if (isGallery) viewModel.closeGalleryTab(id) else viewModel.closeBrowserTab(id) },
+            onUpdate = { viewModel.updateTabWorkspace(it, isGallery) },
+            onDismiss = viewModel::dismissTabOverview,
+        )
+    }
+
     viewModel.uiState.availableUpdate?.let { release ->
         AlertDialog(
             onDismissRequest = { viewModel.dismissAvailableUpdate(skipVersion = false) },
@@ -414,24 +454,35 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
 }
 
 @Composable
-private fun AppSearchTabStrip(viewModel: MainViewModel) {
+private fun AppSearchTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null) {
     BrowserTabStrip(
         workspace = viewModel.uiState.browserWorkspace,
-        onSelect = viewModel::selectBrowserTab,
-        onClose = viewModel::closeBrowserTab,
-        onMove = viewModel::moveBrowserTab,
         onNew = viewModel::newBrowserTab,
+        onShowOverview = { viewModel.showTabOverview(isGallery = false) },
+        previews = viewModel.tabPreviews,
+        onBack = onBack,
     )
 }
 
 @Composable
-private fun AppGalleryTabStrip(viewModel: MainViewModel) {
+private fun AppGalleryTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null, showSync: Boolean = false) {
     BrowserTabStrip(
         workspace = viewModel.uiState.galleryWorkspace,
-        onSelect = viewModel::selectGalleryTab,
-        onClose = viewModel::closeGalleryTab,
-        onMove = viewModel::moveGalleryTab,
         onNew = viewModel::newGalleryTab,
+        onShowOverview = { viewModel.showTabOverview(isGallery = true) },
+        previews = viewModel.tabPreviews,
+        onBack = onBack,
+        extraActions = {
+            if (showSync) IconButton(onClick = viewModel::syncLibraryNow,
+                enabled = !viewModel.uiState.isLibrarySyncing && viewModel.uiState.selectedProfileId != null,
+                modifier = Modifier.semantics { contentDescription = "라이브러리 동기화, 대기 ${viewModel.uiState.librarySyncPendingCount}개" }) {
+                if (viewModel.uiState.isLibrarySyncing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else {
+                    val pending = viewModel.uiState.librarySyncPendingCount
+                    Text(if (pending > 0) "↻ $pending" else "↻", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        },
     )
 }
 
@@ -485,39 +536,14 @@ private fun MainShell(
     }
     val topBar: @Composable () -> Unit = {
         Column {
-            TopAppBar(
-                title = { Text(selected.label) },
-                actions = {
-                    if (selected == MainDestination.Library) {
-                        TextButton(
-                            onClick = viewModel::syncLibraryNow,
-                            enabled = !viewModel.uiState.isLibrarySyncing &&
-                                viewModel.uiState.selectedProfileId != null,
-                        ) {
-                            if (viewModel.uiState.isLibrarySyncing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            }
-                            val pending = viewModel.uiState.librarySyncPendingCount
-                            Text(
-                                text = when {
-                                    viewModel.uiState.isLibrarySyncing -> "동기화 중"
-                                    pending > 0 -> "동기화 · 대기 $pending"
-                                    else -> "동기화"
-                                },
-                                modifier = Modifier.padding(
-                                    start = if (viewModel.uiState.isLibrarySyncing) 7.dp else 0.dp,
-                                ),
-                            )
-                        }
-                    }
-                },
-            )
+            if (selected != MainDestination.Browser && selected != MainDestination.Library) {
+                TopAppBar(title = { Text(selected.label) })
+            }
             when (selected) {
-                MainDestination.Browser -> AppSearchTabStrip(viewModel)
-                MainDestination.Library -> AppGalleryTabStrip(viewModel)
+                MainDestination.Browser -> AppSearchTabStrip(viewModel, onBack = onBackToOrigin
+                    ?: if (viewModel.canGoBackInBrowserTab()) ({ viewModel.goBackInBrowserTab(); Unit }) else null)
+                MainDestination.Library -> AppGalleryTabStrip(viewModel, showSync = true,
+                    onBack = if (viewModel.canGoBackInGalleryTab()) ({ viewModel.goBackInGalleryTab(); Unit }) else null)
                 else -> Unit
             }
         }
@@ -685,11 +711,13 @@ private fun MainTabContent(
                 onSearchFacet = viewModel::searchFromFacet,
                 onToggleLibraryFavorite = viewModel::toggleLibraryFavorite,
                 onConnect = openConnectionSettings,
-                pageKey = search?.key.orEmpty(),
+                pageKey = "${search?.key.orEmpty()}:${search?.resultSessionId.orEmpty()}",
                 initialScrollAnchorKey = search?.scrollAnchorKey,
                 initialScrollIndex = search?.scrollIndex ?: 0,
                 initialScrollOffset = search?.scrollOffset ?: 0,
                 onScrollChange = viewModel::updateBrowserScroll,
+                onEnsureResults = viewModel::ensureSearchResults,
+                onVisibleResultsChange = viewModel::loadVisibleSearchResults,
             )
         }
         MainDestination.Library -> {

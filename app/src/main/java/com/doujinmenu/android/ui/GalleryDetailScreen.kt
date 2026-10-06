@@ -59,17 +59,16 @@ fun GalleryDetailScreen(
     onSearchFacet: (String) -> Unit,
     onSearchLanguage: (String) -> Unit,
     onDownload: (GallerySummary) -> Unit,
-    tabBar: @Composable () -> Unit = {},
+    tabBar: (@Composable () -> Unit)? = null,
 ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            Column {
+            if (tabBar != null) tabBar() else {
                 TopAppBar(
                     title = { Text("갤러리 상세") },
                     navigationIcon = { TextButton(onClick = onBack) { Text("<") } },
                 )
-                tabBar()
             }
         },
     ) { scaffoldPadding ->
