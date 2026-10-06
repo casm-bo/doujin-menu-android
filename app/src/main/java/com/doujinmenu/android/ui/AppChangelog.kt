@@ -7,6 +7,18 @@ internal data class AppChangelog(
 
 internal val appChangelog = listOf(
     AppChangelog(
+        version = "0.10.0",
+        changes = listOf(
+            "검색·갤러리의 상단 바와 모든 탭 화면을 모바일 브라우저 형태로 변경했습니다.",
+            "열린 탭의 20개 제한을 제거했습니다.",
+            "탭·그룹을 드래그해 순서를 바꾸고 탭을 그룹으로 묶을 수 있습니다.",
+            "탭을 좌우로 밀어 닫고, 그룹은 보관한 뒤 전체 복원할 수 있습니다.",
+            "모든 탭 카드에 마지막 화면 미리보기를 표시합니다.",
+            "검색 결과를 페이지별로 캐시하고 화면 주변 결과만 메모리에 유지합니다.",
+            "디버그 앱을 기존 릴리스 앱과 함께 설치할 수 있습니다.",
+        ),
+    ),
+    AppChangelog(
         version = "0.9.0",
         changes = listOf(
             "PC 연결 없이 Hitomi 검색·상세 조회·온라인 읽기를 사용할 수 있습니다.",
