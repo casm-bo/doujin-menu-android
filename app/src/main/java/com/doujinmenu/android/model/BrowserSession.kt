@@ -25,6 +25,7 @@ sealed interface BrowserPage {
         val scrollAnchorKey: String? = null,
         val scrollIndex: Int = 0,
         val scrollOffset: Int = 0,
+        val resultSessionId: String? = null,
     ) : BrowserPage
 
     data class OnlineGallery(

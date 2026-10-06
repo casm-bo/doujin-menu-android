@@ -15,6 +15,18 @@ import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
     @Test
+    fun cachedSearchSessionSurvivesHistoryAndGroupArchivingWithoutResultPayloads() {
+        val page = BrowserPage.Search(query = "draft", submittedQuery = "tag:full_color",
+            submittedQueries = listOf("tag:full_color language:korean"), resultSessionId = "cached-search",
+            currentPage = 40, scrollAnchorKey = "gallery:1200", scrollIndex = 1201, scrollOffset = 35)
+        val workspace = BrowserWorkspace.initial(page).let {
+            it.createGroup(setOf(it.activeTabId), "Saved")
+        }.let { it.archiveGroup(it.groups.single().id) }
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(workspace))
+        assertEquals(page, restored.groups.single().archivedTabs.single().currentPage)
+    }
+
+    @Test
     fun activeAndArchivedGroupsRoundTripInBothWorkspaces() {
         listOf(BrowserPage.Search(query = "saved"), BrowserPage.LibraryHome()).forEach { page ->
             val first = BrowserWorkspace.initial(page).let { it.createGroup(setOf(it.activeTabId), "Archived", 1) }
