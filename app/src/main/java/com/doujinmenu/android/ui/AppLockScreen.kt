@@ -24,6 +24,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.core.content.ContextCompat
 import com.doujinmenu.android.security.LockMethod
 import com.doujinmenu.android.security.appendPatternPoint
@@ -88,9 +89,14 @@ fun AppLockSettings() {
         Text(if (lock.enabled) strings[R.string.ui_enabled, (strings[lock.method.labelResource])] else strings[R.string.ui_app_lock_is_off])
         Text(strings[R.string.ui_locks_on_launch_and_return_from_background_keep_your_credentia], style = MaterialTheme.typography.bodySmall)
         LockMethod.entries.forEach { method ->
-            OutlinedButton(modifier = Modifier.fillMaxWidth(), enabled = !lock.busy, onClick = { request(method.name) }) {
-                RadioButton(selected = lock.enabled && lock.method == method, onClick = null)
-                Spacer(Modifier.width(8.dp)); Text(strings[method.labelResource])
+            val selected = lock.enabled && lock.method == method
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth().semantics { this.selected = selected },
+                colors = if (selected) ButtonDefaults.filledTonalButtonColors() else ButtonDefaults.outlinedButtonColors(),
+                enabled = !lock.busy,
+                onClick = { request(method.name) },
+            ) {
+                Text(strings[method.labelResource])
             }
         }
         if (lock.enabled) TextButton(enabled = !lock.busy, onClick = { request("disable") }) { Text(strings[R.string.ui_disable_app_lock]) }
