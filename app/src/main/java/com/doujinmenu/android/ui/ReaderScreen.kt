@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -39,6 +41,7 @@ fun ReaderScreen(
     onProgress: (Int) -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     HideSystemBars()
     LaunchedEffect(galleryId) { onLoad(galleryId) }
     val pageUrls = state.readerPagesByGalleryId[galleryId].orEmpty()
@@ -54,14 +57,14 @@ fun ReaderScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(readerError, color = Color.White)
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = { onLoad(galleryId) }) { Text("다시 시도") }
-                    Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("돌아가기") }
+                    Button(onClick = { onLoad(galleryId) }) { Text(strings[R.string.ui_try_again]) }
+                    Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text(strings[R.string.ui_return]) }
                 }
             }
             pageUrls.isEmpty() -> {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("페이지가 없습니다.", color = Color.White)
-                    Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("돌아가기") }
+                    Text(strings[R.string.ui_no_pages], color = Color.White)
+                    Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text(strings[R.string.ui_return]) }
                 }
             }
             else -> {
@@ -75,7 +78,7 @@ fun ReaderScreen(
                     }
                 }
                 val title = state.galleryCache[galleryId]?.title
-                    ?: "갤러리 $galleryId"
+                    ?: strings[R.string.ui_gallery_d16837, (galleryId)]
                 UnifiedReader(
                     readerKey = "online:$galleryId",
                     title = title,

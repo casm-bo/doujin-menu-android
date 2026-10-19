@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +27,7 @@ internal fun UnifiedSearchField(
     onFocus: () -> Unit,
     onSubmit: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val focusManager = LocalFocusManager.current
     fun submit() { focusManager.clearFocus(); onSubmit() }
     TextField(
@@ -37,7 +40,7 @@ internal fun UnifiedSearchField(
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { submit() }),
         trailingIcon = {
-            IconButton(onClick = { submit() }, modifier = Modifier.semantics { contentDescription = "검색 실행" }) {
+            IconButton(onClick = { submit() }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_run_search] }) {
                 ActionIcon(ActionSymbol.SEARCH)
             }
         },

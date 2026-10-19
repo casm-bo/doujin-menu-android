@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import android.app.Application
 import android.os.Build
 import androidx.compose.runtime.getValue
@@ -205,6 +207,7 @@ data class MainUiState(
 enum class DesktopConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val strings get() = androidx.core.content.ContextCompat.getContextForLanguage(getApplication()).resources
     val tabPreviews = BrowserTabPreviewCache(application)
     private val requestStore = DownloadRequestStore.get(application)
     private val downloadSyncMutex = Mutex()
@@ -355,7 +358,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveSearchFavorite() {
         val query = uiState.searchQuery.trim()
         if (query.isEmpty()) {
-            uiState = uiState.copy(message = "저장할 검색 조건을 입력하세요.", isError = true)
+            uiState = uiState.copy(message = strings[R.string.msg_enter_search_conditions_to_save], isError = true)
             return
         }
         val favorite = SearchFavorite(
@@ -368,7 +371,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(
             favoriteName = "",
             searchFavorites = favorites,
-            message = "검색 조건을 즐겨찾기에 저장했습니다.",
+            message = strings[R.string.msg_saved_search_conditions_to_favorites],
             isError = false,
         )
     }
@@ -395,7 +398,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                uiState = uiState.copy(languageLoadError = "언어 목록을 불러오지 못했습니다. 연결을 확인하고 다시 시도하세요.")
+                uiState = uiState.copy(languageLoadError = strings[R.string.msg_could_not_load_languages_check_your_connection_and_ret])
             } finally {
                 uiState = uiState.copy(isLoadingLanguages = false)
             }
@@ -454,8 +457,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val status = client.getStatus(baseUrl)
                 notifyOnDownloadReconnect = false
                 uiState = uiState.copy(
-                    message = "연결 성공: ${status.service} API v${status.version}" +
-                        if (status.pairingAvailable) " · 페어링 가능" else " · 페어링 코드 없음",
+                    message = strings[R.string.msg_connected_api_v, (status.service), (status.version)] +
+                        if (status.pairingAvailable) strings[R.string.msg_pairing_available] else strings[R.string.msg_no_pairing_code],
                     desktopConnectionState = DesktopConnectionState.CONNECTED,
                     isError = false,
                 )
@@ -467,13 +470,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runOperation {
                 val code = uiState.pairingCode
-                require(code.length == PAIRING_CODE_LENGTH) { "6자리 페어링 코드를 입력하세요." }
+                require(code.length == PAIRING_CODE_LENGTH) { strings[R.string.msg_enter_the_6_digit_pairing_code] }
                 val profileName = uiState.deviceName.trim()
-                require(profileName.isNotEmpty()) { "앱에서 표시할 연결 이름을 입력하세요." }
+                require(profileName.isNotEmpty()) { strings[R.string.msg_enter_a_display_name_for_this_connection] }
                 val phoneDeviceName = Build.MODEL.orEmpty().ifBlank { "Android device" }
                 val baseUrl = EndpointNormalizer.normalize(uiState.host, uiState.port)
                 val status = client.getStatus(baseUrl)
-                require(status.pairingAvailable) { "데스크톱에서 새 페어링 코드를 먼저 생성하세요." }
+                require(status.pairingAvailable) { strings[R.string.msg_generate_a_new_pairing_code_on_desktop_first] }
 
                 val result = client.pair(baseUrl, code, phoneDeviceName)
                 notifyOnDownloadReconnect = false
@@ -491,7 +494,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     pairingCode = "",
                     isDownloadConnectionUnavailable = false,
                     desktopConnectionState = DesktopConnectionState.CONNECTED,
-                    message = "${profile.name} 페어링 완료 · 토큰을 Keystore로 보호해 저장했습니다.",
+                    message = strings[R.string.msg_paired_with_credential_saved_securely, (profile.name)],
                     isError = false,
                 )
                 refreshLibrarySilently()
@@ -503,7 +506,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val profile = uiState.profiles.firstOrNull { it.id == id } ?: return
         uiState = uiState.copy(
             selectedProfileId = id,
-            message = "${profile.name} 선택됨",
+            message = strings[R.string.msg_selected, (profile.name)],
             isError = false,
             downloadQueue = emptyList(),
             downloadQueueError = null,
@@ -528,7 +531,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 DesktopConnectionState.CONNECTING
             },
-            message = "저장된 데스크톱을 삭제했습니다.",
+            message = strings[R.string.msg_removed_saved_desktop],
             isError = false,
         )
     }
@@ -923,7 +926,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     browserWorkspace = previousState.browserWorkspace, searchResultWindow = previousState.searchResultWindow,
                     galleries = previousState.galleries, currentPage = previousState.currentPage,
                     hasNextPage = previousState.hasNextPage, isLoadingPage = false,
-                    message = error.message ?: "페이지를 이동하지 못했습니다.", isError = true)
+                    message = error.message ?: strings[R.string.msg_could_not_change_page], isError = true)
             } finally {
                 if (isSearchSessionCurrent(search.key, sessionId, revision)) uiState = uiState.copy(isLoadingPage = false)
             }
@@ -985,7 +988,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: Exception) {
                 uiState = uiState.copy(
                     readerErrorsByGalleryId = uiState.readerErrorsByGalleryId +
-                        (galleryId to (error.message ?: "페이지 목록을 불러오지 못했습니다.")),
+                        (galleryId to (error.message ?: strings[R.string.msg_could_not_load_pages])),
                 )
             } finally {
                 uiState = uiState.copy(
@@ -998,7 +1001,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun downloadGallery(gallery: GallerySummary) {
         if (gallery.id in uiState.downloadingGalleryIds) return
         if (requestStore.requests.value.any { it.galleryId == gallery.id && !it.isFinished }) {
-            uiState = uiState.copy(message = "다운로드 목록에 이미 있습니다.")
+            uiState = uiState.copy(message = strings[R.string.msg_already_in_the_download_list])
             return
         }
         val profile = selectedProfile()
@@ -1012,11 +1015,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (profile != null && sendImmediately) {
                     sendPendingDownloadRequests(profile, onlyRequestId = request.id, requireRequestIds = false)
                 } else {
-                    uiState = uiState.copy(message = "PC 동기화 대기 목록에 추가됨 · 기기에 자동 다운로드하지 않습니다.", isError = false)
+                    uiState = uiState.copy(message = strings[R.string.msg_added_to_pc_sync_queue_no_automatic_device_download], isError = false)
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                uiState = uiState.copy(message = "다운로드 요청을 완료하지 못했습니다: ${error.message}", isError = true)
+                uiState = uiState.copy(message = strings[R.string.msg_download_request_failed, (error.message)], isError = true)
             } finally {
                 uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds - gallery.id)
             }
@@ -1027,11 +1030,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val request = requestStore.requests.value.firstOrNull { it.id == id } ?: return
         if (!request.canDownloadLocally) return
         val location = uiState.downloadLocation ?: run {
-            uiState = uiState.copy(downloadQueueError = "다운로드 폴더를 먼저 선택하세요.")
+            uiState = uiState.copy(downloadQueueError = strings[R.string.msg_choose_a_download_folder_first])
             return
         }
         if (uiState.libraryBooks.any { !it.isCloud && it.metadata.hitomiId?.toLongOrNull() == request.galleryId }) {
-            uiState = uiState.copy(downloadQueueError = "이미 기기 라이브러리에 있는 작품입니다.")
+            uiState = uiState.copy(downloadQueueError = strings[R.string.msg_this_gallery_is_already_in_the_device_library])
             return
         }
         // Register the chosen folder once; the existing scanner/reader handles completed CBZs.
@@ -1051,7 +1054,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!claimed) return@launch
                 val context = getApplication<Application>()
                 context.startForegroundService(android.content.Intent(context, com.doujinmenu.android.data.LocalDownloadService::class.java))
-                uiState = uiState.copy(downloadQueueError = null, message = "기기 다운로드에 추가됨", isError = false)
+                uiState = uiState.copy(downloadQueueError = null, message = strings[R.string.msg_added_to_device_downloads], isError = false)
             } catch (error: Exception) {
                 runCatching { requestStore.change(id) { it.copy(status = RequestStatus.PAUSED, error = error.message) } }
                 uiState = uiState.copy(downloadQueueError = error.message)
@@ -1108,7 +1111,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     manual -> {
                         uiState = uiState.copy(
-                            message = "현재 ${BuildConfig.VERSION_NAME} 버전이 최신입니다.",
+                            message = strings[R.string.msg_version_is_up_to_date, (BuildConfig.VERSION_NAME)],
                             isError = false,
                         )
                     }
@@ -1116,7 +1119,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: Exception) {
                 if (manual) {
                     uiState = uiState.copy(
-                        message = "업데이트를 확인하지 못했습니다: ${error.message ?: "네트워크 오류"}",
+                        message = strings[R.string.msg_could_not_check_for_updates, (error.message ?: strings[R.string.msg_network_error])],
                         isError = true,
                     )
                 }
@@ -1182,7 +1185,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val localBooks = identityReconciliation.books
             val cloudError = cloudResult?.exceptionOrNull()?.let { error ->
-                "데스크톱 라이브러리를 불러오지 못했습니다: ${error.message ?: "알 수 없는 오류"}"
+                strings[R.string.msg_could_not_load_desktop_library, (error.message ?: strings[R.string.msg_unknown_error])]
             }
             val desktopDownloadPath = profile?.let {
                 runCatching { client.getDesktopDownloadPath(it) }.getOrNull()
@@ -1378,9 +1381,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         uiState.librarySyncError
                     },
                     message = if (remaining == 0) {
-                        "라이브러리 동기화를 완료했습니다."
+                        strings[R.string.msg_library_sync_complete]
                     } else {
-                        "동기화되지 않은 변경사항이 ${remaining}개 남아 있습니다."
+                        strings[R.string.msg_changes_still_need_syncing, (remaining)]
                     },
                     isError = remaining > 0,
                 )
@@ -1388,9 +1391,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val refreshError = uiState.libraryScanError
                 uiState = uiState.copy(
                     message = if (refreshError == null) {
-                        "라이브러리를 새로고침했습니다."
+                        strings[R.string.msg_library_refreshed]
                     } else {
-                        "라이브러리 새로고침을 완료했지만 일부 항목을 불러오지 못했습니다."
+                        strings[R.string.msg_library_refreshed_but_some_items_could_not_be_loaded]
                     },
                     isError = refreshError != null,
                 )
@@ -1456,7 +1459,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (uiState.activeLibraryBook?.id == book.id) {
                     uiState = uiState.copy(
                         isLibraryBookLoading = false,
-                        libraryScanError = "데스크톱 연결을 복구한 뒤 다시 시도해 주세요.",
+                        libraryScanError = strings[R.string.msg_reconnect_to_desktop_and_retry],
                     )
                 }
                 return
@@ -1490,9 +1493,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         uiState = uiState.copy(
                             isLibraryBookLoading = false,
                             libraryScanError = error.message ?: if (book.isCloud) {
-                                "데스크톱 페이지를 불러올 수 없습니다."
+                                strings[R.string.msg_could_not_load_desktop_pages]
                             } else {
-                                "압축파일을 열 수 없습니다."
+                                strings[R.string.msg_could_not_open_archive]
                             },
                         )
                     }
@@ -1587,7 +1590,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (candidates.size < 2) {
             uiState = uiState.copy(
-                message = "자동 생성할 미분류 갤러리가 부족합니다.",
+                message = strings[R.string.msg_not_enough_ungrouped_galleries_to_generate_series],
                 isError = false,
             )
             return
@@ -1635,7 +1638,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 if (groups.isEmpty()) {
                     uiState = uiState.copy(
-                        message = "같은 작가와 유사한 제목을 가진 갤러리를 찾지 못했습니다.",
+                        message = strings[R.string.msg_no_galleries_with_the_same_artist_and_similar_titles],
                         isError = false,
                     )
                     return@launch
@@ -1659,12 +1662,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 persistCustomSeries(indexed)
                 uiState = uiState.copy(
                     customSeriesByBookId = indexed,
-                    message = "${groups.size}개 시리즈를 자동 생성했습니다.",
+                    message = strings[R.string.msg_generated_series, (groups.size)],
                     isError = false,
                 )
             } catch (error: Exception) {
                 uiState = uiState.copy(
-                    message = "자동 생성에 실패했습니다: ${error.message ?: "알 수 없는 오류"}",
+                    message = strings[R.string.msg_auto_generation_failed, (error.message ?: strings[R.string.msg_unknown_error])],
                     isError = true,
                 )
             } finally {
@@ -1716,7 +1719,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(
             libraryHiddenIds = updated,
             activeLibraryBook = uiState.activeLibraryBook?.takeUnless { hidden && it.id in bookIds },
-            message = if (hidden) "선택한 갤러리를 숨겼습니다." else "선택한 갤러리의 숨김을 해제했습니다.",
+            message = if (hidden) strings[R.string.msg_selected_galleries_hidden] else strings[R.string.msg_selected_galleries_unhidden],
             isError = false,
         )
         enqueueBookStateSync(bookIds)
@@ -1730,7 +1733,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val localBooks = selectedBooks.filterNot(LibraryBook::isCloud)
         if (remoteBooks.isNotEmpty() && profile == null) {
             uiState = uiState.copy(
-                message = "데스크톱 갤러리를 삭제하려면 PC에 연결해야 합니다.",
+                message = strings[R.string.msg_connect_to_pc_to_delete_desktop_galleries],
                 isError = true,
             )
             return
@@ -1741,22 +1744,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             remoteBooks.forEach { book ->
                 runCatching { client.deleteLibraryBook(profile!!, book.remoteBookId!!) }
                     .onSuccess { deletedIds += book.id }
-                    .onFailure { failures += "${book.title}: ${it.message ?: "삭제 실패"}" }
+                    .onFailure { failures += "${book.title}: ${it.message ?: strings[R.string.msg_deletion_failed]}" }
             }
             localBooks.forEach { book ->
                 runCatching { libraryFileDeleter.delete(book) }
                     .onSuccess { deletedIds += book.id }
-                    .onFailure { failures += "${book.title}: ${it.message ?: "삭제 실패"}" }
+                    .onFailure { failures += "${book.title}: ${it.message ?: strings[R.string.msg_deletion_failed]}" }
             }
             if (deletedIds.isNotEmpty()) removeDeletedLibraryState(deletedIds)
             val details = buildList {
                 if (remoteBooks.any { it.id in deletedIds }) {
-                    add("데스크톱 갤러리를 휴지통으로 이동하고 DB에서 삭제했습니다.")
+                    add(strings[R.string.msg_desktop_galleries_moved_to_trash_and_removed_from_the])
                 }
                 if (localBooks.any { it.id in deletedIds }) {
-                    add("로컬 갤러리 파일을 영구 삭제했습니다.")
+                    add(strings[R.string.msg_local_gallery_files_permanently_deleted])
                 }
-                if (failures.isNotEmpty()) add("${failures.size}개 삭제에 실패했습니다.")
+                if (failures.isNotEmpty()) add(strings[R.string.msg_could_not_delete_items, (failures.size)])
             }.joinToString(" ")
             uiState = uiState.copy(message = details, isError = failures.isNotEmpty())
         }
@@ -1960,7 +1963,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun ensureValidSeriesName(name: String): Boolean {
         if (name.length <= MAX_SERIES_NAME_LENGTH) return true
         uiState = uiState.copy(
-            message = "시리즈 이름은 ${MAX_SERIES_NAME_LENGTH}자 이하로 입력해 주세요.",
+            message = strings[R.string.msg_series_names_must_be_characters_or_fewer, (MAX_SERIES_NAME_LENGTH)],
             isError = true,
         )
         return false
@@ -2041,7 +2044,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val id = entry.galleryId
         if (id == null) {
-            uiState = uiState.copy(message = "파일을 찾을 수 없습니다. 저장 위치와 PC 연결을 확인하세요.", isError = true)
+            uiState = uiState.copy(message = strings[R.string.msg_file_not_found_check_storage_and_pc_connection], isError = true)
             return
         }
         viewModelScope.launch {
@@ -2082,7 +2085,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (downloadRefreshJob?.isActive == true || uiState.isDownloadConnectionUnavailable) return
         val profile = selectedProfile() ?: run {
             if (!silent) {
-                uiState = uiState.copy(downloadQueueError = "연결된 데스크톱이 없습니다.")
+                uiState = uiState.copy(downloadQueueError = strings[R.string.msg_no_desktop_connected])
             }
             return
         }
@@ -2101,7 +2104,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val hasNewCompletion = completedIds.any { it !in observedCompletedDownloadIds }
                 observedCompletedDownloadIds.clear()
                 observedCompletedDownloadIds += completedIds
-                val reconnectMessage = "PC와 다시 연결되었습니다.".takeIf { notifyOnDownloadReconnect }
+                val reconnectMessage = strings[R.string.msg_reconnected_to_pc].takeIf { notifyOnDownloadReconnect }
                 uiState = uiState.copy(
                     downloadQueue = downloads,
                     downloadQueueError = null,
@@ -2114,7 +2117,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: Exception) {
                 if (!silent) {
                     uiState = uiState.copy(
-                        downloadQueueError = error.message ?: "다운로드 목록을 불러오지 못했습니다.",
+                        downloadQueueError = error.message ?: strings[R.string.msg_could_not_load_downloads],
                         isDownloadConnectionUnavailable = true,
                     )
                 }
@@ -2150,7 +2153,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         if (queueId != null && queueId in uiState.activeDownloadActionIds) return
         val profile = selectedProfile() ?: run {
-            uiState = uiState.copy(downloadQueueError = "연결된 데스크톱이 없습니다.")
+            uiState = uiState.copy(downloadQueueError = strings[R.string.msg_no_desktop_connected])
             return
         }
         viewModelScope.launch {
@@ -2167,7 +2170,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             } catch (error: Exception) {
                 uiState = uiState.copy(
-                    downloadQueueError = error.message ?: "다운로드 작업에 실패했습니다.",
+                    downloadQueueError = error.message ?: strings[R.string.msg_download_action_failed],
                 )
             } finally {
                 if (queueId != null) {
@@ -2240,7 +2243,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 throw cancelled
             } catch (error: Exception) {
                 if (isSearchSessionCurrent(search.key, sessionId, revision)) {
-                    uiState = uiState.copy(message = error.message ?: "검색 결과를 복원하지 못했습니다.", isError = true)
+                    uiState = uiState.copy(message = error.message ?: strings[R.string.msg_could_not_restore_search_results], isError = true)
                 }
             } finally {
                 if (isSearchSessionCurrent(search.key, sessionId, revision)) {
@@ -2278,7 +2281,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 throw cancelled
             } catch (error: Exception) {
                 if (isSearchSessionCurrent(searchKey, window.index.sessionId, revision)) {
-                    uiState = uiState.copy(message = error.message ?: "검색 결과를 불러오지 못했습니다.", isError = true)
+                    uiState = uiState.copy(message = error.message ?: strings[R.string.msg_could_not_load_search_results], isError = true)
                 }
             }
         }
@@ -2417,7 +2420,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         if (searchQueries.isEmpty()) {
-            uiState = uiState.copy(message = "검색어를 입력하세요.", isError = true)
+            uiState = uiState.copy(message = strings[R.string.msg_enter_a_search_query], isError = true)
             return
         }
         val index = if (reset) SearchResultIndex(java.util.UUID.randomUUID().toString(), searchQueries)
@@ -2468,7 +2471,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 galleryCache = cacheGalleries(uiState.galleryCache, summaries),
                 knownFilterTokens = knownFilters,
                 message = if (failedCount > 0) {
-                    "상세 정보를 불러오지 못한 갤러리가 ${failedCount}개 있습니다."
+                    strings[R.string.msg_could_not_load_details_for_galleries, (failedCount)]
                 } else {
                     null
                 },
@@ -2482,8 +2485,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (error: Exception) {
             if (isSearchSessionCurrent(searchKey, index.sessionId, revision)) {
                 uiState = uiState.copy(
-                    message = error.message ?: "검색 페이지를 불러오지 못했습니다.",
-                    nextSearchPageError = error.message ?: "검색 페이지를 불러오지 못했습니다.",
+                    message = error.message ?: strings[R.string.msg_could_not_load_search_page],
+                    nextSearchPageError = error.message ?: strings[R.string.msg_could_not_load_search_page],
                     isError = true,
                 )
                 syncActiveSearch(persist = true)
@@ -2516,7 +2519,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 thumbnailUrl = null,
                                 pageCount = 0,
                                 language = null,
-                                loadError = error.message ?: "상세 정보를 불러오지 못했습니다.",
+                                loadError = error.message ?: strings[R.string.msg_could_not_load_details],
                             )
                         }
                 }
@@ -2530,7 +2533,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             block()
         } catch (error: Exception) {
             uiState = uiState.copy(
-                message = operationErrorMessage(error),
+                message = operationErrorMessage(error, strings),
                 isError = true,
             )
         } finally {
@@ -2564,7 +2567,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val partial = rawToken.lowercase()
             val typeHints = FILTER_TYPES
                 .filter { it.startsWith(partial) }
-                .map { FilterSuggestion("$it:", "$it 필터") }
+                .map { FilterSuggestion("$it:", strings[R.string.msg_filter, (it)]) }
             val local = localUntypedFilterSuggestions(partial)
             val cacheKey = "untyped:$partial"
             suggestionCache[cacheKey]?.let { cached ->
@@ -2857,7 +2860,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (uploadFailures.isNotEmpty()) {
             uiState = uiState.copy(
                 librarySyncError = uploadFailures.joinToString("\n"),
-                message = "${uploadFailures.size}개 로컬 파일을 데스크톱으로 전송하지 못했습니다.",
+                message = strings[R.string.msg_could_not_transfer_local_files_to_desktop, (uploadFailures.size)],
                 isError = true,
             )
         }
@@ -3009,7 +3012,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val failureDetails = failureMessages.joinToString("\n").takeIf(String::isNotBlank)
-        val failureMessage = "책 상태 ${failed.size}개를 동기화하지 못했습니다."
+        val failureMessage = strings[R.string.msg_could_not_sync_book_states, (failed.size)]
         uiState = uiState.copy(
             librarySyncPendingCount = pendingLibrarySyncCount(),
             librarySyncError = if (failed.isEmpty()) uiState.librarySyncError
@@ -3019,7 +3022,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     append(failureMessage)
                     failureDetails?.lineSequence()?.firstOrNull()?.let { append(" ").append(it) }
                 }
-                conflictCount > 0 -> "다른 기기의 변경 ${conflictCount}건을 확인하고 최신 상태로 저장했습니다."
+                conflictCount > 0 -> strings[R.string.msg_applied_changes_from_another_device, (conflictCount)]
                 else -> uiState.message
             },
             isError = failed.isNotEmpty(),
@@ -3133,7 +3136,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun syncDownloadRequests() {
         val profile = selectedProfile() ?: run {
-            uiState = uiState.copy(downloadQueueError = "먼저 데스크톱과 연결하세요.")
+            uiState = uiState.copy(downloadQueueError = strings[R.string.msg_connect_to_desktop_first])
             return
         }
         if (uiState.isDownloadSyncing) return
@@ -3154,7 +3157,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         try {
             val status = client.getStatus(profile.baseUrl)
             check(!requireRequestIds || status.downloadRequestIds) {
-                "대기 요청 동기화에는 요청 ID를 지원하는 데스크톱 업데이트가 필요합니다. 목록은 유지됩니다."
+                strings[R.string.msg_update_desktop_to_a_version_supporting_request_ids_pen]
             }
             for (request in pending) {
                 var claimed = false
@@ -3186,20 +3189,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            errors += error.message ?: "다운로드 요청 동기화에 실패했습니다."
+            errors += error.message ?: strings[R.string.msg_download_request_sync_failed]
         } finally {
             uiState = uiState.copy(isDownloadSyncing = false,
                 downloadQueueError = errors.takeIf { it.isNotEmpty() }?.joinToString("\n"))
         }
-        if (errors.isEmpty()) uiState = uiState.copy(message = "대기 요청을 PC 다운로드 큐에 전달했습니다.", isError = false)
+        if (errors.isEmpty()) uiState = uiState.copy(message = strings[R.string.msg_pending_requests_sent_to_pc_download_queue], isError = false)
         errors
     }
 
     fun syncLibraryNow() {
         val profile = selectedProfile()
         if (profile == null || uiState.isLibrarySyncing) {
-            if (profile == null) uiState = uiState.copy(librarySyncError = "먼저 데스크톱과 연결하세요.",
-                message = "먼저 데스크톱과 연결하세요.", isError = true)
+            if (profile == null) uiState = uiState.copy(librarySyncError = strings[R.string.msg_connect_to_desktop_first],
+                message = strings[R.string.msg_connect_to_desktop_first], isError = true)
             return
         }
         viewModelScope.launch {
@@ -3213,7 +3216,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val failures = uploadMissingLocalBooks(profile, uiState.libraryBooks, remainingIds)
                 val errors = downloadErrors + failures
                 if (errors.isNotEmpty()) uiState = uiState.copy(librarySyncError = errors.joinToString("\n"),
-                    message = "일부 항목을 동기화하지 못했습니다. 대기 목록에서 확인하세요.", isError = true)
+                    message = strings[R.string.msg_some_items_could_not_sync_check_the_pending_list], isError = true)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 uiState = uiState.copy(librarySyncError = error.message, message = error.message, isError = true)
@@ -3240,7 +3243,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (uploadFailures.isNotEmpty()) {
             uiState = uiState.copy(
                 librarySyncError = uploadFailures.joinToString("\n"),
-                message = "시리즈를 저장하기 전에 ${uploadFailures.size}개 로컬 파일을 전송하지 못했습니다.",
+                message = strings[R.string.msg_could_not_transfer_local_files_before_saving_series, (uploadFailures.size)],
                 isError = true,
             )
         }
@@ -3279,10 +3282,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             uiState = uiState.copy(
                 librarySyncError = combinedSyncError(
                     uiState.librarySyncError,
-                    details ?: "시리즈 ${failed.size}개 항목을 데스크톱에 저장하지 못했습니다.",
+                    details ?: strings[R.string.msg_could_not_save_series_items_on_desktop, (failed.size)],
                 ),
                 message = buildString {
-                    append("시리즈 ${failed.size}개 항목을 데스크톱에 저장하지 못했습니다.")
+                    append(strings[R.string.msg_could_not_save_series_items_on_desktop, (failed.size)])
                     if (details != null) append(" ").append(details.lineSequence().first())
                 },
                 isError = true,
@@ -3349,14 +3352,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 (desktopApiVersion ?: 0) < SAFE_ARCHIVE_IMPORT_API_VERSION
             ) {
                 failures += if (desktopApiVersion == null) {
-                    "${book.title}: 데스크톱 호환 버전을 확인하지 못했습니다."
+                    strings[R.string.msg_could_not_check_desktop_compatibility, (book.title)]
                 } else {
-                    "${book.title}: 안전한 전송을 위해 데스크톱 앱을 업데이트하세요."
+                    strings[R.string.msg_update_desktop_for_safe_transfer, (book.title)]
                 }
                 return@forEach
             }
             val prepared = runCatching { libraryUploadPreparer.prepare(book) }.getOrElse { error ->
-                failures += "${book.title}: ${error.message ?: "업로드 준비 실패"}"
+                failures += "${book.title}: ${error.message ?: strings[R.string.msg_upload_preparation_failed]}"
                 return@forEach
             }
             var uploaded = false
@@ -3381,7 +3384,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             prepared.file.delete()
             if (!uploaded) {
-                failures += "${book.title}: ${lastError?.message ?: "파일 업로드 실패"}"
+                failures += "${book.title}: ${lastError?.message ?: strings[R.string.msg_file_upload_failed]}"
             }
         }
         return failures
@@ -3503,7 +3506,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (acceptedSyncIds.isNotEmpty()) {
             uiState = uiState.copy(
                 customSeriesByBookId = assignments,
-                message = "다른 기기에서 먼저 변경된 시리즈 ${acceptedSyncIds.size}개는 데스크톱 상태를 적용했습니다.",
+                message = strings[R.string.msg_applied_desktop_state_to_series_changed_on_another_dev, (acceptedSyncIds.size)],
                 isError = false,
             )
         }
@@ -3713,16 +3716,16 @@ internal fun mergeSyncedSeries(
     return SeriesMergeResult(merged, mergedRemovalTimes, localWinnerIds)
 }
 
-private fun operationErrorMessage(error: Exception): String {
+private fun operationErrorMessage(error: Exception, strings: android.content.res.Resources): String {
     val causes = generateSequence(error as Throwable?) { it.cause }.toList()
     return when {
         causes.any { it is SocketTimeoutException } ->
-            "연결 시간이 초과되었습니다. 휴대폰의 VPN을 끄거나 로컬 네트워크 접근을 허용하고, PC와 같은 네트워크인지 확인해 주세요."
+            strings[R.string.msg_connection_timed_out_check_vpn_local_network_permissio]
         causes.any { it is ConnectException || it is NoRouteToHostException } ->
-            "PC에 연결할 수 없습니다. 휴대폰의 VPN과 네트워크 설정을 확인하고, PC와 같은 네트워크에 연결되어 있는지 확인해 주세요."
+            strings[R.string.msg_cannot_connect_to_pc_check_vpn_and_network_settings_an]
         causes.any { it is UnknownHostException } ->
-            "PC 주소를 찾을 수 없습니다. 입력한 IP/호스트와 네트워크 설정을 확인해 주세요."
-        else -> error.message ?: "알 수 없는 오류가 발생했습니다."
+            strings[R.string.msg_pc_address_not_found_check_the_ip_host_and_network_set]
+        else -> error.message ?: strings[R.string.msg_an_unknown_error_occurred]
     }
 }
 

@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import android.app.Application
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
@@ -13,12 +15,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class AppLockViewModel(application: Application) : AndroidViewModel(application) {
+    private val strings get() = androidx.core.content.ContextCompat.getContextForLanguage(getApplication()).resources
     private val store = AppLockStore(application)
     private var credential = runCatching { store.read() }.getOrNull()
     var enabled by mutableStateOf(store.enabled); private set
     var locked by mutableStateOf(enabled); private set
     var busy by mutableStateOf(false); private set
-    var error by mutableStateOf<String?>(if (enabled && credential == null) "잠금 정보를 읽을 수 없습니다. 앱 데이터를 복구해야 합니다." else null); private set
+    var error by mutableStateOf<String?>(if (enabled && credential == null) strings[R.string.msg_cannot_read_lock_data_app_data_must_be_reset_to_recove] else null); private set
     var method by mutableStateOf(credential?.method ?: LockMethod.PIN); private set
     var biometric by mutableStateOf(credential?.biometric == true); private set
     var generation = 0L; private set
@@ -32,7 +35,7 @@ class AppLockViewModel(application: Application) : AndroidViewModel(application)
         busy = true
         viewModelScope.launch {
             val success = runCatching { withContext(Dispatchers.IO) {
-                check(store.remainingDelay(System.currentTimeMillis()) == 0L) { "잠시 후 다시 시도하세요." }
+                check(store.remainingDelay(System.currentTimeMillis()) == 0L) { strings[R.string.msg_wait_a_moment_before_trying_again] }
                 val valid = credential?.matches(secret) == true
                 if (valid) store.resetAttempts() else store.failed(System.currentTimeMillis())
                 valid
@@ -40,7 +43,7 @@ class AppLockViewModel(application: Application) : AndroidViewModel(application)
             busy = false
             if (epoch != generation) return@launch
             val accepted = success.getOrDefault(false)
-            error = if (accepted) null else success.exceptionOrNull()?.message ?: "잠금 정보가 일치하지 않습니다."
+            error = if (accepted) null else success.exceptionOrNull()?.message ?: strings[R.string.msg_incorrect_credential]
             if (accepted) { if (settings) authorizedUntil = SystemClock.elapsedRealtime() + 60_000 else locked = false }
             completed(accepted)
         }
@@ -55,7 +58,7 @@ class AppLockViewModel(application: Application) : AndroidViewModel(application)
     fun disable(completed: () -> Unit) = change(completed) { null }
     private fun change(completed: () -> Unit, create: () -> LockCredential?) {
         if (busy) return
-        if (enabled && (locked || SystemClock.elapsedRealtime() >= authorizedUntil)) { error = "기존 잠금 인증이 필요합니다."; return }
+        if (enabled && (locked || SystemClock.elapsedRealtime() >= authorizedUntil)) { error = strings[R.string.msg_verify_your_current_credential_first]; return }
         val epoch = generation
         busy = true
         viewModelScope.launch {
@@ -66,7 +69,7 @@ class AppLockViewModel(application: Application) : AndroidViewModel(application)
                 biometric = value?.biometric == true; locked = enabled && epoch != generation
                 authorizedUntil = 0; error = null
                 completed()
-            }.onFailure { error = it.message ?: "잠금 설정 저장에 실패했습니다." }
+            }.onFailure { error = it.message ?: strings[R.string.msg_could_not_save_lock_settings] }
         }
     }
 }

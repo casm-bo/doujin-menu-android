@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -61,11 +63,12 @@ fun LibraryDetailScreen(
     onSearchLanguage: (String) -> Unit,
     tabBar: (@Composable () -> Unit)? = null,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Scaffold(
         topBar = {
             if (tabBar != null) tabBar() else {
                 TopAppBar(
-                    title = { Text("갤러리 상세") },
+                    title = { Text(strings[R.string.ui_gallery_details]) },
                     navigationIcon = { TextButton(onClick = onBack) { Text("<") } },
                 )
             }
@@ -73,7 +76,7 @@ fun LibraryDetailScreen(
     ) { padding ->
         if (book == null) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("갤러리 정보를 찾을 수 없습니다.")
+                Text(strings[R.string.ui_gallery_not_found])
             }
             return@Scaffold
         }
@@ -97,23 +100,23 @@ fun LibraryDetailScreen(
                         )
                     }
                     Text(book.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    FacetSection("작가", metadata.artists, "artist", onSearchFacet)
-                    FacetSection("그룹", metadata.groups, "group", onSearchFacet)
-                    FacetSection("시리즈", metadata.series, "series", onSearchFacet)
-                    FacetSection("캐릭터", metadata.characters, "character", onSearchFacet)
+                    FacetSection(strings[R.string.ui_artist], metadata.artists, "artist", onSearchFacet)
+                    FacetSection(strings[R.string.ui_group], metadata.groups, "group", onSearchFacet)
+                    FacetSection(strings[R.string.ui_series], metadata.series, "series", onSearchFacet)
+                    FacetSection(strings[R.string.ui_character], metadata.characters, "character", onSearchFacet)
                     metadata.galleryType?.let { value ->
-                        FacetSection("타입", listOf(value), "type", onSearchFacet)
+                        FacetSection(strings[R.string.ui_type], listOf(value), "type", onSearchFacet)
                     }
                     metadata.language?.let { value ->
-                        FacetSection("언어", listOf(value), "language", onSearchLanguage, rawValue = true)
+                        FacetSection(strings[R.string.ui_language], listOf(value), "language", onSearchLanguage, rawValue = true)
                     }
-                    FacetSection("태그", metadata.tags, "tag", onSearchFacet)
+                    FacetSection(strings[R.string.ui_tags], metadata.tags, "tag", onSearchFacet)
                     Text(
                         listOfNotNull(
                             metadata.hitomiId?.let { "ID $it" },
-                            "${book.pages.size}페이지",
+                            strings[R.string.ui_pages, (book.pages.size)],
                             book.locationName,
-                            if (book.isCloud) "데스크톱" else null,
+                            if (book.isCloud) strings[R.string.ui_desktop] else null,
                         ).joinToString(" · "),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -126,12 +129,12 @@ fun LibraryDetailScreen(
                             onClick = { onOpenReader(0) },
                             enabled = readerEnabled,
                             modifier = Modifier.weight(1f),
-                        ) { Text(if (isLoading) "불러오는 중…" else "처음부터 읽기") }
+                        ) { Text(if (isLoading) strings[R.string.ui_loading] else strings[R.string.ui_read_from_beginning]) }
                         Button(
                             onClick = { onOpenReader(progress.coerceAtLeast(0)) },
                             enabled = readerEnabled && progress > 0,
                             modifier = Modifier.weight(1f),
-                        ) { Text("계속해서 읽기") }
+                        ) { Text(strings[R.string.ui_continue_reading]) }
                     }
                     if (isSeriesBook) {
                         Row(
@@ -146,7 +149,7 @@ fun LibraryDetailScreen(
                                 contentPadding = PaddingValues(horizontal = 4.dp),
                             ) {
                                 DetailChevronIcon(pointsRight = false)
-                                Text("이전화", modifier = Modifier.padding(start = 5.dp), maxLines = 1)
+                                Text(strings[R.string.ui_previous_chapter], modifier = Modifier.padding(start = 5.dp), maxLines = 1)
                             }
                             Button(
                                 onClick = onOpenSeriesList,
@@ -155,7 +158,7 @@ fun LibraryDetailScreen(
                                 contentPadding = PaddingValues(horizontal = 6.dp),
                             ) {
                                 DetailListIcon()
-                                Text("목록보기", modifier = Modifier.padding(start = 6.dp), maxLines = 1)
+                                Text(strings[R.string.ui_list], modifier = Modifier.padding(start = 6.dp), maxLines = 1)
                             }
                             Button(
                                 onClick = onOpenNextBook,
@@ -164,7 +167,7 @@ fun LibraryDetailScreen(
                                 shape = RoundedCornerShape(topEnd = 14.dp, bottomEnd = 14.dp),
                                 contentPadding = PaddingValues(horizontal = 4.dp),
                             ) {
-                                Text("다음화", modifier = Modifier.padding(end = 5.dp), maxLines = 1)
+                                Text(strings[R.string.ui_next_chapter], modifier = Modifier.padding(end = 5.dp), maxLines = 1)
                                 DetailChevronIcon(pointsRight = true)
                             }
                         }
@@ -175,7 +178,7 @@ fun LibraryDetailScreen(
                         }
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    Text("갤러리 미리보기", style = MaterialTheme.typography.titleMedium)
+                    Text(strings[R.string.ui_gallery_preview], style = MaterialTheme.typography.titleMedium)
                 }
             }
             itemsIndexed(book.pages, key = { index, page -> "$index-${page.name}" }) { index, page ->
@@ -189,7 +192,7 @@ fun LibraryDetailScreen(
                     if (page.uri.isNotBlank()) {
                         AsyncImage(
                             model = libraryImageRequest(context, page.uri, book.cloudToken),
-                            contentDescription = "${index + 1}페이지 미리보기",
+                            contentDescription = strings[R.string.ui_page_preview, (index + 1)],
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
                         )

@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -225,6 +227,7 @@ fun LibraryScreen(
     initialScrollOffset: Int,
     onScrollChange: (String?, Int, Int) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val libraryPreferences = remember(context) { LibraryPreferenceStore(context) }
@@ -406,50 +409,50 @@ fun LibraryScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize().animateContentSize()) {
             tabHeader({
-                UnifiedSearchField(state.libraryQuery, onQueryChange, "갤러리 검색", { queryExpanded = true }, { queryExpanded = false })
+                UnifiedSearchField(state.libraryQuery, onQueryChange, strings[R.string.ui_search_gallery], { queryExpanded = true }, { queryExpanded = false })
             }, {
                 Box {
-                    IconButton(onClick = { options = "갤러리 옵션" }, modifier = Modifier.semantics { contentDescription = "갤러리 옵션" }) { Text("⋯") }
+                    IconButton(onClick = { options = strings[R.string.ui_gallery_options] }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_gallery_options] }) { Text("⋯") }
                     DropdownMenu(expanded = options != null, onDismissRequest = { options = null }) {
-                        if (options != "갤러리 옵션") DropdownMenuItem(text = { Text(options.orEmpty()) }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { options = "갤러리 옵션" })
+                        if (options != strings[R.string.ui_gallery_options]) DropdownMenuItem(text = { Text(options.orEmpty()) }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { options = strings[R.string.ui_gallery_options] })
                         when (options) {
-                            "보기" -> {
+                            strings[R.string.ui_view_58d697] -> {
                                 LibraryViewMode.entries.forEach { mode ->
-                                    ChoiceMenuItem(label = if (mode == LibraryViewMode.GRID) "그리드 보기" else "리스트 보기", checked = viewMode == mode, onClick = {
+                                    ChoiceMenuItem(label = if (mode == LibraryViewMode.GRID) strings[R.string.ui_grid_view] else strings[R.string.ui_list_view], checked = viewMode == mode, onClick = {
                                         viewModeName = mode.name; libraryPreferences.saveLibraryViewMode(mode.name); options = null
                                     })
                                 }
                                 HorizontalDivider()
-                                listOf(2 to "크게 · 2열", 3 to "중간 · 3열", 4 to "작게 · 4열").forEach { (columns, label) ->
+                                listOf(2 to strings[R.string.ui_large_2_columns], 3 to strings[R.string.ui_medium_3_columns], 4 to strings[R.string.ui_small_4_columns]).forEach { (columns, label) ->
                                     ChoiceMenuItem(label = label, checked = viewMode == LibraryViewMode.GRID && gridColumns == columns, onClick = {
                                         gridColumns = columns; libraryPreferences.saveLibraryGridColumns(columns)
                                         viewModeName = LibraryViewMode.GRID.name; libraryPreferences.saveLibraryViewMode(viewModeName); options = null
                                     })
                                 }
                             }
-                            "저장 위치" -> {
+                            strings[R.string.ui_storage_locations] -> {
                                 val locations = state.libraryLocations + state.desktopLibraryLocations
-                                if (locations.isEmpty()) DropdownMenuItem(text = { Text("등록된 저장 위치 없음") }, onClick = {}, enabled = false)
+                                if (locations.isEmpty()) DropdownMenuItem(text = { Text(strings[R.string.ui_no_storage_locations]) }, onClick = {}, enabled = false)
                                 locations.forEach { location ->
-                                    DropdownMenuItem(text = { Text((if (state.selectedLibraryLocationUris == null || location.uri in state.selectedLibraryLocationUris) "✓ " else "") + (if (location.isCloud) "PC · " else "기기 · ") + location.displayName) }, leadingIcon = { ActionIcon(if (location.isCloud) ActionSymbol.PC else ActionSymbol.DEVICE) }, onClick = { onLocationChange(location.uri) })
+                                    DropdownMenuItem(text = { Text((if (state.selectedLibraryLocationUris == null || location.uri in state.selectedLibraryLocationUris) "✓ " else "") + (if (location.isCloud) "PC · " else strings[R.string.ui_device]) + location.displayName) }, leadingIcon = { ActionIcon(if (location.isCloud) ActionSymbol.PC else ActionSymbol.DEVICE) }, onClick = { onLocationChange(location.uri) })
                                 }
                             }
                             else -> {
-                                listOf("보기" to ActionSymbol.GRID, "저장 위치" to ActionSymbol.FOLDER).forEach { (category, symbol) ->
+                                listOf(strings[R.string.ui_view_58d697] to ActionSymbol.GRID, strings[R.string.ui_storage_locations] to ActionSymbol.FOLDER).forEach { (category, symbol) ->
                                     DropdownMenuItem(text = { Text("$category  ›") }, leadingIcon = { ActionIcon(symbol) }, onClick = { options = category })
                                 }
-                                DropdownMenuItem(text = { Text(if (state.isAutoCreatingSeries) "분석 중…" else "자동 생성") }, leadingIcon = { ActionIcon(ActionSymbol.SERIES) }, enabled = !state.isAutoCreatingSeries, onClick = { onAutoCreateSeries(); options = null })
+                                DropdownMenuItem(text = { Text(if (state.isAutoCreatingSeries) strings[R.string.ui_analyzing] else strings[R.string.ui_auto_generate]) }, leadingIcon = { ActionIcon(ActionSymbol.SERIES) }, enabled = !state.isAutoCreatingSeries, onClick = { onAutoCreateSeries(); options = null })
                                 if (selectedSeries != null) {
-                                    DropdownMenuItem(text = { Text(if (editingSeriesOrder) "순서 편집 완료" else "순서 편집") }, leadingIcon = { ActionIcon(ActionSymbol.SORT) }, onClick = { editingSeriesOrder = !editingSeriesOrder; options = null })
-                                    DropdownMenuItem(text = { Text("시리즈 구성원 편집") }, leadingIcon = { ActionIcon(ActionSymbol.EDIT) }, enabled = !editingSeriesOrder, onClick = {
+                                    DropdownMenuItem(text = { Text(if (editingSeriesOrder) strings[R.string.ui_finish_reordering] else strings[R.string.ui_edit_order]) }, leadingIcon = { ActionIcon(ActionSymbol.SORT) }, onClick = { editingSeriesOrder = !editingSeriesOrder; options = null })
+                                    DropdownMenuItem(text = { Text(strings[R.string.ui_edit_series_members]) }, leadingIcon = { ActionIcon(ActionSymbol.EDIT) }, enabled = !editingSeriesOrder, onClick = {
                                         selectedIds = state.customSeriesByBookId.filterValues { it.name == selectedSeries }.keys
                                         addingToSeries = selectedSeries; selectionMode = true
                                         onSelectedSeriesChange(null); onSeriesModeChange(false); options = null
                                     })
                                 }
                                 HorizontalDivider()
-                                DropdownMenuItem(text = { Text("새로고침") }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { options = null; onRefresh() })
-                                DropdownMenuItem(text = { Text(if (state.isLibrarySyncing) "PC 동기화 중…" else "PC 동기화 · 대기 ${state.librarySyncPendingCount}개") }, leadingIcon = { ActionIcon(ActionSymbol.PC) },
+                                DropdownMenuItem(text = { Text(strings[R.string.ui_refresh]) }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { options = null; onRefresh() })
+                                DropdownMenuItem(text = { Text(if (state.isLibrarySyncing) strings[R.string.ui_syncing_with_pc] else strings[R.string.ui_pc_sync_pending, (state.librarySyncPendingCount)]) }, leadingIcon = { ActionIcon(ActionSymbol.PC) },
                                     enabled = !state.isLibrarySyncing && state.selectedProfileId != null, onClick = { options = null; onSync() })
                             }
                         }
@@ -458,10 +461,10 @@ fun LibraryScreen(
             })
             AnimatedVisibility(queryExpanded, enter = expandVertically(expandFrom = Alignment.Top), exit = shrinkVertically(shrinkTowards = Alignment.Top)) {
                 Column(Modifier.padding(horizontal = 16.dp)) {
-                    Text("title:제목 artist:작가 tag:태그 series:시리즈 · -제외 · \"문구\"", style = MaterialTheme.typography.bodySmall)
+                    Text(strings[R.string.ui_title_title_artist_artist_tag_tag_series_series_exclude_phrase], style = MaterialTheme.typography.bodySmall)
                     Row {
-                        TextButton(onClick = { onQueryChange("") }) { Text("검색어 지우기") }
-                        TextButton(onClick = { queryExpanded = false; focusManager.clearFocus() }) { Text("접기") }
+                        TextButton(onClick = { onQueryChange("") }) { Text(strings[R.string.ui_clear_search]) }
+                        TextButton(onClick = { queryExpanded = false; focusManager.clearFocus() }) { Text(strings[R.string.ui_collapse]) }
                     }
                 }
             }
@@ -515,11 +518,11 @@ fun LibraryScreen(
                     onRead = if (addingToSeries == null) ({
                         if (allSelectedRead) onMarkUnread(selectedIds) else onMarkRead(selectedIds)
                     }) else null,
-                    readLabel = if (allSelectedRead) "읽지 않음" else "읽음",
+                    readLabel = if (allSelectedRead) strings[R.string.ui_unread] else strings[R.string.ui_read],
                     onSeries = if (addingToSeries == null && selectedSeries == null) {
                         ({ seriesDialog = true })
                     } else null,
-                    seriesLabel = "시리즈 추가",
+                    seriesLabel = strings[R.string.ui_add_series],
                     onSave = addingToSeries?.let { target ->
                         {
                             val previousIds = state.customSeriesByBookId
@@ -544,7 +547,7 @@ fun LibraryScreen(
                         selectionMode = false
                         selectedIds = emptySet()
                     }) else null,
-                    hideLabel = if (allSelectedHidden) "숨김 해제" else "숨김",
+                    hideLabel = if (allSelectedHidden) strings[R.string.ui_unhide] else strings[R.string.ui_hide],
                     onDelete = if (addingToSeries == null) ({ deleteDialog = true }) else null,
                     onClose = {
                         addingToSeries?.let { series ->
@@ -560,11 +563,11 @@ fun LibraryScreen(
                 BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     val modes: @Composable () -> Unit = {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            FilterChip(selected = !seriesMode && !state.libraryExcludeSeries, onClick = { changeSeriesMode(false) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, label = { Text("전체") })
+                            FilterChip(selected = !seriesMode && !state.libraryExcludeSeries, onClick = { changeSeriesMode(false) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, label = { Text(strings[R.string.ui_all]) })
                             FilterChip(selected = seriesMode || state.libraryExcludeSeries, onClick = {
                                 if (seriesMode) onExcludeSeriesChange(true) else changeSeriesMode(true)
                             }, leadingIcon = { ActionIcon(if (state.libraryExcludeSeries) ActionSymbol.HIDE else ActionSymbol.SERIES) },
-                                label = { Text(if (state.libraryExcludeSeries) "시리즈 제외" else if (seriesMode) "시리즈만" else "시리즈") })
+                                label = { Text(if (state.libraryExcludeSeries) strings[R.string.ui_exclude_series] else if (seriesMode) strings[R.string.ui_series_only] else strings[R.string.ui_series]) })
                         }
                     }
                     val tools: @Composable () -> Unit = {
@@ -600,9 +603,9 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center,
                 ) { CircularProgressIndicator() }
                 state.libraryLocations.isEmpty() && state.desktopLibraryLocations.isEmpty() -> LibraryEmpty(
-                    "설정에서 스캔할 라이브러리 폴더를 먼저 추가하세요.",
+                    strings[R.string.ui_first_add_a_library_folder_in_settings],
                 )
-                books.isEmpty() -> LibraryEmpty("조건에 맞는 책이 없습니다.")
+                books.isEmpty() -> LibraryEmpty(strings[R.string.ui_no_books_match_the_conditions])
                 seriesMode && selectedSeries == null -> LibrarySeriesOverview(
                     books = books,
                     allBooks = visibilityBooks,
@@ -695,12 +698,12 @@ fun LibraryScreen(
     if (seriesDialog) {
         AlertDialog(
             onDismissRequest = { seriesDialog = false },
-            title = { Text("시리즈로 묶기") },
+            title = { Text(strings[R.string.ui_group_as_series]) },
             text = {
                 OutlinedTextField(
                     value = seriesName,
                     onValueChange = { seriesName = it },
-                    label = { Text("시리즈 이름") },
+                    label = { Text(strings[R.string.ui_series_name]) },
                     singleLine = true,
                 )
             },
@@ -714,26 +717,26 @@ fun LibraryScreen(
                         seriesDialog = false
                     },
                     enabled = seriesName.isNotBlank(),
-                ) { Text("저장") }
+                ) { Text(strings[R.string.ui_save]) }
             },
-            dismissButton = { TextButton(onClick = { seriesDialog = false }) { Text("취소") } },
+            dismissButton = { TextButton(onClick = { seriesDialog = false }) { Text(strings[R.string.ui_cancel]) } },
         )
     }
     pendingSeriesSelection?.let { pendingSeries ->
         AlertDialog(
             onDismissRequest = { pendingSeriesSelection = null },
-            title = { Text("시리즈 선택") },
-            text = { Text("이 시리즈의 모든 갤러리가 선택됩니다. 새 시리즈로 저장하면 기존 시리즈는 해제됩니다.") },
+            title = { Text(strings[R.string.ui_select_series]) },
+            text = { Text(strings[R.string.ui_selects_all_galleries_in_this_series_saving_as_a_new_series_re]) },
             confirmButton = {
                 TextButton(onClick = {
                     val ids = state.customSeriesByBookId
                         .filterValues { it.name == pendingSeries }.keys
                     selectedIds = selectedIds + ids
                     pendingSeriesSelection = null
-                }) { Text("확인") }
+                }) { Text(strings[R.string.ui_confirm]) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingSeriesSelection = null }) { Text("취소") }
+                TextButton(onClick = { pendingSeriesSelection = null }) { Text(strings[R.string.ui_cancel]) }
             },
         )
     }
@@ -744,16 +747,16 @@ fun LibraryScreen(
             onDismissRequest = { deleteDialog = false },
             title = {
                 Text(when {
-                    deletingSeries -> "시리즈 삭제"
-                    removingFromSeries -> "시리즈에서 제외"
-                    else -> "갤러리에서 삭제"
+                    deletingSeries -> strings[R.string.ui_delete_series]
+                    removingFromSeries -> strings[R.string.ui_remove_from_series]
+                    else -> strings[R.string.ui_delete_gallery]
                 })
             },
             text = {
                 Text(when {
-                    deletingSeries -> "선택한 ${selectedSeriesNames.size}개 시리즈를 삭제할까요? 갤러리는 삭제되지 않습니다."
-                    removingFromSeries -> "선택한 ${selectedIds.size}개 갤러리를 이 시리즈에서 제외할까요?"
-                    else -> "선택한 ${selectedIds.size}개 항목을 삭제할까요? 데스크톱 항목은 원본을 휴지통으로 이동한 뒤 DB에서 삭제하며, 로컬 항목은 파일 또는 폴더를 영구 삭제합니다."
+                    deletingSeries -> strings[R.string.ui_delete_selected_series_galleries_will_be_kept, (selectedSeriesNames.size)]
+                    removingFromSeries -> strings[R.string.ui_remove_selected_galleries_from_this_series, (selectedIds.size)]
+                    else -> strings[R.string.ui_delete_selected_items_desktop_originals_move_to_trash_and_are, (selectedIds.size)]
                 })
             },
             confirmButton = {
@@ -768,14 +771,14 @@ fun LibraryScreen(
                     selectionMode = false
                     seriesSelectionMode = false
                     deleteDialog = false
-                }) { Text("삭제") }
+                }) { Text(strings[R.string.ui_delete]) }
             },
-            dismissButton = { TextButton(onClick = { deleteDialog = false }) { Text("취소") } },
+            dismissButton = { TextButton(onClick = { deleteDialog = false }) { Text(strings[R.string.ui_cancel]) } },
         )
     }
     if (renameBookDialog) {
         RenameDialog(
-            title = "갤러리 이름 변경",
+            title = strings[R.string.ui_rename_gallery],
             value = renameInput,
             onValueChange = { renameInput = it },
             onDismiss = { renameBookDialog = false },
@@ -790,7 +793,7 @@ fun LibraryScreen(
     if (renameSeriesDialog) {
         val oldName = selectedSeriesNames.singleOrNull()
         RenameDialog(
-            title = "시리즈 이름 변경",
+            title = strings[R.string.ui_rename_series],
             value = renameInput,
             onValueChange = { renameInput = it },
             onDismiss = { renameSeriesDialog = false },
@@ -804,7 +807,7 @@ fun LibraryScreen(
     }
     if (mergeSeriesDialog) {
         RenameDialog(
-            title = "시리즈 합치기",
+            title = strings[R.string.ui_merge_series],
             value = renameInput,
             onValueChange = { renameInput = it },
             onDismiss = { mergeSeriesDialog = false },
@@ -827,6 +830,7 @@ private fun RenameDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -834,12 +838,12 @@ private fun RenameDialog(
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
-                label = { Text("새 이름") },
+                label = { Text(strings[R.string.ui_new_name]) },
                 singleLine = true,
             )
         },
-        confirmButton = { TextButton(onClick = onConfirm, enabled = value.isNotBlank()) { Text("변경") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+        confirmButton = { TextButton(onClick = onConfirm, enabled = value.isNotBlank()) { Text(strings[R.string.ui_change]) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(strings[R.string.ui_cancel]) } },
     )
 }
 
@@ -853,14 +857,15 @@ private fun LibrarySelectionToolbar(
     onSeries: (() -> Unit)?,
     onMerge: (() -> Unit)? = null,
     onSave: (() -> Unit)? = null,
-    readLabel: String = "읽음",
-    seriesLabel: String = "시리즈",
+    readLabel: String? = null,
+    seriesLabel: String? = null,
     onRename: (() -> Unit)?,
     onHide: (() -> Unit)? = null,
-    hideLabel: String = "숨김",
+    hideLabel: String? = null,
     onDelete: (() -> Unit)?,
     onClose: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
             .background(MaterialTheme.colorScheme.secondaryContainer)
@@ -868,25 +873,25 @@ private fun LibrarySelectionToolbar(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("${selectedCount}개 선택", fontWeight = FontWeight.Bold)
-        TextButton(onClick = onSelectAll) { ActionIcon(ActionSymbol.SELECT); Text(if (allSelected) "전체선택 취소" else "전체선택") }
+        Text(strings[R.string.ui_selected, (selectedCount)], fontWeight = FontWeight.Bold)
+        TextButton(onClick = onSelectAll) { ActionIcon(ActionSymbol.SELECT); Text(if (allSelected) strings[R.string.ui_deselect_all] else strings[R.string.ui_select_all]) }
         Spacer(Modifier.weight(1f))
         var menuExpanded by remember { mutableStateOf(false) }
         Box {
             TextButton(onClick = { menuExpanded = true }) { Text("⋯") }
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                 listOf(
-                    Triple("즐겨찾기 추가", onFavorite, ActionSymbol.HEART), Triple(readLabel, onRead, ActionSymbol.READ),
-                    Triple(seriesLabel, onSeries, ActionSymbol.SERIES), Triple("합치기", onMerge, ActionSymbol.MERGE),
-                    Triple("저장", onSave, ActionSymbol.SAVE), Triple("이름 변경", onRename, ActionSymbol.EDIT),
-                    Triple(hideLabel, onHide, ActionSymbol.HIDE), Triple("삭제", onDelete, ActionSymbol.DELETE),
+                    Triple(strings[R.string.ui_add_favorite], onFavorite, ActionSymbol.HEART), Triple(readLabel ?: strings[R.string.ui_read], onRead, ActionSymbol.READ),
+                    Triple(seriesLabel ?: strings[R.string.ui_series], onSeries, ActionSymbol.SERIES), Triple(strings[R.string.ui_merge], onMerge, ActionSymbol.MERGE),
+                    Triple(strings[R.string.ui_save], onSave, ActionSymbol.SAVE), Triple(strings[R.string.ui_rename], onRename, ActionSymbol.EDIT),
+                    Triple(hideLabel ?: strings[R.string.ui_hide], onHide, ActionSymbol.HIDE), Triple(strings[R.string.ui_delete], onDelete, ActionSymbol.DELETE),
                 ).forEach { (label, action, symbol) ->
-                    if (action != null) DropdownMenuItem(text = { Text(label) }, leadingIcon = { ActionIcon(symbol) }, enabled = selectedCount > 0 || label == "저장",
+                    if (action != null) DropdownMenuItem(text = { Text(label) }, leadingIcon = { ActionIcon(symbol) }, enabled = selectedCount > 0 || label == strings[R.string.ui_save],
                         onClick = { menuExpanded = false; action() })
                 }
             }
         }
-        TextButton(onClick = onClose) { ActionIcon(ActionSymbol.CLEAR); Text("취소") }
+        TextButton(onClick = onClose) { ActionIcon(ActionSymbol.CLEAR); Text(strings[R.string.ui_cancel]) }
     }
 }
 
@@ -901,6 +906,7 @@ private fun LibraryFilterMenu(
     excludeSeries: Boolean,
     onExcludeSeriesChange: (Boolean) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var expanded by remember { mutableStateOf(false) }
     val active = excludeSeries || favoritesOnly || readFilter != LibraryReadFilter.ALL ||
         visibilityFilter != LibraryVisibilityFilter.VISIBLE
@@ -909,7 +915,7 @@ private fun LibraryFilterMenu(
             contentPadding = PaddingValues(horizontal = 8.dp),
             colors = ButtonDefaults.outlinedButtonColors(containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
             ActionIcon(ActionSymbol.FILTER)
-            Text("필터", Modifier.padding(start = 6.dp))
+            Text(strings[R.string.ui_filter], Modifier.padding(start = 6.dp))
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             LibraryFilterItems(favoritesOnly, readFilter, visibilityFilter, onToggleFavorites, onReadFilterChange, onVisibilityFilterChange, excludeSeries, onExcludeSeriesChange)
@@ -929,26 +935,27 @@ private fun LibraryFilterItems(
     excludeSeries: Boolean,
     onExcludeSeriesChange: (Boolean) -> Unit,
 ) {
-            ChoiceMenuItem("즐겨찾기", favoritesOnly, onToggleFavorites)
-            ChoiceMenuItem("시리즈 제외", excludeSeries, onClick = { onExcludeSeriesChange(!excludeSeries) })
-            HorizontalDivider()
-            LibraryReadFilter.entries.forEach { filter ->
-                val label = when (filter) {
-                    LibraryReadFilter.ALL -> "전체"
-                    LibraryReadFilter.UNREAD -> "안읽음"
-                    LibraryReadFilter.READ -> "읽음"
-                }
-                ChoiceMenuItem(label, readFilter == filter, onClick = { onReadFilterChange(filter) })
-            }
-            HorizontalDivider()
-            LibraryVisibilityFilter.entries.forEach { filter ->
-                val label = when (filter) {
-                    LibraryVisibilityFilter.VISIBLE -> "표시 항목"
-                    LibraryVisibilityFilter.HIDDEN -> "숨김 항목"
-                    LibraryVisibilityFilter.ALL -> "표시+숨김 전체"
-                }
-                ChoiceMenuItem(label, visibilityFilter == filter, onClick = { onVisibilityFilterChange(filter) })
-            }
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    ChoiceMenuItem(strings[R.string.ui_favorites], favoritesOnly, onToggleFavorites)
+    ChoiceMenuItem(strings[R.string.ui_exclude_series], excludeSeries, onClick = { onExcludeSeriesChange(!excludeSeries) })
+    HorizontalDivider()
+    LibraryReadFilter.entries.forEach { filter ->
+        val label = when (filter) {
+            LibraryReadFilter.ALL -> strings[R.string.ui_all]
+            LibraryReadFilter.UNREAD -> strings[R.string.ui_unread_e216e3]
+            LibraryReadFilter.READ -> strings[R.string.ui_read]
+        }
+        ChoiceMenuItem(label, readFilter == filter, onClick = { onReadFilterChange(filter) })
+    }
+    HorizontalDivider()
+    LibraryVisibilityFilter.entries.forEach { filter ->
+        val label = when (filter) {
+            LibraryVisibilityFilter.VISIBLE -> strings[R.string.ui_visible_items]
+            LibraryVisibilityFilter.HIDDEN -> strings[R.string.ui_hidden_items]
+            LibraryVisibilityFilter.ALL -> strings[R.string.ui_visible_hidden]
+        }
+        ChoiceMenuItem(label, visibilityFilter == filter, onClick = { onVisibilityFilterChange(filter) })
+    }
 }
 
 internal fun LibrarySort.isAscending(): Boolean = this == LibrarySort.TITLE_ASC || this == LibrarySort.ARTIST_ASC || this == LibrarySort.OLDEST
@@ -961,23 +968,24 @@ internal fun LibrarySort.withDirection(ascending: Boolean): LibrarySort = when (
 
 @Composable
 private fun LibrarySortMenu(sort: LibrarySort, onSortChange: (LibrarySort) -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var expanded by remember { mutableStateOf(false) }
     Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
         Box {
             OutlinedButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 8.dp)) {
                 ActionIcon(ActionSymbol.SORT)
-                Text("정렬", Modifier.padding(start = 4.dp))
+                Text(strings[R.string.ui_sort], Modifier.padding(start = 4.dp))
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                listOf("제목" to LibrarySort.TITLE_ASC, "작가" to LibrarySort.ARTIST_ASC, "수정일" to LibrarySort.OLDEST).forEach { (label, field) ->
+                listOf(strings[R.string.ui_title] to LibrarySort.TITLE_ASC, strings[R.string.ui_artist] to LibrarySort.ARTIST_ASC, strings[R.string.ui_modified_date] to LibrarySort.OLDEST).forEach { (label, field) ->
                     val option = field.withDirection(sort.isAscending())
                     ChoiceMenuItem(label, sort == option, onClick = { onSortChange(option); expanded = false })
                 }
             }
         }
-        val direction = if (sort.isAscending()) "오름차순" else "내림차순"
+        val direction = if (sort.isAscending()) strings[R.string.ui_ascending] else strings[R.string.ui_descending]
         OutlinedIconButton(onClick = { onSortChange(sort.withDirection(!sort.isAscending())) },
-            modifier = Modifier.semantics { contentDescription = "$direction, 정렬 방향 전환" }) {
+            modifier = Modifier.semantics { contentDescription = strings[R.string.ui_toggle_sort_direction, (direction)] }) {
             Text(if (sort.isAscending()) "↑" else "↓", style = MaterialTheme.typography.titleLarge)
         }
     }
@@ -1139,12 +1147,13 @@ private fun LibraryBookCard(
     onToggleFavorite: () -> Unit,
     onToggleRead: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     Card(border = galleryCardBorder(), modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onLongPress)) {
         Box {
             AsyncImage(
                 model = libraryImageRequest(context, book.coverUri, book.cloudToken),
-                contentDescription = "${book.title} 표지",
+                contentDescription = strings[R.string.ui_cover, (book.title)],
                 modifier = Modifier.fillMaxWidth().aspectRatio(0.72f).clip(RoundedCornerShape(12.dp)),
                 contentScale = ContentScale.Crop,
                 colorFilter = selectionColorFilter(selectionMode),
@@ -1178,6 +1187,7 @@ private fun LibraryBookListItem(
     onToggleFavorite: () -> Unit,
     onToggleRead: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth().height(132.dp)
@@ -1188,7 +1198,7 @@ private fun LibraryBookListItem(
             Box(modifier = Modifier.width(94.dp).fillMaxHeight()) {
                 AsyncImage(
                     model = libraryImageRequest(context, book.coverUri, book.cloudToken),
-                    contentDescription = "${book.title} 표지",
+                    contentDescription = strings[R.string.ui_cover, (book.title)],
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                     colorFilter = selectionColorFilter(selectionMode),
@@ -1220,13 +1230,14 @@ internal fun BoxScope.LibraryThumbnailBadges(
     onToggleFavorite: () -> Unit,
     scale: Float,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     if (read) {
-        ThumbnailBadge("읽음", Modifier.align(Alignment.TopStart), scale)
+        ThumbnailBadge(strings[R.string.ui_read], Modifier.align(Alignment.TopStart), scale)
     }
     if (isCloud == true) {
         ThumbnailIconBadge(Modifier.align(Alignment.TopEnd), scale) { CloudOutlineIcon(scale = scale) }
     } else if (isCloud == false) {
-        ThumbnailBadge("기기", Modifier.align(Alignment.TopEnd), scale)
+        ThumbnailBadge(strings[R.string.ui_device_d79c45], Modifier.align(Alignment.TopEnd), scale)
     }
     if (showFavorite) Surface(
         modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp * scale),
@@ -1364,6 +1375,7 @@ private fun ThumbnailBadge(text: String, modifier: Modifier, scale: Float) {
 
 @Composable
 private fun LibraryBookText(book: LibraryBook, progress: Int, modifier: Modifier = Modifier) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Column(modifier = modifier) {
         Text(book.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         if (book.metadata.artists.isNotEmpty()) {
@@ -1379,8 +1391,8 @@ private fun LibraryBookText(book: LibraryBook, progress: Int, modifier: Modifier
             CompactTagRow(book.metadata.tags.take(4))
         }
         Text(
-            "${book.pages.size}장 · ${book.locationName}" +
-                if (progress > 0) " · ${progress + 1}장부터" else "",
+            strings[R.string.ui_pages_1f4c39, (book.pages.size), (book.locationName)] +
+                if (progress > 0) strings[R.string.ui_from_page, (progress + 1)] else "",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -1408,6 +1420,7 @@ private fun LibrarySeriesOverview(
     onToggleSelection: (String) -> Unit,
     onLongPress: (String) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val groups = remember(books, allBooks, customSeries, sort) {
         val grouped = seriesNames(books, customSeries).map { seriesName ->
             seriesName to allBooks.filter { customSeries[it.id]?.name == seriesName }
@@ -1432,7 +1445,7 @@ private fun LibrarySeriesOverview(
         }
     }
     if (groups.isEmpty()) {
-        LibraryEmpty("등록된 시리즈가 없습니다. 항목을 길게 눌러 시리즈로 묶어보세요.")
+        LibraryEmpty(strings[R.string.ui_no_series_yet_hold_an_item_to_group_it_into_a_series])
         return
     }
     if (viewMode == LibraryViewMode.GRID) {
@@ -1564,11 +1577,12 @@ private fun SeriesCover(
     badgeScale: Float,
     modifier: Modifier,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
         if (book != null) {
             AsyncImage(
                 model = libraryImageRequest(context, book.coverUri, book.cloudToken),
-                contentDescription = "${book.title} 시리즈 커버",
+                contentDescription = strings[R.string.ui_series_cover, (book.title)],
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
                 colorFilter = selectionColorFilter(selectionMode),
@@ -1601,12 +1615,13 @@ private fun BoxScope.SeriesThumbnailBadges(
     onToggleFavorite: () -> Unit,
     scale: Float,
 ) {
-    if (read) ThumbnailBadge("읽음", Modifier.align(Alignment.TopStart), scale)
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    if (read) ThumbnailBadge(strings[R.string.ui_read], Modifier.align(Alignment.TopStart), scale)
     when (source) {
         SeriesSource.CLOUD ->
             ThumbnailIconBadge(Modifier.align(Alignment.TopEnd), scale) { CloudOutlineIcon(scale = scale) }
-        SeriesSource.LOCAL -> ThumbnailBadge("기기", Modifier.align(Alignment.TopEnd), scale)
-        SeriesSource.MIXED -> ThumbnailBadge("혼합", Modifier.align(Alignment.TopEnd), scale)
+        SeriesSource.LOCAL -> ThumbnailBadge(strings[R.string.ui_device_d79c45], Modifier.align(Alignment.TopEnd), scale)
+        SeriesSource.MIXED -> ThumbnailBadge(strings[R.string.ui_mixed], Modifier.align(Alignment.TopEnd), scale)
     }
     Surface(
         modifier = Modifier.align(Alignment.BottomStart).padding(6.dp * scale),
@@ -1653,12 +1668,13 @@ private fun SeriesStackIcon(modifier: Modifier = Modifier) {
 
 @Composable
 private fun SeriesText(name: String, books: List<LibraryBook>, modifier: Modifier) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val artists = books.flatMap { it.metadata.artists }.distinctBy { it.lowercase() }
     val tags = books.flatMap { it.metadata.tags }.distinctBy { it.lowercase() }
     val source = when {
-        books.all(LibraryBook::isCloud) -> "클라우드"
-        books.none(LibraryBook::isCloud) -> "로컬"
-        else -> "클라우드 · 로컬"
+        books.all(LibraryBook::isCloud) -> strings[R.string.ui_cloud]
+        books.none(LibraryBook::isCloud) -> strings[R.string.ui_local]
+        else -> strings[R.string.ui_cloud_local]
     }
     Column(modifier = modifier) {
         Text(
@@ -1681,7 +1697,7 @@ private fun SeriesText(name: String, books: List<LibraryBook>, modifier: Modifie
             CompactTagRow(tags.take(4))
         }
         Text(
-            "${books.size}화 · $source",
+            strings[R.string.ui_chapters, (books.size), (source)],
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -1696,6 +1712,7 @@ private fun LibrarySeriesOrderEditor(
     customSeries: Map<String, CustomSeriesAssignment>,
     onReorder: (List<String>) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val booksById = remember(books) { books.associateBy(LibraryBook::id) }
@@ -1823,7 +1840,7 @@ private fun LibrarySeriesOrderEditor(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(book.title, modifier = Modifier.weight(1f))
-                    Text(if (movable) "☰" else "고정", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (movable) "☰" else strings[R.string.ui_pinned], color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

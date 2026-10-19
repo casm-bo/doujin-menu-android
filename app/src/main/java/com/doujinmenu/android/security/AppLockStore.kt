@@ -1,5 +1,7 @@
 package com.doujinmenu.android.security
 
+import com.doujinmenu.android.R
+
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -11,7 +13,8 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONObject
 
-class AppLockStore(context: Context) {
+class AppLockStore(private val context: Context) {
+    private val strings get() = androidx.core.content.ContextCompat.getContextForLanguage(context).resources
     private val preferences = context.getSharedPreferences("app_lock", Context.MODE_PRIVATE)
     val enabled get() = preferences.contains("credential")
     fun read(): LockCredential? {
@@ -26,7 +29,7 @@ class AppLockStore(context: Context) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
         check(preferences.edit().putString("credential", encode(cipher.doFinal(json.toString().toByteArray(Charsets.UTF_8))))
-            .putString("iv", encode(cipher.iv)).commit()) { "잠금 설정 저장에 실패했습니다." }
+            .putString("iv", encode(cipher.iv)).commit()) { strings.getString(R.string.msg_could_not_save_lock_settings) }
     }
     fun clear() { check(preferences.edit().clear().commit()) }
     fun remainingDelay(now: Long): Long = (preferences.getLong("blocked_until", 0) - now).coerceAtLeast(0)

@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +35,7 @@ fun LocalReaderScreen(
     onOpenNextBook: () -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     HideSystemBars()
     if (!book.hasReadablePages()) {
         Box(
@@ -42,11 +45,11 @@ fun LocalReaderScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (isLoading) {
                     CircularProgressIndicator()
-                    Text("페이지를 준비하는 중…", color = Color.White, modifier = Modifier.padding(top = 12.dp))
+                    Text(strings[R.string.ui_preparing_pages], color = Color.White, modifier = Modifier.padding(top = 12.dp))
                 } else {
-                    Text(error ?: "책을 열 수 없습니다.", color = Color.White)
+                    Text(error ?: strings[R.string.ui_could_not_open_book], color = Color.White)
                 }
-                Button(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) { Text("돌아가기") }
+                Button(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) { Text(strings[R.string.ui_return]) }
             }
         }
         return

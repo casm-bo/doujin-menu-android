@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalFocusManager
@@ -146,6 +148,7 @@ fun BrowserScreen(
     onEnsureResults: () -> Unit,
     onVisibleResultsChange: (Int, Int) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     var expandedPanel by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteLanguage by rememberSaveable { mutableStateOf<String?>(null) }
@@ -267,22 +270,22 @@ fun BrowserScreen(
         CollapsingSearchToolbar(scrollBehavior) {
         Column {
         tabHeader({
-            UnifiedSearchField(state.searchQuery, { expandedPanel = null; onQueryChange(it) }, "검색 조건", { editing = true; expandedPanel = "history" }, { submitSearch() })
+            UnifiedSearchField(state.searchQuery, { expandedPanel = null; onQueryChange(it) }, strings[R.string.ui_search_conditions], { editing = true; expandedPanel = "history" }, { submitSearch() })
         }, {
             Box {
-                IconButton(onClick = { menu = "root" }, modifier = Modifier.semantics { contentDescription = "검색 옵션" }) { Text("⋯") }
+                IconButton(onClick = { menu = "root" }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_search_options] }) { Text("⋯") }
                 DropdownMenu(expanded = menu != null, onDismissRequest = { menu = null }) {
                     if (menu == "view") {
-                        DropdownMenuItem(text = { Text("검색 옵션") }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { menu = "root" })
-                        ChoiceMenuItem("리스트 보기", !gridView, onClick = { gridView = false; menu = null })
-                        ChoiceMenuItem("그리드 보기", gridView, onClick = { gridView = true; menu = null })
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_search_options]) }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { menu = "root" })
+                        ChoiceMenuItem(strings[R.string.ui_list_view], !gridView, onClick = { gridView = false; menu = null })
+                        ChoiceMenuItem(strings[R.string.ui_grid_view], gridView, onClick = { gridView = true; menu = null })
                     } else {
-                        DropdownMenuItem(text = { Text("이 검색 즐겨찾기 등록") }, leadingIcon = { ActionIcon(ActionSymbol.STAR) }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
-                        DropdownMenuItem(text = { Text("페이지 이동") }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
-                        DropdownMenuItem(text = { Text("보기  ›") }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, onClick = { menu = "view" })
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_favorite_this_search]) }, leadingIcon = { ActionIcon(ActionSymbol.STAR) }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_go_to_page]) }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_view]) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, onClick = { menu = "view" })
                         HorizontalDivider()
-                        DropdownMenuItem(text = { Text("새로고침") }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { menu = null; onRefresh() })
-                        DropdownMenuItem(text = { Text("검색어 지우기") }, leadingIcon = { ActionIcon(ActionSymbol.CLEAR) }, onClick = { onQueryChange(""); menu = null; editing = true })
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_refresh]) }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { menu = null; onRefresh() })
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_clear_search]) }, leadingIcon = { ActionIcon(ActionSymbol.CLEAR) }, onClick = { onQueryChange(""); menu = null; editing = true })
                     }
                 }
             }
@@ -293,12 +296,12 @@ fun BrowserScreen(
                 ActionIcon(ActionSymbol.LANGUAGE); Spacer(Modifier.width(4.dp))
                 val selected = state.preferredLanguages.singleOrNull()
                 Text(selected?.let { code -> state.availableLanguages.firstOrNull { it.code == code }?.label
-                    ?: mapOf("korean" to "한국어", "japanese" to "日本語", "english" to "English", "chinese" to "中文")[code]
-                    ?: code.replace('_', ' ') } ?: "언어")
+                    ?: mapOf("korean" to strings[R.string.ui_], "japanese" to "日本語", "english" to "English", "chinese" to "中文")[code]
+                    ?: code.replace('_', ' ') } ?: strings[R.string.ui_language])
             }
             OutlinedButton(onClick = { togglePanel("favorites") }, contentPadding = PaddingValues(horizontal = 10.dp),
                 colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "favorites") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
-                ActionIcon(ActionSymbol.STAR); Spacer(Modifier.width(4.dp)); Text("즐겨찾기")
+                ActionIcon(ActionSymbol.STAR); Spacer(Modifier.width(4.dp)); Text(strings[R.string.ui_favorites])
             }
             Spacer(Modifier.weight(1f))
             SearchSortMenu(state.searchQuery, enabled = !state.isLoadingPage) { oldest ->
@@ -314,17 +317,17 @@ fun BrowserScreen(
                 .then(if (expandedPanel == "languages" || expandedPanel == "history") Modifier else Modifier.verticalScroll(editorScroll)).padding(12.dp)) {
                 if (expandedPanel == "history") {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("최근 검색기록", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                        TextButton(onClick = onClearSearchHistory, enabled = state.searchQueryHistory.isNotEmpty()) { Text("기록 삭제") }
+                        Text(strings[R.string.ui_recent_searches], Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        TextButton(onClick = onClearSearchHistory, enabled = state.searchQueryHistory.isNotEmpty()) { Text(strings[R.string.ui_clear_history]) }
                     }
-                    if (state.searchQueryHistory.isEmpty()) Text("최근 검색기록이 없습니다.", style = MaterialTheme.typography.bodyMedium)
+                    if (state.searchQueryHistory.isEmpty()) Text(strings[R.string.ui_no_recent_searches], style = MaterialTheme.typography.bodyMedium)
                     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
                         items(state.searchQueryHistory) { entry ->
                             TextButton(onClick = {
                                 focusManager.clearFocus(); editing = false; expandedPanel = null; onRecentSearch(entry)
                             }, modifier = Modifier.fillMaxWidth()) {
                                 Column(Modifier.fillMaxWidth()) {
-                                    Text(entry.query.ifBlank { "전체 갤러리" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(entry.query.ifBlank { strings[R.string.ui_all_galleries] }, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(entry.languages.sorted().joinToString().ifBlank { "Any" }, style = MaterialTheme.typography.labelSmall)
                                 }
                             }
@@ -335,31 +338,31 @@ fun BrowserScreen(
                     state.filterSuggestions.forEach { suggestion ->
                         TextButton(onClick = { onSelectSuggestion(suggestion) }) { Text(suggestion.token) }
                     }
-                    if (state.isLoadingFilterSuggestions) Text("필터 목록 불러오는 중…")
+                    if (state.isLoadingFilterSuggestions) Text(strings[R.string.ui_loading_filters])
                 }
 
                     if (expandedPanel == "languages") {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("언어", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            Text(strings[R.string.ui_language], Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                             TextButton(onClick = { submitSearch() }, enabled = !state.isLoadingPage,
-                                modifier = Modifier.semantics { contentDescription = "언어 선택 확인 및 검색" }) {
+                                modifier = Modifier.semantics { contentDescription = strings[R.string.ui_confirm_languages_and_search] }) {
                                 ActionIcon(ActionSymbol.SEARCH)
                                 Spacer(Modifier.width(4.dp))
-                                Text("확인")
+                                Text(strings[R.string.ui_confirm])
                             }
                         }
                         Text(
                             if (state.preferredLanguages.isEmpty())
-                                "Any: 모든 언어에서 검색합니다."
-                            else "선택한 언어를 각각 검색해 결과를 합칩니다.",
+                                strings[R.string.ui_any_search_all_languages]
+                            else strings[R.string.ui_search_each_selected_language_and_merge_results],
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Text("전체 ${state.availableLanguages.size}개 · ${state.preferredLanguages.size}개 선택 (복수 선택)", style = MaterialTheme.typography.labelMedium)
-                        if (state.isLoadingLanguages) LoadingRow("전체 언어 목록 불러오는 중…")
+                        Text(strings[R.string.ui_available_selected_multiple_selection, (state.availableLanguages.size), (state.preferredLanguages.size)], style = MaterialTheme.typography.labelMedium)
+                        if (state.isLoadingLanguages) LoadingRow(strings[R.string.ui_loading_all_languages])
                         state.languageLoadError?.let { error ->
                             Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = onLoadLanguages) { Text("다시 시도") }
+                            TextButton(onClick = onLoadLanguages) { Text(strings[R.string.ui_try_again]) }
                         }
                         val languages = remember(state.availableLanguages, state.customLanguages, state.preferredLanguages) {
                             val known = state.availableLanguages.mapTo(hashSetOf()) { it.code }
@@ -372,7 +375,7 @@ fun BrowserScreen(
                                 Row(Modifier.fillMaxWidth().toggleable(value = state.preferredLanguages.isEmpty(), role = Role.Checkbox,
                                     onValueChange = { onSelectAnyLanguage() }), verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(checked = state.preferredLanguages.isEmpty(), onCheckedChange = null, modifier = Modifier.padding(12.dp))
-                                    Text("Any · 모든 언어", style = MaterialTheme.typography.bodyMedium)
+                                    Text(strings[R.string.ui_any_all_languages], style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
                             items(languages, key = { it.code }) { language ->
@@ -384,14 +387,14 @@ fun BrowserScreen(
                                         Text(language.label, style = MaterialTheme.typography.bodyMedium)
                                         Text(language.code, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    if (language.code in state.customLanguages) TextButton(onClick = { deleteLanguage = language.code }) { Text("삭제") }
+                                    if (language.code in state.customLanguages) TextButton(onClick = { deleteLanguage = language.code }) { Text(strings[R.string.ui_delete]) }
                                 }
                             }
                         }
                     }
 
                     if (expandedPanel == "favorites") {
-                        Text("검색 즐겨찾기", style = MaterialTheme.typography.titleSmall)
+                        Text(strings[R.string.ui_saved_searches], style = MaterialTheme.typography.titleSmall)
                         state.searchFavorites.forEach { favorite ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -417,7 +420,7 @@ fun BrowserScreen(
                                     }
                                 }
                                 TextButton(onClick = { onRemoveFavorite(favorite.id) }) {
-                                    Text("삭제")
+                                    Text(strings[R.string.ui_delete])
                                 }
                             }
                         }
@@ -425,14 +428,14 @@ fun BrowserScreen(
                             value = state.favoriteName,
                             onValueChange = onFavoriteNameChange,
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("현재 조건의 즐겨찾기 이름") },
+                            label = { Text(strings[R.string.ui_name_for_current_search]) },
                             singleLine = true,
                         )
                         Button(
                             onClick = onSaveFavorite,
                             enabled = state.searchQuery.isNotBlank(),
                             modifier = Modifier.padding(top = 8.dp),
-                        ) { Text("현재 조건 저장") }
+                        ) { Text(strings[R.string.ui_save_current_search]) }
                     }
             }
             }
@@ -456,24 +459,24 @@ fun BrowserScreen(
         item(key = "search-controls", span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(0.dp)) }
         if (resultIds.isEmpty() && !state.isLoadingPage && !canRestoreResults) {
             item(key = "empty-results", span = { GridItemSpan(maxLineSpan) }) {
-                Text(if (state.currentPage > 0) "검색 결과가 없습니다. 검색 조건을 바꿔 보세요." else "상단 검색창에서 검색어를 입력하세요. 언어와 즐겨찾기도 선택할 수 있습니다.",
+                Text(if (state.currentPage > 0) strings[R.string.ui_no_search_results_try_different_conditions] else strings[R.string.ui_enter_a_query_in_the_search_bar_above_you_can_also_select_lang],
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
         }
 
         if (state.isLoadingPage && resultIds.isEmpty()) {
-            item(key = "initial-loader", span = { GridItemSpan(maxLineSpan) }) { LoadingRow("불러오는 중…") }
+            item(key = "initial-loader", span = { GridItemSpan(maxLineSpan) }) { LoadingRow(strings[R.string.ui_loading]) }
         }
         if (canRestoreResults) {
             item(key = "restore-results", span = { GridItemSpan(maxLineSpan) }) {
-                TextButton(onClick = onEnsureResults, modifier = Modifier.fillMaxWidth()) { Text("검색 결과 다시 불러오기") }
+                TextButton(onClick = onEnsureResults, modifier = Modifier.fillMaxWidth()) { Text(strings[R.string.ui_reload_search_results]) }
             }
         }
 
         if (resultIds.isNotEmpty() || totalCount != null) {
             item(key = "result-count", span = { GridItemSpan(maxLineSpan) }) {
                 Text(
-                    totalCount?.let { "검색결과 ${java.text.NumberFormat.getIntegerInstance().format(it)}개" } ?: "검색결과 · 전체 건수 미확인",
+                    totalCount?.let { strings[R.string.ui_search_results, (java.text.NumberFormat.getIntegerInstance().format(it))] } ?: strings[R.string.ui_search_results_total_unknown],
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -484,7 +487,7 @@ fun BrowserScreen(
                 if (gallery == null) {
                     Card(Modifier.fillMaxWidth().height(if (gridView) 280.dp else 168.dp)) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("#$id · 불러오는 중…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(strings[R.string.ui_loading_9ca3f0, (id)], color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 } else {
@@ -510,10 +513,10 @@ fun BrowserScreen(
                     if (listState.isScrollInProgress && state.hasNextPage && !state.isLoadingPage && !state.isRestoringSearch && state.nextSearchPageError == null) onLoadNextPage()
                 }
                 if (state.nextSearchPageError != null) {
-                    TextButton(onClick = onLoadNextPage, modifier = Modifier.fillMaxWidth()) { Text("다음 페이지 다시 불러오기") }
+                    TextButton(onClick = onLoadNextPage, modifier = Modifier.fillMaxWidth()) { Text(strings[R.string.ui_reload_next_page]) }
                 } else LoadingRow(
-                    if (state.isLoadingPage) "${state.currentPage + 1}페이지 불러오는 중…"
-                    else "다음 페이지 준비 중…",
+                    if (state.isLoadingPage) strings[R.string.ui_loading_page, (state.currentPage + 1)]
+                    else strings[R.string.ui_preparing_next_page],
                 )
             }
         }
@@ -528,29 +531,29 @@ fun BrowserScreen(
     }
     if (pageDialog) AlertDialog(
         onDismissRequest = { pageDialog = false },
-        title = { Text("페이지 이동") },
-        text = { OutlinedTextField(value = pageInput, onValueChange = { pageInput = it.filter(Char::isDigit).take(10) }, label = { Text("페이지 번호") },
-            placeholder = { Text(maxPage?.let { "최대 ${java.text.NumberFormat.getIntegerInstance().format(it)}페이지" } ?: "이동할 페이지 입력") },
-            supportingText = { Text(maxPage?.let { "1 ~ ${java.text.NumberFormat.getIntegerInstance().format(it)}페이지" } ?: "1 이상의 페이지 번호") },
+        title = { Text(strings[R.string.ui_go_to_page]) },
+        text = { OutlinedTextField(value = pageInput, onValueChange = { pageInput = it.filter(Char::isDigit).take(10) }, label = { Text(strings[R.string.ui_page_number]) },
+            placeholder = { Text(maxPage?.let { strings[R.string.ui_up_to_page, (java.text.NumberFormat.getIntegerInstance().format(it))] } ?: strings[R.string.ui_enter_target_page]) },
+            supportingText = { Text(maxPage?.let { strings[R.string.ui_pages_1, (java.text.NumberFormat.getIntegerInstance().format(it))] } ?: strings[R.string.ui_page_number_of_1_or_higher]) },
             isError = pageInput.isNotEmpty() && !isSearchPageInRange(pageInput.toIntOrNull(), maxPage),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) },
-        confirmButton = { TextButton(enabled = isSearchPageInRange(pageInput.toIntOrNull(), maxPage), onClick = { onJumpToPage(pageInput.toInt()); pageDialog = false }) { Text("이동") } },
-        dismissButton = { TextButton(onClick = { pageDialog = false }) { Text("취소") } },
+        confirmButton = { TextButton(enabled = isSearchPageInRange(pageInput.toIntOrNull(), maxPage), onClick = { onJumpToPage(pageInput.toInt()); pageDialog = false }) { Text(strings[R.string.ui_go]) } },
+        dismissButton = { TextButton(onClick = { pageDialog = false }) { Text(strings[R.string.ui_cancel]) } },
     )
 
     deleteLanguage?.let { language ->
         AlertDialog(
             onDismissRequest = { deleteLanguage = null },
-            title = { Text("언어 삭제") },
-            text = { Text("${language.replaceFirstChar { it.uppercase() }} 언어를 삭제하시겠습니까?") },
+            title = { Text(strings[R.string.ui_remove_language]) },
+            text = { Text(strings[R.string.ui_remove_language_6332b0, (language.replaceFirstChar { it.uppercase() })]) },
             confirmButton = {
                 TextButton(onClick = {
                     onRemoveCustomLanguage(language)
                     deleteLanguage = null
-                }) { Text("삭제") }
+                }) { Text(strings[R.string.ui_delete]) }
             },
             dismissButton = {
-                TextButton(onClick = { deleteLanguage = null }) { Text("취소") }
+                TextButton(onClick = { deleteLanguage = null }) { Text(strings[R.string.ui_cancel]) }
             },
         )
     }
@@ -568,6 +571,7 @@ private fun GalleryCard(
     onLongClick: () -> Unit,
     onSearchFacet: (String) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val request = remember(context, gallery.thumbnailUrl, gallery.id) {
         gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id) }
@@ -575,16 +579,16 @@ private fun GalleryCard(
 
     if (gridView) {
         val tagAreaHeight = (110 * LocalDensity.current.fontScale).dp
-        Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "새 탭에서 열기")) {
+        Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = strings[R.string.ui_open_in_new_tab])) {
             Box(Modifier.fillMaxWidth().aspectRatio(0.72f).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                 Text("#${gallery.id}", style = MaterialTheme.typography.labelSmall)
-                if (request != null) AsyncImage(model = request, contentDescription = "${preferredLocalizedTitle(gallery.title)} 썸네일", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                if (request != null) AsyncImage(model = request, contentDescription = strings[R.string.ui_thumbnail, (preferredLocalizedTitle(gallery.title))], modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 LibraryThumbnailBadges(read, libraryBook?.isCloud, favorite, showFavorite = libraryBook != null, onToggleFavorite = onToggleFavorite, scale = 0.75f)
             }
             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(preferredLocalizedTitle(gallery.title), maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                Text(gallery.artists.joinToString().ifBlank { "작가 정보 없음" }, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                Text(listOfNotNull(gallery.language, gallery.pageCount.takeIf { it > 0 }?.let { "${it}페이지" }).joinToString(" · "), style = MaterialTheme.typography.labelSmall, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(gallery.artists.joinToString().ifBlank { strings[R.string.ui_no_artist_information] }, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                Text(listOfNotNull(gallery.language, gallery.pageCount.takeIf { it > 0 }?.let { strings[R.string.ui_pages, (it)] }).joinToString(" · "), style = MaterialTheme.typography.labelSmall, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Column(Modifier.fillMaxWidth().height(tagAreaHeight).clipToBounds(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp), maxLines = 3) {
                         gallery.tags.take(3).forEach { tag ->
@@ -604,7 +608,7 @@ private fun GalleryCard(
     Card(modifier = Modifier.fillMaxWidth().combinedClickable(
         onClick = onClick,
         onLongClick = onLongClick,
-        onLongClickLabel = "새 탭에서 열기",
+        onLongClickLabel = strings[R.string.ui_open_in_new_tab],
     )) {
         Row(modifier = Modifier.padding(12.dp)) {
             Box(
@@ -619,7 +623,7 @@ private fun GalleryCard(
                 if (request != null) {
                     AsyncImage(
                         model = request,
-                        contentDescription = "${preferredLocalizedTitle(gallery.title)} 썸네일",
+                        contentDescription = strings[R.string.ui_thumbnail, (preferredLocalizedTitle(gallery.title))],
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
@@ -646,7 +650,7 @@ private fun GalleryCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    gallery.artists.takeIf { it.isNotEmpty() }?.joinToString() ?: "작가 정보 없음",
+                    gallery.artists.takeIf { it.isNotEmpty() }?.joinToString() ?: strings[R.string.ui_no_artist_information],
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
@@ -655,8 +659,8 @@ private fun GalleryCard(
                 Text(
                     listOfNotNull(
                         gallery.language,
-                        gallery.pageCount.takeIf { it > 0 }?.let { "${it}페이지" },
-                        formatGalleryPublishedDate(gallery.publishedDate)?.let { "업로드 $it" },
+                        gallery.pageCount.takeIf { it > 0 }?.let { strings[R.string.ui_pages, (it)] },
+                        formatGalleryPublishedDate(gallery.publishedDate)?.let { strings[R.string.ui_uploaded, (it)] },
                     ).joinToString(" · ").ifEmpty { "ID ${gallery.id}" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -744,6 +748,7 @@ internal fun visibleSearchPage(firstVisibleListIndex: Int, index: SearchResultIn
 
 @Composable
 private fun BoxScope.SearchPageIndicator(listState: LazyGridState, index: SearchResultIndex, onClick: () -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val page by remember(listState, index) { derivedStateOf { visibleSearchPage(listState.firstVisibleItemIndex, index) } }
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(listState.isScrollInProgress) {
@@ -754,8 +759,8 @@ private fun BoxScope.SearchPageIndicator(listState: LazyGridState, index: Search
         modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 16.dp)) {
         Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), tonalElevation = 4.dp,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.semantics { contentDescription = "현재 ${page}페이지. 눌러서 페이지 이동" }) {
-            Text("${page}페이지", Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.semantics { contentDescription = strings[R.string.ui_page_tap_to_jump, (page)] }) {
+            Text(strings[R.string.ui_pages, (page)], Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
     }
@@ -763,15 +768,16 @@ private fun BoxScope.SearchPageIndicator(listState: LazyGridState, index: Search
 
 @Composable
 private fun SearchSortMenu(query: String, enabled: Boolean, onSelect: (Boolean) -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var expanded by remember { mutableStateOf(false) }
     val oldest = remember(query) { parseHitomiSearchOrder(query).oldest }
     Box {
         TextButton(onClick = { expanded = true }, enabled = enabled, contentPadding = PaddingValues(horizontal = 8.dp)) {
-            ActionIcon(ActionSymbol.SORT); Spacer(Modifier.width(4.dp)); Text("정렬")
+            ActionIcon(ActionSymbol.SORT); Spacer(Modifier.width(4.dp)); Text(strings[R.string.ui_sort])
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            ChoiceMenuItem("최신순", !oldest, onClick = { expanded = false; onSelect(false) }, enabled = enabled)
-            ChoiceMenuItem("오래된순", oldest, onClick = { expanded = false; onSelect(true) }, enabled = enabled)
+            ChoiceMenuItem(strings[R.string.ui_newest_first], !oldest, onClick = { expanded = false; onSelect(false) }, enabled = enabled)
+            ChoiceMenuItem(strings[R.string.ui_oldest_first], oldest, onClick = { expanded = false; onSelect(true) }, enabled = enabled)
         }
     }
 }

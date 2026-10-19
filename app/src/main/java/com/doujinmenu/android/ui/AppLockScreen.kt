@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import androidx.activity.compose.BackHandler
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
@@ -32,7 +34,8 @@ val LocalAppLock = staticCompositionLocalOf<AppLockViewModel> { error("Missing a
 
 @Composable
 fun AppLockScreen(lock: AppLockViewModel, onBackground: () -> Unit) {
-    val activity = LocalContext.current as AppCompatActivity
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    val activity = androidx.activity.compose.LocalActivity.current as AppCompatActivity
     var secret by remember { mutableStateOf("") }
     var biometricError by remember { mutableStateOf<String?>(null) }
     BackHandler { onBackground() }
@@ -40,12 +43,12 @@ fun AppLockScreen(lock: AppLockViewModel, onBackground: () -> Unit) {
         Column(Modifier.safeDrawingPadding().padding(24.dp).verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Spacer(Modifier.height(32.dp))
-            Text("앱 잠금", style = MaterialTheme.typography.headlineMedium)
-            Text("${lock.method.label}으로 잠금을 해제하세요.")
+            Text(strings[R.string.ui_app_lock], style = MaterialTheme.typography.headlineMedium)
+            Text(strings[R.string.ui_unlock_with, (strings[lock.method.labelResource])])
             CredentialInput(lock.method, secret, { secret = it }, !lock.busy)
             (lock.error ?: biometricError)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(enabled = !lock.busy && secret.isNotEmpty(), onClick = { lock.verify(secret) { if (!it) secret = "" } }) {
-                Text(if (lock.busy) "확인 중…" else "잠금 해제")
+                Text(if (lock.busy) strings[R.string.ui_checking] else strings[R.string.ui_unlock])
             }
             if (lock.biometric) OutlinedButton(enabled = !lock.busy, onClick = {
                 val epoch = lock.generation
@@ -53,16 +56,17 @@ fun AppLockScreen(lock: AppLockViewModel, onBackground: () -> Unit) {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) { lock.biometricSuccess(epoch) }
                     override fun onAuthenticationError(code: Int, message: CharSequence) { biometricError = message.toString() }
                 })
-                prompt.authenticate(BiometricPrompt.PromptInfo.Builder().setTitle("앱 잠금 해제")
+                prompt.authenticate(BiometricPrompt.PromptInfo.Builder().setTitle(strings[R.string.ui_unlock_app])
                     .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-                    .setNegativeButtonText("${lock.method.label} 사용").build())
-            }) { Text("생체인증") }
+                    .setNegativeButtonText(strings[R.string.ui_use, (strings[lock.method.labelResource])]).build())
+            }) { Text(strings[R.string.ui_biometric_authentication]) }
         }
     }
 }
 
 @Composable
 fun AppLockSettings() {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val lock = LocalAppLock.current
     val context = LocalContext.current
     val biometricAvailable = BiometricManager.from(context).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
@@ -81,21 +85,21 @@ fun AppLockSettings() {
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(if (lock.enabled) "사용 중: ${lock.method.label}" else "앱 잠금 꺼짐")
-        Text("앱 실행과 백그라운드 복귀 시 잠급니다. 잠금 정보를 잊으면 앱 데이터 복구가 필요하므로 안전하게 보관하세요.", style = MaterialTheme.typography.bodySmall)
+        Text(if (lock.enabled) strings[R.string.ui_enabled, (strings[lock.method.labelResource])] else strings[R.string.ui_app_lock_is_off])
+        Text(strings[R.string.ui_locks_on_launch_and_return_from_background_keep_your_credentia], style = MaterialTheme.typography.bodySmall)
         LockMethod.entries.forEach { method ->
             OutlinedButton(modifier = Modifier.fillMaxWidth(), enabled = !lock.busy, onClick = { request(method.name) }) {
                 RadioButton(selected = lock.enabled && lock.method == method, onClick = null)
-                Spacer(Modifier.width(8.dp)); Text(method.label)
+                Spacer(Modifier.width(8.dp)); Text(strings[method.labelResource])
             }
         }
-        if (lock.enabled) TextButton(enabled = !lock.busy, onClick = { request("disable") }) { Text("앱 잠금 해제하기") }
+        if (lock.enabled) TextButton(enabled = !lock.busy, onClick = { request("disable") }) { Text(strings[R.string.ui_disable_app_lock]) }
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("생체잠금", modifier = Modifier.weight(1f))
+            Text(strings[R.string.ui_biometric_unlock], modifier = Modifier.weight(1f))
             Switch(checked = lock.biometric, enabled = lock.enabled && !lock.busy && (biometricAvailable || lock.biometric), onCheckedChange = { request("biometric") })
         }
-        Text(if (biometricAvailable) "설정한 PIN·비밀번호·패턴 대신 생체인증으로 해제합니다." else "지원되는 생체정보를 기기 설정에서 먼저 등록하세요.", style = MaterialTheme.typography.bodySmall)
+        Text(if (biometricAvailable) strings[R.string.ui_use_biometrics_instead_of_the_configured_pin_password_or_patte] else strings[R.string.ui_first_enroll_supported_biometrics_in_device_settings], style = MaterialTheme.typography.bodySmall)
         lock.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
     val action = pending
@@ -103,11 +107,11 @@ fun AppLockSettings() {
         val method = if (authenticating) lock.method else LockMethod.entries.firstOrNull { it.name == action }
         if (method != null) AlertDialog(
             onDismissRequest = { if (!lock.busy) dismiss() },
-            title = { Text(if (authenticating) "현재 잠금 인증" else if (repeat) "${method.label} 다시 입력" else "${method.label} 설정") },
+            title = { Text(if (authenticating) strings[R.string.ui_verify_current_credential] else if (repeat) strings[R.string.ui_enter_again, (strings[method.labelResource])] else strings[R.string.ui_set, (strings[method.labelResource])]) },
             text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!authenticating) Text(when (method) { LockMethod.PIN -> "숫자 4~12자리"; LockMethod.PASSWORD -> "6~128자"; LockMethod.PATTERN -> "점 4개 이상 연결" })
+                if (!authenticating) Text(when (method) { LockMethod.PIN -> strings[R.string.ui_4_12_digits]; LockMethod.PASSWORD -> strings[R.string.ui_6_128_characters]; LockMethod.PATTERN -> strings[R.string.ui_connect_at_least_4_dots] })
                 CredentialInput(method, if (repeat) confirmation else secret, { if (repeat) confirmation = it else secret = it; mismatch = false }, !lock.busy)
-                if (mismatch) Text("두 입력이 일치하지 않습니다.", color = MaterialTheme.colorScheme.error)
+                if (mismatch) Text(strings[R.string.ui_the_two_entries_do_not_match], color = MaterialTheme.colorScheme.error)
                 lock.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             } },
             confirmButton = { TextButton(enabled = !lock.busy && (authenticating || validLockSecret(method, if (repeat) confirmation else secret)), onClick = {
@@ -118,23 +122,25 @@ fun AppLockSettings() {
                 else if (!repeat) repeat = true
                 else if (secret != confirmation) { mismatch = true; confirmation = "" }
                 else lock.configure(method, secret, ::dismiss)
-            }) { Text(if (authenticating) "확인" else if (repeat) "저장" else "다음") } },
-            dismissButton = { TextButton(enabled = !lock.busy, onClick = ::dismiss) { Text("취소") } },
+            }) { Text(if (authenticating) strings[R.string.ui_confirm] else if (repeat) strings[R.string.ui_save] else strings[R.string.ui_next]) } },
+            dismissButton = { TextButton(enabled = !lock.busy, onClick = ::dismiss) { Text(strings[R.string.ui_cancel]) } },
         )
     }
 }
 
 @Composable
 private fun CredentialInput(method: LockMethod, value: String, onChange: (String) -> Unit, enabled: Boolean) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     if (method == LockMethod.PATTERN) PatternInput(value, onChange, enabled)
     else OutlinedTextField(value = value, onValueChange = { if (it.length <= 128) onChange(it) }, enabled = enabled,
-        label = { Text(method.label) }, singleLine = true, visualTransformation = PasswordVisualTransformation(),
+        label = { Text(strings[method.labelResource]) }, singleLine = true, visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = if (method == LockMethod.PIN) KeyboardType.NumberPassword else KeyboardType.Password),
         modifier = Modifier.fillMaxWidth())
 }
 
 @Composable
 private fun PatternInput(value: String, onChange: (String) -> Unit, enabled: Boolean) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val update by rememberUpdatedState(onChange)
     val color = MaterialTheme.colorScheme.primary
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -167,6 +173,6 @@ private fun PatternInput(value: String, onChange: (String) -> Unit, enabled: Boo
                 } }
             }
         }
-        TextButton(enabled = enabled, onClick = { onChange("") }) { Text("다시 그리기") }
+        TextButton(enabled = enabled, onClick = { onChange("") }) { Text(strings[R.string.ui_draw_again]) }
     }
 }

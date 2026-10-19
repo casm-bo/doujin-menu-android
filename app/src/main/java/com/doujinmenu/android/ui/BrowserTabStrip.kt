@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -33,6 +35,16 @@ internal val BrowserPage.toolbarTitle: String
         }
     } else label
 
+internal fun BrowserPage.localizedToolbarTitle(strings: android.content.res.Resources): String = when (this) {
+    is BrowserPage.Search -> (if (currentPage > 0 || submittedQueries.isNotEmpty()) submittedQuery.ifBlank { submittedQueries.joinToString(" · ") } else query)
+        .ifBlank { preferredLanguages.joinToString(" · ").ifBlank { strings[R.string.ui_new_search] } }
+    is BrowserPage.LibraryHome -> strings[R.string.ui_gallery]
+    is BrowserPage.OnlineGallery -> title.ifBlank { strings[R.string.ui_gallery_d16837, galleryId] }
+    is BrowserPage.OnlineReader -> title.ifBlank { strings[R.string.ui_gallery_d16837, galleryId] }
+    is BrowserPage.LibraryBook -> title.ifBlank { strings[R.string.ui_gallery] }
+    is BrowserPage.LibraryReader -> title.ifBlank { strings[R.string.ui_gallery] }
+}
+
 @Composable
 fun BrowserTabStrip(
     workspace: BrowserWorkspace,
@@ -43,24 +55,25 @@ fun BrowserTabStrip(
     titleContent: (@Composable () -> Unit)? = null,
     extraActions: @Composable RowScope.() -> Unit = {},
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val scope = rememberCoroutineScope()
     fun captureThen(action: () -> Unit) { scope.launch { previews.captureNow(); action() } }
 
     Surface(modifier = if (titleContent == null) Modifier.statusBarsPadding() else Modifier, color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) IconButton(onClick = { captureThen(onBack) },
-                modifier = Modifier.semantics { contentDescription = "뒤로" }) { Text("‹") }
+                modifier = Modifier.semantics { contentDescription = strings[R.string.ui_back] }) { Text("‹") }
             Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(28.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                if (titleContent != null) titleContent() else Text(workspace.activeTab.currentPage.toolbarTitle,
+                if (titleContent != null) titleContent() else Text(workspace.activeTab.currentPage.localizedToolbarTitle(strings),
                     Modifier.padding(horizontal = 16.dp, vertical = 13.dp), maxLines = 1,
                     overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
             }
-            IconButton(onClick = { captureThen(onNew) }, modifier = Modifier.semantics { contentDescription = "새 탭" }) {
+            IconButton(onClick = { captureThen(onNew) }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_new_tab] }) {
                 Text("+", style = MaterialTheme.typography.headlineMedium)
             }
             IconButton(onClick = { captureThen(onShowOverview) },
-                modifier = Modifier.semantics { contentDescription = "모든 탭 보기, ${workspace.tabs.size}개" }) {
+                modifier = Modifier.semantics { contentDescription = strings[R.string.ui_show_all_tabs, (workspace.tabs.size)] }) {
                 Surface(shape = RoundedCornerShape(7.dp), border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)) {
                     Text(workspace.tabs.size.toString(), Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelLarge)
                 }

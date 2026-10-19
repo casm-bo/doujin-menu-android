@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -95,6 +97,7 @@ internal fun UnifiedReader(
     nextBookTitle: String? = null,
     onOpenNextBook: (() -> Unit)? = null,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     ReaderKeepScreenOn(preferences.keepScreenOn)
 
     val pagerState = androidx.compose.runtime.key(readerKey) {
@@ -167,7 +170,7 @@ internal fun UnifiedReader(
         ) { page ->
             UnifiedZoomableImage(
                 model = pages[page].model,
-                contentDescription = "${page + 1}페이지",
+                contentDescription = strings[R.string.ui_pages, (page + 1)],
                 contentScale = if (preferences.scale == ViewerScale.FIT_WIDTH) {
                     ContentScale.FillWidth
                 } else {
@@ -252,15 +255,15 @@ internal fun UnifiedReader(
     if (nextBookDialog && nextBookTitle != null && onOpenNextBook != null) {
         AlertDialog(
             onDismissRequest = { nextBookDialog = false },
-            title = { Text("다음 책") },
-            text = { Text("$nextBookTitle 을(를) 이어서 볼까요?") },
+            title = { Text(strings[R.string.ui_next_book]) },
+            text = { Text(strings[R.string.ui_continue_with, (nextBookTitle)]) },
             confirmButton = {
                 TextButton(onClick = {
                     nextBookDialog = false
                     onOpenNextBook()
-                }) { Text("열기") }
+                }) { Text(strings[R.string.ui_open]) }
             },
-            dismissButton = { TextButton(onClick = { nextBookDialog = false }) { Text("취소") } },
+            dismissButton = { TextButton(onClick = { nextBookDialog = false }) { Text(strings[R.string.ui_cancel]) } },
         )
     }
 }
@@ -273,6 +276,7 @@ private fun ReaderTopBar(
     onToggleFavorite: (() -> Unit)?,
     onSettings: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Row(
         modifier = Modifier.fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
@@ -294,7 +298,7 @@ private fun ReaderTopBar(
                 Text(if (favorite) "♥" else "♡", color = Color.White)
             }
         }
-        TextButton(onClick = onSettings) { Text("설정", color = Color.White) }
+        TextButton(onClick = onSettings) { Text(strings[R.string.ui_settings], color = Color.White) }
     }
 }
 
@@ -306,6 +310,7 @@ private fun ReaderThumbnailBar(
     onSwipeDown: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val listState = rememberLazyListState()
     LaunchedEffect(currentPage) {
         if (currentPage in pages.indices) listState.animateScrollToItem(currentPage)
@@ -337,7 +342,7 @@ private fun ReaderThumbnailBar(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 AsyncImage(
                     model = page.model,
-                    contentDescription = "${index + 1}페이지로 이동",
+                    contentDescription = strings[R.string.ui_go_to_page_abf841, (index + 1)],
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(width = 60.dp, height = 84.dp)
                         .border(
@@ -434,9 +439,10 @@ private fun UnifiedViewerSettingsDialog(
     onChange: (ViewerPreferences) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("리더 설정") },
+        title = { Text(strings[R.string.ui_reader_settings]) },
         text = {
             ViewerSettingsContent(
                 preferences = preferences,
@@ -444,7 +450,7 @@ private fun UnifiedViewerSettingsDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
             )
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("완료") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(strings[R.string.ui_completed]) } },
     )
 }
 
@@ -454,26 +460,27 @@ internal fun ViewerSettingsContent(
     onChange: (ViewerPreferences) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var tapEditorVisible by remember { mutableStateOf(false) }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        SettingsHeading("화면 맞춤")
+        SettingsHeading(strings[R.string.ui_page_scale])
         ViewerScale.entries.forEach { value ->
             SettingsRadio(
-                label = if (value == ViewerScale.FIT_SCREEN) "전체 페이지" else "너비 맞춤",
+                label = if (value == ViewerScale.FIT_SCREEN) strings[R.string.ui_fit_page] else strings[R.string.ui_fit_width],
                 selected = preferences.scale == value,
             ) { onChange(preferences.copy(scale = value)) }
         }
 
-        SettingsHeading("읽는 방향")
+        SettingsHeading(strings[R.string.ui_reading_direction])
         ViewerReadingDirection.entries.forEach { value ->
             SettingsRadio(
                 label = if (value == ViewerReadingDirection.LEFT_TO_RIGHT) {
-                    "왼쪽 → 오른쪽"
+                    strings[R.string.ui_left_right]
                 } else {
-                    "오른쪽 → 왼쪽"
+                    strings[R.string.ui_right_left]
                 },
                 selected = preferences.readingDirection == value,
             ) {
@@ -488,20 +495,20 @@ internal fun ViewerSettingsContent(
             }
         }
 
-        SettingsHeading("페이지 넘기기")
+        SettingsHeading(strings[R.string.ui_page_turning])
         ViewerPageTurnMode.entries.forEach { value ->
             SettingsRadio(
                 label = when (value) {
-                    ViewerPageTurnMode.SWIPE_AND_TAP -> "슬라이드 + 터치"
-                    ViewerPageTurnMode.SWIPE_ONLY -> "슬라이드만"
-                    ViewerPageTurnMode.TAP_ONLY -> "터치만"
+                    ViewerPageTurnMode.SWIPE_AND_TAP -> strings[R.string.ui_swipe_tap]
+                    ViewerPageTurnMode.SWIPE_ONLY -> strings[R.string.ui_swipe_only]
+                    ViewerPageTurnMode.TAP_ONLY -> strings[R.string.ui_tap_only]
                 },
                 selected = preferences.pageTurnMode == value,
             ) { onChange(preferences.copy(pageTurnMode = value)) }
         }
 
-        SettingsHeading("터치 영역")
-        ReaderSettingSwitch("9분할 사용자 설정", preferences.customTapZonesEnabled) { enabled ->
+        SettingsHeading(strings[R.string.ui_tap_zones])
+        ReaderSettingSwitch(strings[R.string.ui_custom_3_3_zones], preferences.customTapZonesEnabled) { enabled ->
             onChange(
                 preferences.copy(
                     customTapZonesEnabled = enabled,
@@ -511,22 +518,22 @@ internal fun ViewerSettingsContent(
         }
         if (preferences.customTapZonesEnabled) {
             Text(
-                "이전·토글·다음·없음 동작을 화면의 실제 위치에 배치합니다.",
+                strings[R.string.ui_place_previous_toggle_next_none_actions_on_screen],
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedButton(
                 onClick = { tapEditorVisible = true },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("터치 영역 편집") }
+            ) { Text(strings[R.string.ui_edit_tap_zones]) }
         }
 
-        ReaderSettingSwitch("페이지 번호 표시", preferences.showPageNumber) {
+        ReaderSettingSwitch(strings[R.string.ui_show_page_number], preferences.showPageNumber) {
             onChange(preferences.copy(showPageNumber = it))
         }
-        ReaderSettingSwitch("썸네일 숨기기", preferences.hideThumbnails) {
+        ReaderSettingSwitch(strings[R.string.ui_hide_thumbnails], preferences.hideThumbnails) {
             onChange(preferences.copy(hideThumbnails = it))
         }
-        ReaderSettingSwitch("화면 꺼짐 방지", preferences.keepScreenOn) {
+        ReaderSettingSwitch(strings[R.string.ui_keep_screen_on], preferences.keepScreenOn) {
             onChange(preferences.copy(keepScreenOn = it))
         }
     }
@@ -546,6 +553,7 @@ private fun TouchZoneEditor(
     onChange: (ViewerTapZones) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -570,7 +578,7 @@ private fun TouchZoneEditor(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    action.shortLabel(),
+                                    strings[action.shortLabelResource()],
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.titleMedium,
@@ -587,12 +595,12 @@ private fun TouchZoneEditor(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "영역을 눌러 이전 · 토글 · 다음 · 없음 변경",
+                    strings[R.string.ui_tap_a_zone_to_cycle_previous_toggle_next_none],
                     modifier = Modifier.weight(1f),
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
                 )
-                TextButton(onClick = onDismiss) { Text("완료", color = Color.White) }
+                TextButton(onClick = onDismiss) { Text(strings[R.string.ui_completed], color = Color.White) }
             }
         }
     }
@@ -612,11 +620,11 @@ private fun ViewerTapAction.zoneColor(): Color = when (this) {
     ViewerTapAction.TOGGLE_CONTROLS -> Color(0xFF3949AB)
 }
 
-private fun ViewerTapAction.shortLabel(): String = when (this) {
-    ViewerTapAction.PREVIOUS_PAGE -> "이전"
-    ViewerTapAction.NEXT_PAGE -> "다음"
-    ViewerTapAction.TOGGLE_CONTROLS -> "토글"
-    ViewerTapAction.NONE -> "없음"
+private fun ViewerTapAction.shortLabelResource(): Int = when (this) {
+    ViewerTapAction.PREVIOUS_PAGE -> R.string.ui_previous
+    ViewerTapAction.NEXT_PAGE -> R.string.ui_next
+    ViewerTapAction.TOGGLE_CONTROLS -> R.string.ui_toggle_controls
+    ViewerTapAction.NONE -> R.string.ui_none
 }
 
 @Composable

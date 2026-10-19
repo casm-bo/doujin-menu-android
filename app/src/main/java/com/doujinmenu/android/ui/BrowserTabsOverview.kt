@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -55,6 +57,7 @@ internal fun BrowserTabsOverview(
     onUpdate: (BrowserWorkspace) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var groupsOnly by rememberSaveable { mutableStateOf(false) }
     var openGroupId by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -76,9 +79,9 @@ internal fun BrowserTabsOverview(
         else -> displayedWorkspace.overviewItems
     }
     val items = baseItems.filter { item -> when (item) {
-        is BrowserOverviewItem.Tab -> item.tab.currentPage.toolbarTitle.contains(query, ignoreCase = true)
+        is BrowserOverviewItem.Tab -> item.tab.currentPage.localizedToolbarTitle(strings).contains(query, ignoreCase = true)
         is BrowserOverviewItem.Group -> item.group.name.contains(query, ignoreCase = true) ||
-            item.tabs.any { it.currentPage.toolbarTitle.contains(query, ignoreCase = true) }
+            item.tabs.any { it.currentPage.localizedToolbarTitle(strings).contains(query, ignoreCase = true) }
     } }
     val latestWorkspace by rememberUpdatedState(workspace)
     val latestUpdate by rememberUpdatedState(onUpdate)
@@ -141,25 +144,25 @@ internal fun BrowserTabsOverview(
             Column(Modifier.fillMaxSize().systemBarsPadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (openGroup != null) IconButton(onClick = { openGroupId = null },
-                        modifier = Modifier.semantics { contentDescription = "모든 탭으로 돌아가기" }) { Text("‹") }
+                        modifier = Modifier.semantics { contentDescription = strings[R.string.ui_back_to_all_tabs] }) { Text("‹") }
                     else FilledTonalIconButton(onClick = {
                         onUpdate(workspace.openTab(fallback, groupId = null)); onDismiss()
                     }, shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.size(48.dp).semantics { contentDescription = "새 탭" }) { Text("+", style = MaterialTheme.typography.headlineMedium) }
+                        modifier = Modifier.size(48.dp).semantics { contentDescription = strings[R.string.ui_new_tab] }) { Text("+", style = MaterialTheme.typography.headlineMedium) }
                     if (openGroup != null) {
                         Text(openGroup.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (openGroup.isArchived) TextButton(onClick = {
                             onUpdate(workspace.restoreGroup(openGroup.id)); onDismiss()
-                        }) { Text("전체 복원") }
+                        }) { Text(strings[R.string.ui_restore_all]) }
                     } else {
                         Spacer(Modifier.weight(1f))
                         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
                         Row(Modifier.padding(4.dp)) {
                         TextButton(onClick = { groupsOnly = false; selecting = false; selected = emptySet() }) {
-                            Text("탭 ${workspace.tabs.size}", color = if (!groupsOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(strings[R.string.ui_tabs, (workspace.tabs.size)], color = if (!groupsOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         TextButton(onClick = { groupsOnly = true; selecting = false; selected = emptySet() }) {
-                            Text("그룹 ${workspace.groups.count { it.isArchived }}", color = if (groupsOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(strings[R.string.ui_groups, (workspace.groups.count { it.isArchived })], color = if (groupsOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         }
                         }
@@ -167,34 +170,34 @@ internal fun BrowserTabsOverview(
                     }
                     if (openGroup != null && !openGroup.isArchived) IconButton(onClick = {
                         onUpdate(workspace.openTab(fallback, groupId = openGroupId)); onDismiss()
-                    }, modifier = Modifier.semantics { contentDescription = "새 탭" }) { Text("+", style = MaterialTheme.typography.headlineMedium) }
+                    }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_new_tab] }) { Text("+", style = MaterialTheme.typography.headlineMedium) }
                     if (!groupsOnly || openGroup != null) Box {
-                        IconButton(onClick = { menuOpen = true }, modifier = Modifier.semantics { contentDescription = "탭 관리 메뉴" }) { Text("⋮") }
+                        IconButton(onClick = { menuOpen = true }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_tab_management_menu] }) { Text("⋮") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            if (!groupsOnly && openGroup?.isArchived != true) DropdownMenuItem(text = { Text(if (selecting) "선택 끝내기" else "탭 선택") }, onClick = {
+                            if (!groupsOnly && openGroup?.isArchived != true) DropdownMenuItem(text = { Text(if (selecting) strings[R.string.ui_done_selecting] else strings[R.string.ui_select_tabs]) }, onClick = {
                                 selecting = !selecting; selected = emptySet(); menuOpen = false
                             })
                             if (openGroup != null) {
-                                DropdownMenuItem(text = { Text("이름·색 변경") }, onClick = { editingGroup = openGroup; menuOpen = false })
+                                DropdownMenuItem(text = { Text(strings[R.string.ui_rename_color]) }, onClick = { editingGroup = openGroup; menuOpen = false })
                                 if (!openGroup.isArchived) {
-                                    DropdownMenuItem(text = { Text("그룹 보관") }, onClick = {
+                                    DropdownMenuItem(text = { Text(strings[R.string.ui_archive_group]) }, onClick = {
                                         onUpdate(workspace.archiveGroup(openGroup.id, fallback)); openGroupId = null; menuOpen = false
                                     })
-                                    DropdownMenuItem(text = { Text("그룹 해제") }, onClick = { onUpdate(workspace.ungroup(openGroup.id)); openGroupId = null; menuOpen = false })
-                                } else DropdownMenuItem(text = { Text("그룹 삭제") }, onClick = { deletingGroup = openGroup; menuOpen = false })
+                                    DropdownMenuItem(text = { Text(strings[R.string.ui_ungroup]) }, onClick = { onUpdate(workspace.ungroup(openGroup.id)); openGroupId = null; menuOpen = false })
+                                } else DropdownMenuItem(text = { Text(strings[R.string.ui_delete_group]) }, onClick = { deletingGroup = openGroup; menuOpen = false })
                             }
                         }
                     } else Spacer(Modifier.size(48.dp))
                 }
-                OutlinedTextField(query, onValueChange = { query = it }, label = { Text("탭 검색") }, singleLine = true,
+                OutlinedTextField(query, onValueChange = { query = it }, label = { Text(strings[R.string.ui_search_tabs]) }, singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(28.dp))
                 if (selecting) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${selected.size}개 선택", Modifier.weight(1f))
-                    TextButton(onClick = { creatingGroup = true }, enabled = selected.isNotEmpty()) { Text("그룹 만들기") }
-                    TextButton(onClick = { movingTabs = selected }, enabled = selected.isNotEmpty()) { Text("이동") }
+                    Text(strings[R.string.ui_selected, (selected.size)], Modifier.weight(1f))
+                    TextButton(onClick = { creatingGroup = true }, enabled = selected.isNotEmpty()) { Text(strings[R.string.ui_create_group]) }
+                    TextButton(onClick = { movingTabs = selected }, enabled = selected.isNotEmpty()) { Text(strings[R.string.ui_go]) }
                 }
-                Text(if (groupsOnly) "보관한 그룹을 열어 전체 복원할 수 있습니다."
-                    else "길게 눌러 이동 · 좌우 스와이프로 탭 닫기 / 그룹 보관",
+                Text(if (groupsOnly) strings[R.string.ui_open_an_archived_group_to_restore_all_its_tabs]
+                    else strings[R.string.ui_hold_to_move_swipe_to_close_tabs_archive_groups],
                     Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Box(Modifier.weight(1f)) {
@@ -265,7 +268,7 @@ internal fun BrowserTabsOverview(
                             onClick = {}, onDismiss = {}, onEditGroup = {}, onUngroup = {}, onDeleteGroup = {},
                             onMoveTab = {}, onDetachTab = {}, archived = openGroup?.isArchived == true)
                     }
-                    if (items.isEmpty()) Text(if (groupsOnly) "보관한 그룹이 없습니다." else "일치하는 탭이 없습니다.", Modifier.align(Alignment.Center))
+                    if (items.isEmpty()) Text(if (groupsOnly) strings[R.string.ui_no_archived_groups] else strings[R.string.ui_no_matching_tabs], Modifier.align(Alignment.Center))
                 }
             }
         }
@@ -275,9 +278,9 @@ internal fun BrowserTabsOverview(
             creatingGroup = false; editingGroup = null; selecting = false; selected = emptySet()
         }
         movingTabs?.let { ids ->
-            AlertDialog(onDismissRequest = { movingTabs = null }, title = { Text("그룹으로 이동") }, text = {
+            AlertDialog(onDismissRequest = { movingTabs = null }, title = { Text(strings[R.string.ui_move_to_group]) }, text = {
                 Column {
-                    TextButton(onClick = { selected = ids; creatingGroup = true; movingTabs = null }) { Text("새 그룹 만들기") }
+                    TextButton(onClick = { selected = ids; creatingGroup = true; movingTabs = null }) { Text(strings[R.string.ui_create_new_group]) }
                     workspace.groups.filterNot { it.isArchived }.forEach { group ->
                         TextButton(onClick = {
                             onUpdate(ids.fold(workspace) { current, id -> current.assignTabToGroup(id, group.id) })
@@ -285,13 +288,13 @@ internal fun BrowserTabsOverview(
                         }) { Text(group.name) }
                     }
                 }
-            }, confirmButton = { TextButton(onClick = { movingTabs = null }) { Text("취소") } })
+            }, confirmButton = { TextButton(onClick = { movingTabs = null }) { Text(strings[R.string.ui_cancel]) } })
         }
         deletingGroup?.let { group ->
-            AlertDialog(onDismissRequest = { deletingGroup = null }, title = { Text("보관 그룹 삭제") },
-                text = { Text("${group.name} 그룹의 저장된 탭 기록을 삭제합니다.") },
-                confirmButton = { TextButton(onClick = { onUpdate(workspace.deleteArchivedGroup(group.id)); deletingGroup = null; openGroupId = null }) { Text("삭제") } },
-                dismissButton = { TextButton(onClick = { deletingGroup = null }) { Text("취소") } })
+            AlertDialog(onDismissRequest = { deletingGroup = null }, title = { Text(strings[R.string.ui_delete_archived_group]) },
+                text = { Text(strings[R.string.ui_delete_saved_tab_history_for_group, (group.name)]) },
+                confirmButton = { TextButton(onClick = { onUpdate(workspace.deleteArchivedGroup(group.id)); deletingGroup = null; openGroupId = null }) { Text(strings[R.string.ui_delete]) } },
+                dismissButton = { TextButton(onClick = { deletingGroup = null }) { Text(strings[R.string.ui_cancel]) } })
         }
     }
 }
@@ -305,6 +308,7 @@ private fun OverviewCard(
     onUngroup: (String) -> Unit, onDeleteGroup: (BrowserTabGroup) -> Unit,
     onMoveTab: (String) -> Unit, onDetachTab: (String) -> Unit, archived: Boolean,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var menu by remember { mutableStateOf(false) }
     val group = (item as? BrowserOverviewItem.Group)?.group
     val tabs = when (item) { is BrowserOverviewItem.Tab -> listOf(item.tab); is BrowserOverviewItem.Group -> item.tabs }
@@ -314,35 +318,35 @@ private fun OverviewCard(
     val latestDismiss by rememberUpdatedState(onDismiss)
     LaunchedEffect(dismiss.currentValue) { if (dismiss.currentValue != SwipeToDismissBoxValue.Settled) latestDismiss() }
     SwipeToDismissBox(state = dismiss, modifier = modifier, enableDismissFromStartToEnd = canSwipe, enableDismissFromEndToStart = canSwipe,
-        backgroundContent = { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (group == null) "닫기" else "그룹 보관") } }) {
+        backgroundContent = { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (group == null) strings[R.string.ui_close] else strings[R.string.ui_archive_group]) } }) {
         Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().aspectRatio(0.72f), shape = RoundedCornerShape(22.dp),
             color = if (selected || active || merging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
             border = if (active || selected || merging) BorderStroke(if (merging) 4.dp else 2.dp, color) else null) {
             Column(Modifier.padding(6.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     if (group != null) Box(Modifier.padding(start = 6.dp).size(10.dp).background(color, CircleShape))
-                    Text(if (group != null) "${group.name} · ${tabs.size}" else tabs.first().currentPage.toolbarTitle,
+                    Text(if (group != null) "${group.name} · ${tabs.size}" else tabs.first().currentPage.localizedToolbarTitle(strings),
                         Modifier.weight(1f).padding(start = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                     if (group != null || !archived) Box {
-                        IconButton(onClick = { menu = true }, modifier = Modifier.size(40.dp).semantics { contentDescription = "탭 작업" }) { Text("⋮") }
+                        IconButton(onClick = { menu = true }, modifier = Modifier.size(40.dp).semantics { contentDescription = strings[R.string.ui_tab_actions] }) { Text("⋮") }
                         DropdownMenu(menu, onDismissRequest = { menu = false }) {
                             if (group != null) {
-                                DropdownMenuItem(text = { Text("이름·색 변경") }, onClick = { menu = false; onEditGroup(group) })
-                                if (group.isArchived) DropdownMenuItem(text = { Text("그룹 삭제") }, onClick = { menu = false; onDeleteGroup(group) })
+                                DropdownMenuItem(text = { Text(strings[R.string.ui_rename_color]) }, onClick = { menu = false; onEditGroup(group) })
+                                if (group.isArchived) DropdownMenuItem(text = { Text(strings[R.string.ui_delete_group]) }, onClick = { menu = false; onDeleteGroup(group) })
                                 else {
-                                    DropdownMenuItem(text = { Text("그룹 해제") }, onClick = { menu = false; onUngroup(group.id) })
-                                    DropdownMenuItem(text = { Text("그룹 보관") }, onClick = { menu = false; onDismiss() })
+                                    DropdownMenuItem(text = { Text(strings[R.string.ui_ungroup]) }, onClick = { menu = false; onUngroup(group.id) })
+                                    DropdownMenuItem(text = { Text(strings[R.string.ui_archive_group]) }, onClick = { menu = false; onDismiss() })
                                 }
                             } else if (!archived) {
                                 val tab = tabs.first()
-                                DropdownMenuItem(text = { Text("그룹으로 이동") }, onClick = { menu = false; onMoveTab(tab.id) })
-                                if (tab.groupId != null) DropdownMenuItem(text = { Text("그룹에서 빼기") }, onClick = { menu = false; onDetachTab(tab.id) })
-                                DropdownMenuItem(text = { Text("탭 닫기") }, onClick = { menu = false; onDismiss() })
+                                DropdownMenuItem(text = { Text(strings[R.string.ui_move_to_group]) }, onClick = { menu = false; onMoveTab(tab.id) })
+                                if (tab.groupId != null) DropdownMenuItem(text = { Text(strings[R.string.ui_remove_from_group]) }, onClick = { menu = false; onDetachTab(tab.id) })
+                                DropdownMenuItem(text = { Text(strings[R.string.ui_close_tab]) }, onClick = { menu = false; onDismiss() })
                             }
                         }
                     }
                     if (group == null && !archived) IconButton(onClick = onDismiss,
-                        modifier = Modifier.size(40.dp).semantics { contentDescription = "탭 닫기" }) { Text("×") }
+                        modifier = Modifier.size(40.dp).semantics { contentDescription = strings[R.string.ui_close_tab] }) { Text("×") }
                 }
                 if (group == null) PreviewImage(tabs.first(), previews, isGallery, Modifier.fillMaxWidth().weight(1f))
                 else Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -360,6 +364,7 @@ private fun OverviewCard(
 
 @Composable
 private fun PreviewImage(tab: BrowserTab, previews: BrowserTabPreviewCache, isGallery: Boolean, modifier: Modifier) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val preview = previews.preview(isGallery, tab)
     val modified = preview?.lastModified()
     val context = LocalContext.current
@@ -367,31 +372,32 @@ private fun PreviewImage(tab: BrowserTab, previews: BrowserTabPreviewCache, isGa
         preview?.let { ImageRequest.Builder(context).data(it).memoryCacheKey("${it.absolutePath}:$modified").build() }
     }
     Box(modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest), contentAlignment = Alignment.Center) {
-        if (request != null) AsyncImage(model = request, contentDescription = "${tab.currentPage.toolbarTitle} 마지막 화면",
+        if (request != null) AsyncImage(model = request, contentDescription = strings[R.string.ui_last_screen, (tab.currentPage.localizedToolbarTitle(strings))],
             modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
-        else Text(tab.currentPage.toolbarTitle, Modifier.padding(12.dp), maxLines = 4, overflow = TextOverflow.Ellipsis,
+        else Text(tab.currentPage.localizedToolbarTitle(strings), Modifier.padding(12.dp), maxLines = 4, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun GroupEditor(group: BrowserTabGroup?, onDismiss: () -> Unit, onSave: (String, Int) -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var name by remember(group?.id) { mutableStateOf(group?.name.orEmpty()) }
     var color by remember(group?.id) { mutableIntStateOf(group?.colorIndex ?: 0) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (group == null) "새 그룹" else "그룹 편집") }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (group == null) strings[R.string.ui_new_group] else strings[R.string.ui_edit_group]) }, text = {
         Column {
-            OutlinedTextField(name, onValueChange = { name = it }, label = { Text("그룹 이름") }, singleLine = true)
+            OutlinedTextField(name, onValueChange = { name = it }, label = { Text(strings[R.string.ui_group_name]) }, singleLine = true)
             Row(Modifier.padding(top = 12.dp)) {
                 groupColors.forEachIndexed { index, value ->
-                    IconButton(onClick = { color = index }, modifier = Modifier.weight(1f).semantics { contentDescription = "그룹 색상 ${index + 1}" }) {
+                    IconButton(onClick = { color = index }, modifier = Modifier.weight(1f).semantics { contentDescription = strings[R.string.ui_group_color, (index + 1)] }) {
                         Surface(Modifier.size(28.dp), shape = CircleShape, color = value,
                             border = if (color == index) BorderStroke(3.dp, MaterialTheme.colorScheme.onSurface) else null) {}
                     }
                 }
             }
         }
-    }, confirmButton = { TextButton(onClick = { onSave(name, color) }) { Text("저장") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } })
+    }, confirmButton = { TextButton(onClick = { onSave(name, color) }) { Text(strings[R.string.ui_save]) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(strings[R.string.ui_cancel]) } })
 }
 
 internal fun isTabDropCenter(x: Float, y: Float, width: Float, height: Float): Boolean =

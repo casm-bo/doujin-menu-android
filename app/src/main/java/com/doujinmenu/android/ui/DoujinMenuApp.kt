@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -83,18 +85,19 @@ import kotlin.math.sin
 
 private enum class MainDestination(
     val route: String,
-    val label: String,
+    val labelResource: Int,
     val symbol: String,
 ) {
-    Browser("browser", "검색", "⌕"),
-    Library("library", "갤러리", "▦"),
-    History("history", "최근 기록", "◷"),
-    Downloads("downloads", "다운로드", "↓"),
-    Settings("settings", "설정", "⚙"),
+    Browser("browser", R.string.ui_search, "⌕"),
+    Library("library", R.string.ui_gallery, "▦"),
+    History("history", R.string.ui_recent_history, "◷"),
+    Downloads("downloads", R.string.ui_downloads, "↓"),
+    Settings("settings", R.string.ui_settings, "⚙"),
 }
 
 @Composable
 fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val navController = rememberNavController()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -107,11 +110,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 snackbarHostState.currentSnackbarData?.dismiss()
                 val action = snackbarHostState.showSnackbar(
                     message = when {
-                        result.tabId == null -> "새 탭을 열지 못했습니다."
-                        result.alreadyOpen -> "이미 열린 탭이 있습니다."
-                        else -> "새로운 탭에서 열었습니다."
+                        result.tabId == null -> strings[R.string.ui_could_not_open_a_new_tab]
+                        result.alreadyOpen -> strings[R.string.ui_this_tab_is_already_open]
+                        else -> strings[R.string.ui_opened_in_a_new_tab]
                     },
-                    actionLabel = result.tabId?.let { "이동" },
+                    actionLabel = result.tabId?.let { strings[R.string.ui_go] },
                     withDismissAction = true,
                     duration = SnackbarDuration.Short,
                 )
@@ -133,7 +136,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
             lastShownNewTabNotice = newTabNotice
             backgroundTabNotice?.cancel()
             snackbarHostState.currentSnackbarData?.dismiss()
-            snackbarHostState.showSnackbar("새로운 탭에서 열었습니다.", duration = SnackbarDuration.Short)
+            snackbarHostState.showSnackbar(strings[R.string.ui_opened_in_a_new_tab], duration = SnackbarDuration.Short)
         }
     }
 
@@ -442,10 +445,10 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     viewModel.uiState.availableUpdate?.let { release ->
         AlertDialog(
             onDismissRequest = { viewModel.dismissAvailableUpdate(skipVersion = false) },
-            title = { Text("새 버전 ${release.versionName}") },
+            title = { Text(strings[R.string.ui_new_version, (release.versionName)]) },
             text = {
                 Text(
-                    release.notes.ifBlank { "새 버전을 사용할 수 있습니다." }.take(600),
+                    release.notes.ifBlank { strings[R.string.ui_a_new_version_is_available] }.take(600),
                 )
             },
             confirmButton = {
@@ -454,15 +457,15 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.pageUrl)))
                         viewModel.dismissAvailableUpdate(skipVersion = false)
                     },
-                ) { Text("업데이트") }
+                ) { Text(strings[R.string.ui_update]) }
             },
             dismissButton = {
                 Row {
                     TextButton(onClick = { viewModel.dismissAvailableUpdate(skipVersion = true) }) {
-                        Text("이 버전 건너뛰기")
+                        Text(strings[R.string.ui_skip_this_version])
                     }
                     TextButton(onClick = { viewModel.dismissAvailableUpdate(skipVersion = false) }) {
-                        Text("나중에")
+                        Text(strings[R.string.ui_later])
                     }
                 }
             },
@@ -485,6 +488,7 @@ private fun AppSearchTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = 
 
 @Composable
 private fun AppGalleryTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null, showSync: Boolean = false, titleContent: (@Composable () -> Unit)? = null, actions: @Composable () -> Unit = {}) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     BrowserTabStrip(
         workspace = viewModel.uiState.galleryWorkspace,
         onNew = viewModel::newGalleryTab,
@@ -496,7 +500,7 @@ private fun AppGalleryTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? =
             actions()
             if (showSync) IconButton(onClick = viewModel::syncLibraryNow,
                 enabled = !viewModel.uiState.isLibrarySyncing && viewModel.uiState.selectedProfileId != null,
-                modifier = Modifier.semantics { contentDescription = "라이브러리 동기화, 대기 ${viewModel.uiState.librarySyncPendingCount}개" }) {
+                modifier = Modifier.semantics { contentDescription = strings[R.string.ui_sync_library_pending, (viewModel.uiState.librarySyncPendingCount)] }) {
                 if (viewModel.uiState.isLibrarySyncing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else {
                     val pending = viewModel.uiState.librarySyncPendingCount
@@ -518,6 +522,7 @@ private fun MainShell(
     onLibraryBookClick: (String) -> Unit,
     onBackToOrigin: (() -> Unit)? = null,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var selectedRoute by rememberSaveable(initialDestinationRoute) { mutableStateOf(initialDestinationRoute) }
     val selected = MainDestination.entries.firstOrNull { it.route == selectedRoute }
         ?: MainDestination.Browser
@@ -560,7 +565,7 @@ private fun MainShell(
     val topBar: @Composable () -> Unit = {
         Column {
             if (selected != MainDestination.Browser && selected != MainDestination.Library) {
-                TopAppBar(title = { Text(selected.label) })
+                TopAppBar(title = { Text(strings[selected.labelResource]) })
             }
             when (selected) {
                 MainDestination.Browser -> Unit
@@ -579,7 +584,7 @@ private fun MainShell(
                             selected = destination == selected,
                             onClick = { navigate(destination) },
                             icon = { MainDestinationIcon(destination) },
-                            label = { Text(destination.label) },
+                            label = { Text(strings[destination.labelResource]) },
                         )
                     }
                 }
@@ -598,7 +603,7 @@ private fun MainShell(
                                 selected = destination == selected,
                                 onClick = { navigate(destination) },
                                 icon = { MainDestinationIcon(destination) },
-                                label = { Text(destination.label) },
+                                label = { Text(strings[destination.labelResource]) },
                             )
                         }
                     }
