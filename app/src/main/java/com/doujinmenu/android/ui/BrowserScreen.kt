@@ -90,6 +90,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.network.NetworkHeaders
@@ -101,6 +103,7 @@ import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.model.resolveScrollIndex
+import com.doujinmenu.android.model.isSearchPageInRange
 import com.doujinmenu.android.network.parseHitomiSearchOrder
 import com.doujinmenu.android.network.FilterSuggestion
 import com.doujinmenu.android.network.AvailableLanguage
@@ -152,15 +155,17 @@ fun BrowserScreen(
     val resultIds = state.searchResultWindow?.index?.let { index -> remember(index) { index.ids } }
         ?: remember(state.galleries) { state.galleries.map { it.id } }
     val galleryPositions = remember(resultIds) { resultIds.withIndex().associate { "gallery:${it.value}" to it.index } }
+    val totalCount = state.searchResultWindow?.index?.totalCount
+    val maxPage = state.searchResultWindow?.index?.maxPage
     val galleriesById = remember(state.galleries) { state.galleries.associateBy { it.id } }
     val canRestoreResults = state.searchResultWindow == null && state.currentPage > 0 &&
         !state.isLoadingPage && !state.isRestoringSearch
-    val contentKeys = remember(resultIds, state.isLoadingPage, state.currentPage, state.hasNextPage, canRestoreResults) { buildList {
+    val contentKeys = remember(resultIds, totalCount, state.isLoadingPage, state.currentPage, state.hasNextPage, canRestoreResults) { buildList {
         add("search-controls")
         if (resultIds.isEmpty() && !state.isLoadingPage && !canRestoreResults) add("empty-results")
         if (state.isLoadingPage && resultIds.isEmpty()) add("initial-loader")
         if (canRestoreResults) add("restore-results")
-        if (resultIds.isNotEmpty()) {
+        if (resultIds.isNotEmpty() || totalCount != null) {
             add("result-count")
             resultIds.forEach { add("gallery:$it") }
         }
@@ -232,6 +237,12 @@ fun BrowserScreen(
         if (editing && expandedPanel == "languages") onLoadLanguages()
     }
     val focusManager = LocalFocusManager.current
+    fun submitSearch() {
+        focusManager.clearFocus()
+        editing = false
+        expandedPanel = null
+        onSearch()
+    }
     fun togglePanel(name: String) {
         val close = editing && expandedPanel == name
         expandedPanel = if (close) null else name
@@ -253,10 +264,7 @@ fun BrowserScreen(
         CollapsingSearchToolbar(scrollBehavior) {
         Column {
         tabHeader({
-            UnifiedSearchField(state.searchQuery, onQueryChange, "검색 조건", { editing = true }, {
-                editing = false
-                onSearch()
-            })
+            UnifiedSearchField(state.searchQuery, onQueryChange, "검색 조건", { editing = true; expandedPanel = null }, { submitSearch() })
         }, {
             Box {
                 IconButton(onClick = { menu = "root" }, modifier = Modifier.semantics { contentDescription = "검색 옵션" }) { Text("⋯") }
@@ -294,8 +302,10 @@ fun BrowserScreen(
         }
         AnimatedVisibility(visible = editing && (expandedPanel != null || state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions), enter = expandVertically(expandFrom = Alignment.Top), exit = shrinkVertically(shrinkTowards = Alignment.Top)) {
             OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-            Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(12.dp)) {
-                if (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions) {
+            val editorScroll = rememberScrollState()
+            Column(Modifier.fillMaxWidth().heightIn(max = 300.dp)
+                .then(if (expandedPanel == "languages") Modifier else Modifier.verticalScroll(editorScroll)).padding(12.dp)) {
+                if (expandedPanel == null && (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions)) {
                     state.filterSuggestions.forEach { suggestion ->
                         TextButton(onClick = { onSelectSuggestion(suggestion) }) { Text("${suggestion.token} · ${suggestion.displayName}") }
                     }
@@ -303,7 +313,15 @@ fun BrowserScreen(
                 }
 
                     if (expandedPanel == "languages") {
-                        Text("언어", style = MaterialTheme.typography.titleSmall)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("언어", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            TextButton(onClick = { submitSearch() }, enabled = !state.isLoadingPage,
+                                modifier = Modifier.semantics { contentDescription = "언어 선택 확인 및 검색" }) {
+                                ActionIcon(ActionSymbol.SEARCH)
+                                Spacer(Modifier.width(4.dp))
+                                Text("확인")
+                            }
+                        }
                         Text(
                             if (state.preferredLanguages.isEmpty())
                                 "Any: 모든 언어에서 검색합니다."
@@ -426,10 +444,10 @@ fun BrowserScreen(
             }
         }
 
-        if (resultIds.isNotEmpty()) {
+        if (resultIds.isNotEmpty() || totalCount != null) {
             item(key = "result-count", span = { GridItemSpan(maxLineSpan) }) {
                 Text(
-                    "불러온 결과 ${resultIds.size}개",
+                    totalCount?.let { "검색결과 ${java.text.NumberFormat.getIntegerInstance().format(it)}개" } ?: "검색결과 · 전체 건수 미확인",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -485,8 +503,12 @@ fun BrowserScreen(
     if (pageDialog) AlertDialog(
         onDismissRequest = { pageDialog = false },
         title = { Text("페이지 이동") },
-        text = { OutlinedTextField(value = pageInput, onValueChange = { pageInput = it.filter(Char::isDigit).take(5) }, label = { Text("페이지 번호") }, singleLine = true) },
-        confirmButton = { TextButton(enabled = pageInput.toIntOrNull() in 1..10000, onClick = { onJumpToPage(pageInput.toInt()); pageDialog = false }) { Text("이동") } },
+        text = { OutlinedTextField(value = pageInput, onValueChange = { pageInput = it.filter(Char::isDigit).take(10) }, label = { Text("페이지 번호") },
+            placeholder = { Text(maxPage?.let { "최대 ${java.text.NumberFormat.getIntegerInstance().format(it)}페이지" } ?: "이동할 페이지 입력") },
+            supportingText = { Text(maxPage?.let { "1 ~ ${java.text.NumberFormat.getIntegerInstance().format(it)}페이지" } ?: "1 이상의 페이지 번호") },
+            isError = pageInput.isNotEmpty() && !isSearchPageInRange(pageInput.toIntOrNull(), maxPage),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) },
+        confirmButton = { TextButton(enabled = isSearchPageInRange(pageInput.toIntOrNull(), maxPage), onClick = { onJumpToPage(pageInput.toInt()); pageDialog = false }) { Text("이동") } },
         dismissButton = { TextButton(onClick = { pageDialog = false }) { Text("취소") } },
     )
 

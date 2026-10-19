@@ -3,11 +3,21 @@ package com.doujinmenu.android.network
 import com.doujinmenu.android.model.SearchResult
 import com.doujinmenu.android.model.combineLanguageSearchResults
 import com.doujinmenu.android.model.queriesWithPreferredLanguages
+import com.doujinmenu.android.model.isSearchPageInRange
 import org.junit.Assert.*
 import org.junit.Test
 import kotlinx.coroutines.runBlocking
 
 class SearchResultCountTest {
+    @Test fun `jump limits follow actual max and allow catalogs beyond ten thousand pages`() {
+        assertTrue(isSearchPageInRange(10001, 10002))
+        assertTrue(isSearchPageInRange(10002, 10002))
+        assertFalse(isSearchPageInRange(10003, 10002))
+        assertFalse(isSearchPageInRange(0, 10002))
+        assertFalse(isSearchPageInRange(null, 10002))
+        assertFalse(isSearchPageInRange(1, 0))
+        assertTrue(isSearchPageInRange(1, null))
+    }
     @Test fun `optional live blank search and range totals`() = runBlocking {
         org.junit.Assume.assumeTrue(System.getenv("HITOMI_LIVE_TEST") == "1")
         val client = HitomiClient()

@@ -35,6 +35,9 @@ internal fun combineLanguageSearchResults(results: List<SearchResult>): SearchRe
     maxPage = results.takeIf { it.all { result -> result.maxPage != null } }?.maxOfOrNull { it.maxPage!! },
 )
 
+internal fun isSearchPageInRange(page: Int?, maxPage: Int?): Boolean =
+    page != null && page >= 1 && (maxPage == null || page <= maxPage)
+
 data class GalleryTag(
     val type: String,
     val name: String,

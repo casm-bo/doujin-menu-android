@@ -22,6 +22,7 @@ import com.doujinmenu.android.security.RecentHistoryStore
 import com.doujinmenu.android.model.SearchResult
 import com.doujinmenu.android.model.combineLanguageSearchResults
 import com.doujinmenu.android.model.queriesWithPreferredLanguages
+import com.doujinmenu.android.model.isSearchPageInRange
 import com.doujinmenu.android.data.DownloadRequestStore
 import com.doujinmenu.android.data.DownloadTarget
 import com.doujinmenu.android.data.RequestStatus
@@ -789,7 +790,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun jumpToSearchPage(page: Int) {
-        if (page !in 1..10000) return
+        if (!isSearchPageInRange(page, uiState.searchResultWindow?.index?.maxPage)) return
         val search = activeSearchPage() ?: return
         val queries = search.submittedQueries.ifEmpty {
             queriesWithPreferredLanguages(search.submittedQuery.ifBlank { search.query }, search.preferredLanguages)
