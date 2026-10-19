@@ -14,7 +14,7 @@ data class AvailableLanguage(val code: String, val label: String)
 
 internal fun parseAvailableLanguages(script: String): List<AvailableLanguage> {
     fun objectValue(name: String): JSONObject {
-        val value = Regex("""\b$name\s*=\s*(\{[^}]*})""").find(script)?.groupValues?.get(1)
+        val value = Regex("""\b$name\s*=\s*(\{[^}]*\})""").find(script)?.groupValues?.get(1)
             ?: error("언어 목록 응답 형식이 올바르지 않습니다.")
         return JSONObject(value)
     }
