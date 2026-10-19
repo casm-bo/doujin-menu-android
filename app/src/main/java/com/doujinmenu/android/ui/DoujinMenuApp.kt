@@ -85,6 +85,7 @@ private enum class MainDestination(
 ) {
     Browser("browser", "검색", "⌕"),
     Library("library", "갤러리", "▦"),
+    History("history", "최근 기록", "◷"),
     Downloads("downloads", "다운로드", "↓"),
     Settings("settings", "설정", "⚙"),
 }
@@ -631,6 +632,11 @@ private fun MainDestinationIcon(destination: MainDestination) {
                     cornerRadius = CornerRadius(size.width * 0.04f),
                 )
             }
+            MainDestination.History -> {
+                drawCircle(color, size.width * 0.37f, style = Stroke(width = size.width * 0.1f))
+                drawLine(color, Offset(size.width * 0.5f, size.height * 0.25f), Offset(size.width * 0.5f, size.height * 0.52f), size.width * 0.08f)
+                drawLine(color, Offset(size.width * 0.5f, size.height * 0.52f), Offset(size.width * 0.7f, size.height * 0.62f), size.width * 0.08f)
+            }
             MainDestination.Downloads -> {
                 drawLine(color, Offset(size.width * 0.5f, size.height * 0.1f), Offset(size.width * 0.5f, size.height * 0.62f), size.width * 0.12f)
                 drawLine(color, Offset(size.width * 0.5f, size.height * 0.62f), Offset(size.width * 0.28f, size.height * 0.4f), size.width * 0.12f)
@@ -772,6 +778,11 @@ private fun MainTabContent(
                 onScrollChange = viewModel::updateGalleryScroll,
             )
         }
+        MainDestination.History -> RecentHistoryScreen(
+            state = viewModel.uiState, contentPadding = contentPadding,
+            onOpen = viewModel::openHistory, onRemove = viewModel::removeHistory,
+            onClear = viewModel::clearHistory, onRecordingChange = viewModel::setHistoryRecording,
+        )
         MainDestination.Downloads -> {
             DownloadsScreen(
                 state = viewModel.uiState,

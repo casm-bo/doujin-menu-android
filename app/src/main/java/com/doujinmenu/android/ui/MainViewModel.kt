@@ -13,6 +13,12 @@ import com.doujinmenu.android.data.SearchResultCache
 import com.doujinmenu.android.data.SearchResultIndex
 import com.doujinmenu.android.data.SearchResultPager
 import com.doujinmenu.android.data.SearchResultWindow
+import com.doujinmenu.android.model.RecentHistoryEntry
+import com.doujinmenu.android.model.HistorySource
+import com.doujinmenu.android.model.HistoryAction
+import com.doujinmenu.android.model.recordHistory
+import com.doujinmenu.android.model.findBook
+import com.doujinmenu.android.security.RecentHistoryStore
 import com.doujinmenu.android.model.SearchResult
 import com.doujinmenu.android.data.DownloadRequestStore
 import com.doujinmenu.android.data.DownloadTarget
@@ -110,6 +116,8 @@ data class MainUiState(
     val isLoadingFilterSuggestions: Boolean = false,
     val knownFilterTokens: Set<String> = emptySet(),
     val viewedGalleryIds: Set<Long> = emptySet(),
+    val recentHistory: List<RecentHistoryEntry> = emptyList(),
+    val historyRecording: Boolean = true,
     val libraryLocations: List<StorageLocation> = emptyList(),
     val desktopLibraryLocations: List<StorageLocation> = emptyList(),
     val libraryBooks: List<LibraryBook> = emptyList(),
@@ -188,6 +196,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val profileStore = SecureProfileStore(application)
     private val browserPreferenceStore = BrowserPreferenceStore(application)
     private val libraryPreferenceStore = LibraryPreferenceStore(application)
+    private val recentHistoryStore = RecentHistoryStore(application)
     private val libraryIdentityStore = LibraryIdentityStore(application)
     private val libraryScanner = LibraryScanner(application, libraryIdentityStore)
     private val libraryArchiveExtractor = LibraryArchiveExtractor(application)
@@ -250,6 +259,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             customLanguages = browserPreferenceStore.loadCustomLanguages(),
             knownFilterTokens = browserPreferenceStore.loadKnownFilterTokens(),
             viewedGalleryIds = browserPreferenceStore.loadViewedGalleryIds(),
+            recentHistory = recentHistoryStore.load(),
+            historyRecording = recentHistoryStore.isRecording(),
             libraryLocations = browserPreferenceStore.loadLibraryLocations(),
             libraryFavoriteIds = libraryPreferenceStore.loadFavoriteIds(),
             libraryHiddenIds = libraryPreferenceStore.loadHiddenIds(),
@@ -681,9 +692,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun ensureGalleryLoaded(galleryId: Long) {
-        if (galleryId in uiState.galleryCache || uiState.galleries.any { it.id == galleryId }) return
+        val cached = uiState.galleryCache[galleryId] ?: uiState.galleries.firstOrNull { it.id == galleryId }
+        if (cached != null) { recordOnlineHistory(cached); return }
         viewModelScope.launch {
             runCatching { hitomiClient.getGallery(galleryId) }.onSuccess { gallery ->
+                recordOnlineHistory(gallery)
                 uiState = uiState.copy(
                     activeGallery = gallery,
                     galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)),
@@ -1239,7 +1252,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isLibraryBookLoading = !book.hasResolvedReaderPages(),
             libraryScanError = null,
         )
-        enqueueBookStateSync(setOf(bookId), addHistory = true)
+        recordLibraryHistory(book)
+        enqueueBookStateSync(setOf(bookId), addHistory = uiState.historyRecording)
         prepareActiveLibraryBook(book)
     }
 
@@ -1749,6 +1763,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             uiState.libraryReadIds
         }
+        book?.let { recordLibraryHistory(it, normalizedPage) }
         if (uiState.libraryProgress[bookId] == normalizedPage && readIds == uiState.libraryReadIds) return
         val progress = uiState.libraryProgress + (bookId to normalizedPage)
         libraryPreferenceStore.saveProgress(progress)
@@ -1776,10 +1791,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             uiState.viewedGalleryIds
         }
+        (uiState.galleryCache[galleryId] ?: uiState.galleries.firstOrNull { it.id == galleryId })?.let { recordOnlineHistory(it, normalizedPage) }
         if (uiState.onlineReaderProgress[galleryId] == normalizedPage && viewedIds == uiState.viewedGalleryIds) return
         val progress = uiState.onlineReaderProgress + (galleryId to normalizedPage)
         libraryPreferenceStore.saveOnlineProgress(progress)
         uiState = uiState.copy(onlineReaderProgress = progress, viewedGalleryIds = viewedIds)
+    }
+
+    private fun saveHistory(event: RecentHistoryEntry) {
+        if (!uiState.historyRecording) return
+        val entries = uiState.recentHistory.recordHistory(event)
+        recentHistoryStore.save(entries)
+        uiState = uiState.copy(recentHistory = entries)
+    }
+
+    private fun recordOnlineHistory(gallery: GallerySummary, page: Int? = null) {
+        val completed = page != null && reachedLastPage(page, gallery.pageCount)
+        saveHistory(RecentHistoryEntry(
+            key = "gallery:${gallery.id}", title = gallery.title, viewedAt = System.currentTimeMillis(),
+            source = HistorySource.SEARCH, galleryId = gallery.id, artist = gallery.artists.joinToString(),
+            thumbnail = gallery.thumbnailUrl, pageCount = gallery.pageCount, page = page,
+            action = if (page == null) HistoryAction.DETAIL else if (completed) HistoryAction.COMPLETED else HistoryAction.READING,
+            completed = completed,
+        ))
+    }
+
+    private fun recordLibraryHistory(book: LibraryBook, page: Int? = null) {
+        val id = book.metadata.hitomiId?.toLongOrNull()?.takeIf { it > 0 }
+        val completed = page != null && reachedLastPage(page, book.pages.size)
+        saveHistory(RecentHistoryEntry(
+            key = id?.let { "gallery:$it" } ?: book.syncId?.let { "sync:$it" } ?: "book:${book.id}",
+            title = book.title, viewedAt = System.currentTimeMillis(),
+            source = if (book.isCloud) HistorySource.PC else HistorySource.DEVICE,
+            galleryId = id, bookId = book.id, syncId = book.syncId, artist = book.metadata.artists.joinToString(),
+            thumbnail = book.coverUri, pageCount = book.pages.size, page = page,
+            action = if (page == null) HistoryAction.DETAIL else if (completed) HistoryAction.COMPLETED else HistoryAction.READING,
+            completed = completed,
+        ))
+    }
+
+    fun setHistoryRecording(enabled: Boolean) {
+        recentHistoryStore.setRecording(enabled)
+        uiState = uiState.copy(historyRecording = enabled)
+    }
+
+    fun removeHistory(key: String) {
+        val entries = uiState.recentHistory.filterNot { it.key == key }
+        recentHistoryStore.save(entries)
+        uiState = uiState.copy(recentHistory = entries)
+    }
+
+    fun clearHistory() {
+        recentHistoryStore.save(emptyList())
+        uiState = uiState.copy(recentHistory = emptyList())
+    }
+
+    fun openHistory(entry: RecentHistoryEntry, resume: Boolean) {
+        if (uiState.isBusy) return
+        val book = entry.findBook(uiState.libraryBooks.filterNot { it.id in uiState.libraryHiddenIds })
+        if (book != null) {
+            openLibraryBookTab(book.id)
+            if (resume) openLibraryReaderTab(book.id, (entry.page ?: uiState.libraryProgress[book.id] ?: 0).coerceAtLeast(0))
+            return
+        }
+        val id = entry.galleryId
+        if (id == null) {
+            uiState = uiState.copy(message = "파일을 찾을 수 없습니다. 저장 위치와 PC 연결을 확인하세요.", isError = true)
+            return
+        }
+        viewModelScope.launch {
+            runOperation {
+                val gallery = uiState.galleryCache[id] ?: hitomiClient.getGallery(id)
+                uiState = uiState.copy(galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)))
+                selectGallery(id)
+                if (resume) openOnlineReaderTab(id, (entry.page ?: uiState.onlineReaderProgress[id] ?: 0)
+                    .coerceIn(0, (gallery.pageCount - 1).coerceAtLeast(0)))
+            }
+        }
     }
 
     fun updateViewerPreferences(value: ViewerPreferences) {
