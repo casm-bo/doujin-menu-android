@@ -193,6 +193,7 @@ fun LibraryScreen(
     contentPadding: PaddingValues,
     onQueryChange: (String) -> Unit,
     onToggleFavoritesFilter: () -> Unit,
+    onExcludeSeriesChange: (Boolean) -> Unit,
     onReadFilterChange: (LibraryReadFilter) -> Unit,
     onVisibilityFilterChange: (LibraryVisibilityFilter) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
@@ -264,6 +265,8 @@ fun LibraryScreen(
         state.libraryFavoriteIds,
         state.libraryFavoriteSeriesNames,
         state.libraryReadIds,
+        state.libraryExcludeSeries,
+        state.customSeriesByBookId,
     ) { visibleLibraryBooks(state) }
     val visibilityBooks = remember(
         state.libraryBooks,
@@ -557,18 +560,21 @@ fun LibraryScreen(
                 BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     val modes: @Composable () -> Unit = {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            FilterChip(selected = !seriesMode, onClick = { changeSeriesMode(false) }, label = { Text("전체") })
-                            FilterChip(selected = seriesMode, onClick = { changeSeriesMode(true) }, label = { Text("시리즈") })
+                            FilterChip(selected = !seriesMode && !state.libraryExcludeSeries, onClick = { changeSeriesMode(false) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, label = { Text("전체") })
+                            FilterChip(selected = seriesMode || state.libraryExcludeSeries, onClick = {
+                                if (seriesMode) onExcludeSeriesChange(true) else changeSeriesMode(true)
+                            }, leadingIcon = { ActionIcon(if (state.libraryExcludeSeries) ActionSymbol.HIDE else ActionSymbol.SERIES) },
+                                label = { Text(if (state.libraryExcludeSeries) "시리즈 제외" else if (seriesMode) "시리즈만" else "시리즈") })
                         }
                     }
                     val tools: @Composable () -> Unit = {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                             LibraryFilterMenu(state.libraryFavoritesOnly, state.libraryReadFilter, state.libraryVisibilityFilter,
-                                onToggleFavoritesFilter, onReadFilterChange, onVisibilityFilterChange)
+                                onToggleFavoritesFilter, onReadFilterChange, onVisibilityFilterChange, state.libraryExcludeSeries, onExcludeSeriesChange)
                             LibrarySortMenu(state.librarySort, onSortChange)
                         }
                     }
-                    if (maxWidth >= 344.dp) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    if (maxWidth >= 440.dp) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         modes(); Spacer(Modifier.weight(1f)); tools()
                     } else Column {
                         modes()
@@ -892,9 +898,11 @@ private fun LibraryFilterMenu(
     onToggleFavorites: () -> Unit,
     onReadFilterChange: (LibraryReadFilter) -> Unit,
     onVisibilityFilterChange: (LibraryVisibilityFilter) -> Unit,
+    excludeSeries: Boolean,
+    onExcludeSeriesChange: (Boolean) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val active = favoritesOnly || readFilter != LibraryReadFilter.ALL ||
+    val active = excludeSeries || favoritesOnly || readFilter != LibraryReadFilter.ALL ||
         visibilityFilter != LibraryVisibilityFilter.VISIBLE
     Box {
         OutlinedButton(onClick = { expanded = true },
@@ -904,7 +912,7 @@ private fun LibraryFilterMenu(
             Text("필터", Modifier.padding(start = 6.dp))
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            LibraryFilterItems(favoritesOnly, readFilter, visibilityFilter, onToggleFavorites, onReadFilterChange, onVisibilityFilterChange)
+            LibraryFilterItems(favoritesOnly, readFilter, visibilityFilter, onToggleFavorites, onReadFilterChange, onVisibilityFilterChange, excludeSeries, onExcludeSeriesChange)
 
         }
     }
@@ -918,8 +926,11 @@ private fun LibraryFilterItems(
     onToggleFavorites: () -> Unit,
     onReadFilterChange: (LibraryReadFilter) -> Unit,
     onVisibilityFilterChange: (LibraryVisibilityFilter) -> Unit,
+    excludeSeries: Boolean,
+    onExcludeSeriesChange: (Boolean) -> Unit,
 ) {
             ChoiceMenuItem("즐겨찾기", favoritesOnly, onToggleFavorites)
+            ChoiceMenuItem("시리즈 제외", excludeSeries, onClick = { onExcludeSeriesChange(!excludeSeries) })
             HorizontalDivider()
             LibraryReadFilter.entries.forEach { filter ->
                 val label = when (filter) {
@@ -1865,6 +1876,7 @@ private fun <T> FilterMenu(label: String, options: List<Pair<T, String>>, onSele
 internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
     val queryTerms = parseLibraryQuery(state.libraryQuery)
     val filtered = state.libraryBooksInVisibility().asSequence()
+        .filter { !state.libraryExcludeSeries || it.id !in state.customSeriesByBookId }
         .filter {
             when {
                 state.selectedLibraryLocationUris != null -> it.locationUri in state.selectedLibraryLocationUris
@@ -1900,6 +1912,7 @@ internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
 internal fun libraryFilterSignature(state: MainUiState): String = buildString {
     append(state.libraryQuery.length).append(':').append(state.libraryQuery)
     append('|').append(state.libraryFavoritesOnly)
+    append('|').append(state.libraryExcludeSeries)
     append('|').append(state.libraryReadFilter.name)
     append('|').append(state.libraryVisibilityFilter.name)
     append('|').append(state.librarySort.name)

@@ -12,6 +12,13 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class LibraryFilterTest {
+    @Test fun `series exclusion uses assigned groups and combines with other filters`() {
+        val state = MainUiState(libraryBooks = books, libraryExcludeSeries = true,
+            customSeriesByBookId = mapOf("b" to CustomSeriesAssignment("series", 0)))
+        assertEquals(listOf("c", "a"), visibleLibraryBooks(state).map { it.id })
+        assertEquals(listOf("a"), visibleLibraryBooks(state.copy(libraryFavoritesOnly = true, libraryFavoriteIds = setOf("a", "b"))).map { it.id })
+        assertNotEquals(libraryFilterSignature(state), libraryFilterSignature(state.copy(libraryExcludeSeries = false)))
+    }
     @Test
     fun `default sort is newest modified first`() {
         assertEquals(listOf("b", "c", "a"), visibleLibraryBooks(MainUiState(libraryBooks = books)).map(LibraryBook::id))

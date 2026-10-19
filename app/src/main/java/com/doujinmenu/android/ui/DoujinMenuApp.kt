@@ -773,6 +773,7 @@ private fun MainTabContent(
                 contentPadding = contentPadding,
                 onQueryChange = viewModel::setLibraryQuery,
                 onToggleFavoritesFilter = viewModel::toggleLibraryFavoritesFilter,
+                onExcludeSeriesChange = viewModel::setLibraryExcludeSeries,
                 onReadFilterChange = viewModel::setLibraryReadFilter,
                 onVisibilityFilterChange = viewModel::setLibraryVisibilityFilter,
                 onSortChange = viewModel::setLibrarySort,

@@ -152,6 +152,7 @@ data class MainUiState(
     val librarySort: LibrarySort = LibrarySort.NEWEST,
     val selectedLibraryLocationUris: Set<String>? = null,
     val librarySeriesMode: Boolean = false,
+    val libraryExcludeSeries: Boolean = false,
     val selectedLibrarySeries: String? = null,
     val isAutoCreatingSeries: Boolean = false,
     val isLibraryScanning: Boolean = false,
@@ -1409,7 +1410,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
     fun setLibrarySeriesMode(enabled: Boolean) = update {
-        copy(librarySeriesMode = enabled, selectedLibrarySeries = null)
+        copy(librarySeriesMode = enabled, libraryExcludeSeries = false, selectedLibrarySeries = null)
+    }
+    fun setLibraryExcludeSeries(enabled: Boolean) = update {
+        copy(libraryExcludeSeries = enabled, librarySeriesMode = false, selectedLibrarySeries = null)
     }
     fun selectLibrarySeries(name: String?) = update { copy(selectedLibrarySeries = name) }
 
