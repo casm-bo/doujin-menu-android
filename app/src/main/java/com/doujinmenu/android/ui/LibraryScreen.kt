@@ -59,6 +59,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -434,14 +439,24 @@ fun LibraryScreen(
                                 val locations = state.libraryLocations + state.desktopLibraryLocations
                                 if (locations.isEmpty()) DropdownMenuItem(text = { Text(strings[R.string.ui_no_storage_locations]) }, onClick = {}, enabled = false)
                                 locations.forEach { location ->
-                                    DropdownMenuItem(text = { Text((if (state.selectedLibraryLocationUris == null || location.uri in state.selectedLibraryLocationUris) "✓ " else "") + (if (location.isCloud) "PC · " else strings[R.string.ui_device]) + location.displayName) }, leadingIcon = { ActionIcon(if (location.isCloud) ActionSymbol.PC else ActionSymbol.DEVICE) }, onClick = { onLocationChange(location.uri) })
+                                    val checked = state.selectedLibraryLocationUris == null || location.uri in state.selectedLibraryLocationUris
+                                    DropdownMenuItem(
+                                        text = { Text((if (location.isCloud) "PC · " else strings[R.string.ui_device]) + location.displayName) },
+                                        leadingIcon = { Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.size(20.dp)) },
+                                        trailingIcon = { ActionIcon(if (location.isCloud) ActionSymbol.PC else ActionSymbol.DEVICE) },
+                                        modifier = Modifier.semantics {
+                                            role = Role.Checkbox
+                                            toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
+                                        },
+                                        onClick = { onLocationChange(location.uri) },
+                                    )
                                 }
                             }
                             else -> {
                                 listOf(strings[R.string.ui_view_58d697] to ActionSymbol.GRID, strings[R.string.ui_storage_locations] to ActionSymbol.FOLDER).forEach { (category, symbol) ->
                                     DropdownMenuItem(text = { Text("$category  ›") }, leadingIcon = { ActionIcon(symbol) }, onClick = { options = category })
                                 }
-                                DropdownMenuItem(text = { Text(if (state.isAutoCreatingSeries) strings[R.string.ui_analyzing] else strings[R.string.ui_auto_generate]) }, leadingIcon = { ActionIcon(ActionSymbol.SERIES) }, enabled = !state.isAutoCreatingSeries, onClick = { onAutoCreateSeries(); options = null })
+                                DropdownMenuItem(text = { Text(if (state.isAutoCreatingSeries) strings[R.string.ui_analyzing] else strings[R.string.ui_auto_generate_series]) }, leadingIcon = { ActionIcon(ActionSymbol.SERIES) }, enabled = !state.isAutoCreatingSeries, onClick = { onAutoCreateSeries(); options = null })
                                 if (selectedSeries != null) {
                                     DropdownMenuItem(text = { Text(if (editingSeriesOrder) strings[R.string.ui_finish_reordering] else strings[R.string.ui_edit_order]) }, leadingIcon = { ActionIcon(ActionSymbol.SORT) }, onClick = { editingSeriesOrder = !editingSeriesOrder; options = null })
                                     DropdownMenuItem(text = { Text(strings[R.string.ui_edit_series_members]) }, leadingIcon = { ActionIcon(ActionSymbol.EDIT) }, enabled = !editingSeriesOrder, onClick = {
@@ -1391,7 +1406,8 @@ private fun LibraryBookText(book: LibraryBook, progress: Int, modifier: Modifier
             CompactTagRow(book.metadata.tags.take(4))
         }
         Text(
-            strings[R.string.ui_pages_1f4c39, (book.pages.size), (book.locationName)] +
+            (if (book.isCloud) strings[R.string.ui_pages, book.pages.size]
+                else strings[R.string.ui_pages_1f4c39, book.pages.size, book.locationName]) +
                 if (progress > 0) strings[R.string.ui_from_page, (progress + 1)] else "",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

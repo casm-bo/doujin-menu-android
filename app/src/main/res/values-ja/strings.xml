@@ -206,7 +206,7 @@
     <string name="ui_no_storage_locations">"保存先の登録なし"</string>
     <string name="ui_device">"端末 · "</string>
     <string name="ui_analyzing">"分析中…"</string>
-    <string name="ui_auto_generate">"自動生成"</string>
+    <string name="ui_auto_generate_series">"シリーズを自動生成"</string>
     <string name="ui_finish_reordering">"並べ替えを完了"</string>
     <string name="ui_edit_order">"順序を編集"</string>
     <string name="ui_edit_series_members">"シリーズの構成を編集"</string>

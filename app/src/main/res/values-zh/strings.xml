@@ -206,7 +206,7 @@
     <string name="ui_no_storage_locations">"尚未添加存储位置"</string>
     <string name="ui_device">"设备 · "</string>
     <string name="ui_analyzing">"正在分析…"</string>
-    <string name="ui_auto_generate">"自动生成"</string>
+    <string name="ui_auto_generate_series">"自动生成系列"</string>
     <string name="ui_finish_reordering">"完成排序"</string>
     <string name="ui_edit_order">"编辑顺序"</string>
     <string name="ui_edit_series_members">"编辑系列成员"</string>
