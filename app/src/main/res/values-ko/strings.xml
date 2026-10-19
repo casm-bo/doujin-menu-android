@@ -9,7 +9,7 @@
     <string name="ui_biometric_authentication">"생체인증"</string>
     <string name="ui_enabled">"사용 중: %1$s"</string>
     <string name="ui_app_lock_is_off">"앱 잠금 꺼짐"</string>
-    <string name="ui_locks_on_launch_and_return_from_background_keep_your_credentia">"앱 실행과 백그라운드 복귀 시 잠급니다. 잠금 정보를 잊으면 앱 데이터 복구가 필요하므로 안전하게 보관하세요."</string>
+    <string name="ui_locks_on_launch_and_return_from_background_keep_your_credentia">"앱 실행과 백그라운드 복귀 시 잠급니다. 잠금 정보를 잊으면 앱 데이터 초기화가 필요합니다. 잠금 정보를 안전하게 보관하세요."</string>
     <string name="ui_disable_app_lock">"앱 잠금 해제하기"</string>
     <string name="ui_biometric_unlock">"생체잠금"</string>
     <string name="ui_use_biometrics_instead_of_the_configured_pin_password_or_patte">"설정한 PIN·비밀번호·패턴 대신 생체인증으로 해제합니다."</string>
@@ -454,7 +454,7 @@
     <string name="msg_cannot_connect_to_pc_check_vpn_and_network_settings_an">"PC에 연결할 수 없습니다. 휴대폰의 VPN과 네트워크 설정을 확인하고, PC와 같은 네트워크에 연결되어 있는지 확인해 주세요."</string>
     <string name="msg_pc_address_not_found_check_the_ip_host_and_network_set">"PC 주소를 찾을 수 없습니다. 입력한 IP/호스트와 네트워크 설정을 확인해 주세요."</string>
     <string name="msg_an_unknown_error_occurred">"알 수 없는 오류가 발생했습니다."</string>
-    <string name="msg_cannot_read_lock_data_app_data_must_be_reset_to_recove">"잠금 정보를 읽을 수 없습니다. 앱 데이터를 복구해야 합니다."</string>
+    <string name="msg_cannot_read_lock_data_app_data_must_be_reset_to_recove">"잠금 정보를 읽을 수 없습니다. 앱 데이터를 초기화해야 다시 사용할 수 있습니다."</string>
     <string name="msg_wait_a_moment_before_trying_again">"잠시 후 다시 시도하세요."</string>
     <string name="msg_incorrect_credential">"잠금 정보가 일치하지 않습니다."</string>
     <string name="msg_verify_your_current_credential_first">"기존 잠금 인증이 필요합니다."</string>
