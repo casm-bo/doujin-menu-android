@@ -851,6 +851,7 @@ private fun MainTabContent(
                 onClearDownloadLocation = viewModel::clearDownloadLocation,
                 onViewerPreferencesChange = viewModel::updateViewerPreferences,
                 onThemeModeChange = viewModel::setThemeMode,
+                onGalleryBorderChange = viewModel::setGalleryBorder,
                 onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
                 openConnectionRequested = connectionSettingsRequested,
                 onConnectionRequestHandled = { connectionSettingsRequested = false },

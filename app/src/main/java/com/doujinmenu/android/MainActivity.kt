@@ -7,6 +7,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import com.doujinmenu.android.ui.LocalGalleryBorders
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.doujinmenu.android.ui.DoujinMenuApp
 import com.doujinmenu.android.ui.MainViewModel
@@ -28,7 +30,9 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(systemBarStyle, systemBarStyle)
             }
             DoujinMenuTheme(darkTheme = darkTheme) {
+                CompositionLocalProvider(LocalGalleryBorders provides viewModel.uiState.galleryBorders) {
                 DoujinMenuApp(viewModel)
+                }
             }
         }
     }

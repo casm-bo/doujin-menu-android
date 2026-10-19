@@ -12,6 +12,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Slider
+import androidx.compose.ui.graphics.Color
+import com.doujinmenu.android.model.GalleryBorders
+import com.doujinmenu.android.model.GalleryBorderStyle
+import com.doujinmenu.android.model.parseBorderColor
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -76,6 +84,7 @@ fun SettingsScreen(
     onClearDownloadLocation: () -> Unit,
     onViewerPreferencesChange: (ViewerPreferences) -> Unit,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    onGalleryBorderChange: (Boolean, GalleryBorderStyle) -> Unit,
     onCheckForUpdates: () -> Unit,
     openConnectionRequested: Boolean,
     onConnectionRequestHandled: () -> Unit,
@@ -106,6 +115,8 @@ fun SettingsScreen(
             contentPadding = contentPadding,
             onBack = { openSection(SettingsSection.HOME) },
             onChange = onThemeModeChange,
+            borders = state.galleryBorders,
+            onBorderChange = onGalleryBorderChange,
         )
         SettingsSection.VIEWER -> ViewerSettingsScreen(
             preferences = state.viewerPreferences,
@@ -209,6 +220,8 @@ private fun AppearanceSettingsScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
     onChange: (AppThemeMode) -> Unit,
+    borders: GalleryBorders,
+    onBorderChange: (Boolean, GalleryBorderStyle) -> Unit,
 ) {
     SettingsDetailLayout("화면 설정", contentPadding, onBack) {
         SectionCard("테마") {
@@ -217,6 +230,31 @@ private fun AppearanceSettingsScreen(
             ThemeModeOption("라이트", "항상 밝은 화면을 사용합니다.", AppThemeMode.LIGHT, themeMode, onChange)
             HorizontalDivider()
             ThemeModeOption("다크", "항상 어두운 화면을 사용합니다.", AppThemeMode.DARK, themeMode, onChange)
+        }
+        BorderSettingsCard("일반 갤러리 테두리", borders.normal) { onBorderChange(false, it) }
+        BorderSettingsCard("시리즈 테두리", borders.series) { onBorderChange(true, it) }
+    }
+}
+
+@Composable
+private fun BorderSettingsCard(title: String, style: GalleryBorderStyle, onChange: (GalleryBorderStyle) -> Unit) {
+    var hex by rememberSaveable(style.colorArgb) { mutableStateOf(style.colorArgb.toString(16).takeLast(6).uppercase()) }
+    SectionCard(title) {
+        Text("굵기: ${style.widthDp.toInt()}dp · 0은 테두리 없음")
+        Slider(value = style.widthDp, onValueChange = { onChange(style.copy(widthDp = it)) }, valueRange = 0f..6f, steps = 5)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(0xFF6750A4, 0xFFB0A6BC, 0xFF1565C0, 0xFF008577, 0xFFC62828, 0xFF202020).forEach { color ->
+                FilterChip(selected = style.colorArgb == color, onClick = { onChange(style.copy(colorArgb = color)) },
+                    label = { Text("●", color = Color(color)) })
+            }
+        }
+        OutlinedTextField(value = hex, onValueChange = { value ->
+            hex = value.filter { it.isDigit() || it.lowercaseChar() in 'a'..'f' }.take(6)
+            parseBorderColor(hex)?.let { onChange(style.copy(colorArgb = it)) }
+        }, label = { Text("색상 HEX (RRGGBB)") }, prefix = { Text("#") }, singleLine = true,
+            isError = parseBorderColor(hex) == null)
+        Card(border = if (style.widthDp > 0) BorderStroke(style.widthDp.dp, Color(style.colorArgb)) else null) {
+            Text("미리보기", Modifier.padding(20.dp))
         }
     }
 }

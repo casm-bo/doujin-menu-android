@@ -20,6 +20,9 @@ import com.doujinmenu.android.model.recordHistory
 import com.doujinmenu.android.model.findBook
 import com.doujinmenu.android.security.RecentHistoryStore
 import com.doujinmenu.android.model.SearchResult
+import com.doujinmenu.android.model.GalleryBorders
+import com.doujinmenu.android.model.GalleryBorderStyle
+import com.doujinmenu.android.security.AppearancePreferenceStore
 import com.doujinmenu.android.model.SearchQueryEntry
 import com.doujinmenu.android.model.recordQuery
 import com.doujinmenu.android.model.combineLanguageSearchResults
@@ -107,6 +110,7 @@ import kotlinx.coroutines.withContext
 
 data class MainUiState(
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    val galleryBorders: GalleryBorders = GalleryBorders(),
     val host: String = "",
     val port: String = EndpointNormalizer.DEFAULT_PORT.toString(),
     val pairingCode: String = "",
@@ -213,6 +217,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val updatePreferences = application.getSharedPreferences("updates", Application.MODE_PRIVATE)
     private val profileStore = SecureProfileStore(application)
     private val browserPreferenceStore = BrowserPreferenceStore(application)
+    private val appearancePreferenceStore = AppearancePreferenceStore(application)
     private val libraryPreferenceStore = LibraryPreferenceStore(application)
     private val recentHistoryStore = RecentHistoryStore(application)
     private val libraryIdentityStore = LibraryIdentityStore(application)
@@ -263,6 +268,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val activeSearch = browserWorkspace.activeTab.currentPage as? BrowserPage.Search
         uiState = uiState.copy(
             themeMode = browserPreferenceStore.loadThemeMode(),
+            galleryBorders = appearancePreferenceStore.loadBorders(),
             profiles = profiles,
             selectedProfileId = profiles.firstOrNull()?.id,
             browserWorkspace = browserWorkspace,
@@ -319,6 +325,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setThemeMode(value: AppThemeMode) {
         browserPreferenceStore.saveThemeMode(value)
         uiState = uiState.copy(themeMode = value)
+    }
+
+    fun setGalleryBorder(series: Boolean, style: GalleryBorderStyle) {
+        appearancePreferenceStore.saveBorder(series, style)
+        val borders = uiState.galleryBorders
+        uiState = uiState.copy(galleryBorders = if (series) borders.copy(series = style) else borders.copy(normal = style))
     }
     fun setSearchQuery(value: String) {
         update { copy(searchQuery = value) }

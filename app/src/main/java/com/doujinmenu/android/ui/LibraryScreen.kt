@@ -1140,7 +1140,7 @@ private fun LibraryBookCard(
     onToggleRead: () -> Unit,
 ) {
     val context = LocalContext.current
-    Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onLongPress)) {
+    Card(border = galleryCardBorder(), modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onLongPress)) {
         Box {
             AsyncImage(
                 model = libraryImageRequest(context, book.coverUri, book.cloudToken),
@@ -1182,6 +1182,7 @@ private fun LibraryBookListItem(
     Card(
         modifier = Modifier.fillMaxWidth().height(132.dp)
             .combinedClickable(onClick = onOpen, onLongClick = onLongPress),
+        border = galleryCardBorder(),
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.width(94.dp).fillMaxHeight()) {
@@ -1512,6 +1513,7 @@ private fun SeriesCard(
         modifier = Modifier.fillMaxWidth()
             .then(if (listMode) Modifier.height(142.dp) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
+        border = galleryCardBorder(series = true),
     ) {
         if (listMode) {
             Row(modifier = Modifier.fillMaxSize()) {
