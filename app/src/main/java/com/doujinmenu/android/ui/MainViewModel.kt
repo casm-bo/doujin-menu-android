@@ -388,15 +388,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncActiveSearch(persist = true)
     }
 
-    fun addCustomLanguage(language: String) {
-        val normalized = language.substringAfter(':').trim().lowercase()
-            .replace(Regex("\\s+"), "_")
-        if (normalized.isEmpty()) return
-        val custom = uiState.customLanguages + normalized
-        val selected = uiState.preferredLanguages + normalized
-        browserPreferenceStore.saveCustomLanguages(custom)
-        browserPreferenceStore.savePreferredLanguages(selected)
-        uiState = uiState.copy(customLanguages = custom, preferredLanguages = selected)
+    fun selectAnyLanguage() {
+        browserPreferenceStore.savePreferredLanguages(emptySet())
+        uiState = uiState.copy(preferredLanguages = emptySet())
         syncActiveSearch(persist = true)
     }
 

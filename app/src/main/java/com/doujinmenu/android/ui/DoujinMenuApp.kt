@@ -715,7 +715,7 @@ private fun MainTabContent(
                 onFavoriteSearch = viewModel::searchFavorite,
                 onToggleLanguage = viewModel::togglePreferredLanguage,
                 onLoadLanguages = viewModel::loadAvailableLanguages,
-                onAddCustomLanguage = viewModel::addCustomLanguage,
+                onSelectAnyLanguage = viewModel::selectAnyLanguage,
                 onRemoveCustomLanguage = viewModel::removeCustomLanguage,
                 onSelectSuggestion = viewModel::selectFilterSuggestion,
                 onRefresh = viewModel::refresh,

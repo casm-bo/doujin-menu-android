@@ -56,6 +56,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
@@ -116,7 +119,7 @@ fun BrowserScreen(
     onFavoriteSearch: (SearchFavorite) -> Unit,
     onToggleLanguage: (String) -> Unit,
     onLoadLanguages: () -> Unit,
-    onAddCustomLanguage: (String) -> Unit,
+    onSelectAnyLanguage: () -> Unit,
     onRemoveCustomLanguage: (String) -> Unit,
     onSelectSuggestion: (FilterSuggestion) -> Unit,
     onRefresh: () -> Unit,
@@ -138,8 +141,6 @@ fun BrowserScreen(
 ) {
     val context = LocalContext.current
     var expandedPanel by rememberSaveable { mutableStateOf<String?>(null) }
-    var addLanguageDialog by rememberSaveable { mutableStateOf(false) }
-    var languageInput by rememberSaveable { mutableStateOf("") }
     var deleteLanguage by rememberSaveable { mutableStateOf<String?>(null) }
     val libraryBookByGalleryId = remember(state.libraryBooks, state.libraryHiddenIds) {
         val visibleBooks = state.libraryBooks.filterNot { it.id in state.libraryHiddenIds }
@@ -274,11 +275,13 @@ fun BrowserScreen(
                 }
             }
         })
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { togglePanel("languages") }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = { togglePanel("languages") }, contentPadding = PaddingValues(horizontal = 10.dp),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "languages") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
                 ActionIcon(ActionSymbol.LANGUAGE); Spacer(Modifier.width(4.dp)); Text("언어")
             }
-            TextButton(onClick = { togglePanel("favorites") }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            OutlinedButton(onClick = { togglePanel("favorites") }, contentPadding = PaddingValues(horizontal = 10.dp),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "favorites") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
                 ActionIcon(ActionSymbol.STAR); Spacer(Modifier.width(4.dp)); Text("즐겨찾기")
             }
             Spacer(Modifier.weight(1f))
@@ -288,8 +291,9 @@ fun BrowserScreen(
                 onSearch()
             }
         }
-        AnimatedVisibility(visible = editing, enter = expandVertically(expandFrom = Alignment.Top), exit = shrinkVertically(shrinkTowards = Alignment.Top)) {
-            Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+        AnimatedVisibility(visible = editing && (expandedPanel != null || state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions), enter = expandVertically(expandFrom = Alignment.Top), exit = shrinkVertically(shrinkTowards = Alignment.Top)) {
+            OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(12.dp)) {
                 if (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions) {
                     state.filterSuggestions.forEach { suggestion ->
                         TextButton(onClick = { onSelectSuggestion(suggestion) }) { Text("${suggestion.token} · ${suggestion.displayName}") }
@@ -298,9 +302,10 @@ fun BrowserScreen(
                 }
 
                     if (expandedPanel == "languages") {
+                        Text("언어", style = MaterialTheme.typography.titleSmall)
                         Text(
                             if (state.preferredLanguages.isEmpty())
-                                "선택하지 않으면 언어 필터를 적용하지 않습니다."
+                                "Any: 모든 언어에서 검색합니다."
                             else "선택한 언어를 각각 검색해 결과를 합칩니다.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -318,6 +323,13 @@ fun BrowserScreen(
                             }
                         }
                         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+                            item(key = "any") {
+                                Row(Modifier.fillMaxWidth().toggleable(value = state.preferredLanguages.isEmpty(), role = Role.Checkbox,
+                                    onValueChange = { onSelectAnyLanguage() }), verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = state.preferredLanguages.isEmpty(), onCheckedChange = null, modifier = Modifier.padding(12.dp))
+                                    Text("Any · 모든 언어", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
                             items(languages, key = { it.code }) { language ->
                                 val selected = language.code in state.preferredLanguages
                                 Row(Modifier.fillMaxWidth().toggleable(value = selected, role = Role.Checkbox,
@@ -331,10 +343,10 @@ fun BrowserScreen(
                                 }
                             }
                         }
-                        TextButton(onClick = { addLanguageDialog = true }) { Text("언어 직접 추가") }
                     }
 
                     if (expandedPanel == "favorites") {
+                        Text("검색 즐겨찾기", style = MaterialTheme.typography.titleSmall)
                         state.searchFavorites.forEach { favorite ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -377,6 +389,7 @@ fun BrowserScreen(
                             modifier = Modifier.padding(top = 8.dp),
                         ) { Text("현재 조건 저장") }
                     }
+            }
             }
         }
         }
@@ -476,34 +489,6 @@ fun BrowserScreen(
         dismissButton = { TextButton(onClick = { pageDialog = false }) { Text("취소") } },
     )
 
-    if (addLanguageDialog) {
-        AlertDialog(
-            onDismissRequest = { addLanguageDialog = false },
-            title = { Text("언어 추가") },
-            text = {
-                OutlinedTextField(
-                    value = languageInput,
-                    onValueChange = { languageInput = it },
-                    label = { Text("언어") },
-                    placeholder = { Text("예: french 또는 French") },
-                    singleLine = true,
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onAddCustomLanguage(languageInput)
-                        languageInput = ""
-                        addLanguageDialog = false
-                    },
-                    enabled = languageInput.substringAfter(':').isNotBlank(),
-                ) { Text("추가") }
-            },
-            dismissButton = {
-                TextButton(onClick = { addLanguageDialog = false }) { Text("취소") }
-            },
-        )
-    }
     deleteLanguage?.let { language ->
         AlertDialog(
             onDismissRequest = { deleteLanguage = null },
