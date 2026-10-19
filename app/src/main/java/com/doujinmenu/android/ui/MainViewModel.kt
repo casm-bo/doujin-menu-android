@@ -20,6 +20,8 @@ import com.doujinmenu.android.model.recordHistory
 import com.doujinmenu.android.model.findBook
 import com.doujinmenu.android.security.RecentHistoryStore
 import com.doujinmenu.android.model.SearchResult
+import com.doujinmenu.android.model.SearchQueryEntry
+import com.doujinmenu.android.model.recordQuery
 import com.doujinmenu.android.model.combineLanguageSearchResults
 import com.doujinmenu.android.model.queriesWithPreferredLanguages
 import com.doujinmenu.android.model.isSearchPageInRange
@@ -120,6 +122,7 @@ data class MainUiState(
     val searchQuery: String = "",
     val favoriteName: String = "",
     val searchFavorites: List<SearchFavorite> = emptyList(),
+    val searchQueryHistory: List<SearchQueryEntry> = emptyList(),
     val preferredLanguages: Set<String> = emptySet(),
     val customLanguages: Set<String> = emptySet(),
     val availableLanguages: List<AvailableLanguage> = emptyList(),
@@ -269,6 +272,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             currentPage = activeSearch?.currentPage ?: 0,
             hasNextPage = activeSearch?.hasNextPage == true,
             searchFavorites = browserPreferenceStore.loadFavorites(),
+            searchQueryHistory = browserPreferenceStore.loadSearchQueryHistory(),
             preferredLanguages = activeLanguages,
             customLanguages = browserPreferenceStore.loadCustomLanguages(),
             knownFilterTokens = browserPreferenceStore.loadKnownFilterTokens(),
@@ -519,6 +523,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun search() {
         if (uiState.isLoadingPage) return
         startBrowserSearch(reset = true)
+    }
+
+    fun repeatSearch(entry: SearchQueryEntry) {
+        if (uiState.isLoadingPage) return
+        uiState = uiState.copy(searchQuery = entry.query, preferredLanguages = entry.languages)
+        browserPreferenceStore.savePreferredLanguages(entry.languages)
+        search()
+    }
+
+    fun clearSearchQueryHistory() {
+        browserPreferenceStore.saveSearchQueryHistory(emptyList())
+        uiState = uiState.copy(searchQueryHistory = emptyList())
     }
 
     fun openGalleryBackgroundTab(galleryId: Long): BackgroundGalleryTab? {
@@ -2390,6 +2406,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val index = if (reset) SearchResultIndex(java.util.UUID.randomUUID().toString(), searchQueries)
             else uiState.searchResultWindow?.index ?: return
+        if (reset) {
+            val history = uiState.searchQueryHistory.recordQuery(SearchQueryEntry(query, uiState.preferredLanguages))
+            browserPreferenceStore.saveSearchQueryHistory(history)
+            uiState = uiState.copy(searchQueryHistory = history)
+        }
         val revision = uiState.browserNavigationRevision
         if (reset) {
             cancelSearchWindow()

@@ -8,6 +8,7 @@ import com.doujinmenu.android.model.BrowserTabGroup
 import com.doujinmenu.android.model.BrowserWorkspace
 import com.doujinmenu.android.model.normalizeGroups
 import com.doujinmenu.android.model.SearchFavorite
+import com.doujinmenu.android.model.SearchQueryEntry
 import com.doujinmenu.android.model.StorageLocation
 import java.util.UUID
 import org.json.JSONArray
@@ -54,6 +55,21 @@ class BrowserPreferenceStore(context: Context) {
         preferences.getStringSet(KEY_LANGUAGES, emptySet()).orEmpty()
             .mapTo(linkedSetOf()) { it.trim().lowercase() }
             .filterTo(linkedSetOf()) { it.isNotEmpty() }
+
+    fun loadSearchQueryHistory(): List<SearchQueryEntry> = runCatching {
+        val array = JSONArray(preferences.getString("search_query_history", "[]"))
+        List(minOf(array.length(), 50)) { index ->
+            val item = array.getJSONObject(index)
+            SearchQueryEntry(item.getString("query"), item.optJSONArray("languages").stringSet())
+        }
+    }.getOrDefault(emptyList())
+
+    fun saveSearchQueryHistory(entries: List<SearchQueryEntry>) {
+        val array = JSONArray(entries.take(50).map { entry ->
+            JSONObject().put("query", entry.query).put("languages", JSONArray(entry.languages.toList()))
+        })
+        preferences.edit().putString("search_query_history", array.toString()).apply()
+    }
 
     fun savePreferredLanguages(languages: Set<String>) {
         preferences.edit().putStringSet(KEY_LANGUAGES, languages).apply()

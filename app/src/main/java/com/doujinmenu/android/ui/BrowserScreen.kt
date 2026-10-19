@@ -102,6 +102,7 @@ import coil3.size.Precision
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.SearchFavorite
+import com.doujinmenu.android.model.SearchQueryEntry
 import com.doujinmenu.android.model.resolveScrollIndex
 import com.doujinmenu.android.model.isSearchPageInRange
 import com.doujinmenu.android.network.parseHitomiSearchOrder
@@ -121,6 +122,8 @@ fun BrowserScreen(
     onSaveFavorite: () -> Unit,
     onRemoveFavorite: (String) -> Unit,
     onFavoriteSearch: (SearchFavorite) -> Unit,
+    onRecentSearch: (SearchQueryEntry) -> Unit,
+    onClearSearchHistory: () -> Unit,
     onToggleLanguage: (String) -> Unit,
     onLoadLanguages: () -> Unit,
     onSelectAnyLanguage: () -> Unit,
@@ -264,7 +267,7 @@ fun BrowserScreen(
         CollapsingSearchToolbar(scrollBehavior) {
         Column {
         tabHeader({
-            UnifiedSearchField(state.searchQuery, onQueryChange, "검색 조건", { editing = true; expandedPanel = null }, { submitSearch() })
+            UnifiedSearchField(state.searchQuery, { expandedPanel = null; onQueryChange(it) }, "검색 조건", { editing = true; expandedPanel = "history" }, { submitSearch() })
         }, {
             Box {
                 IconButton(onClick = { menu = "root" }, modifier = Modifier.semantics { contentDescription = "검색 옵션" }) { Text("⋯") }
@@ -276,7 +279,7 @@ fun BrowserScreen(
                     } else {
                         DropdownMenuItem(text = { Text("이 검색 즐겨찾기 등록") }, leadingIcon = { ActionIcon(ActionSymbol.STAR) }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
                         DropdownMenuItem(text = { Text("페이지 이동") }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
-                        DropdownMenuItem(text = { Text("보기  ›") }, leadingIcon = { ActionIcon(ActionSymbol.LIST) }, onClick = { menu = "view" })
+                        DropdownMenuItem(text = { Text("보기  ›") }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, onClick = { menu = "view" })
                         HorizontalDivider()
                         DropdownMenuItem(text = { Text("새로고침") }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { menu = null; onRefresh() })
                         DropdownMenuItem(text = { Text("검색어 지우기") }, leadingIcon = { ActionIcon(ActionSymbol.CLEAR) }, onClick = { onQueryChange(""); menu = null; editing = true })
@@ -287,7 +290,11 @@ fun BrowserScreen(
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = { togglePanel("languages") }, contentPadding = PaddingValues(horizontal = 10.dp),
                 colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "languages") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
-                ActionIcon(ActionSymbol.LANGUAGE); Spacer(Modifier.width(4.dp)); Text("언어")
+                ActionIcon(ActionSymbol.LANGUAGE); Spacer(Modifier.width(4.dp))
+                val selected = state.preferredLanguages.singleOrNull()
+                Text(selected?.let { code -> state.availableLanguages.firstOrNull { it.code == code }?.label
+                    ?: mapOf("korean" to "한국어", "japanese" to "日本語", "english" to "English", "chinese" to "中文")[code]
+                    ?: code.replace('_', ' ') } ?: "언어")
             }
             OutlinedButton(onClick = { togglePanel("favorites") }, contentPadding = PaddingValues(horizontal = 10.dp),
                 colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "favorites") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
@@ -304,10 +311,29 @@ fun BrowserScreen(
             OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
             val editorScroll = rememberScrollState()
             Column(Modifier.fillMaxWidth().heightIn(max = 300.dp)
-                .then(if (expandedPanel == "languages") Modifier else Modifier.verticalScroll(editorScroll)).padding(12.dp)) {
+                .then(if (expandedPanel == "languages" || expandedPanel == "history") Modifier else Modifier.verticalScroll(editorScroll)).padding(12.dp)) {
+                if (expandedPanel == "history") {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("최근 검색기록", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        TextButton(onClick = onClearSearchHistory, enabled = state.searchQueryHistory.isNotEmpty()) { Text("기록 삭제") }
+                    }
+                    if (state.searchQueryHistory.isEmpty()) Text("최근 검색기록이 없습니다.", style = MaterialTheme.typography.bodyMedium)
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+                        items(state.searchQueryHistory) { entry ->
+                            TextButton(onClick = {
+                                focusManager.clearFocus(); editing = false; expandedPanel = null; onRecentSearch(entry)
+                            }, modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.fillMaxWidth()) {
+                                    Text(entry.query.ifBlank { "전체 갤러리" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(entry.languages.sorted().joinToString().ifBlank { "Any" }, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                }
                 if (expandedPanel == null && (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions)) {
                     state.filterSuggestions.forEach { suggestion ->
-                        TextButton(onClick = { onSelectSuggestion(suggestion) }) { Text("${suggestion.token} · ${suggestion.displayName}") }
+                        TextButton(onClick = { onSelectSuggestion(suggestion) }) { Text(suggestion.token) }
                     }
                     if (state.isLoadingFilterSuggestions) Text("필터 목록 불러오는 중…")
                 }
@@ -548,7 +574,7 @@ private fun GalleryCard(
     }
 
     if (gridView) {
-        val tagAreaHeight = (88 * LocalDensity.current.fontScale).dp
+        val tagAreaHeight = (110 * LocalDensity.current.fontScale).dp
         Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "새 탭에서 열기")) {
             Box(Modifier.fillMaxWidth().aspectRatio(0.72f).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                 Text("#${gallery.id}", style = MaterialTheme.typography.labelSmall)
@@ -560,11 +586,13 @@ private fun GalleryCard(
                 Text(gallery.artists.joinToString().ifBlank { "작가 정보 없음" }, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Text(listOfNotNull(gallery.language, gallery.pageCount.takeIf { it > 0 }?.let { "${it}페이지" }).joinToString(" · "), style = MaterialTheme.typography.labelSmall, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Column(Modifier.fillMaxWidth().height(tagAreaHeight).clipToBounds(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp), maxLines = 3) {
                         gallery.tags.take(3).forEach { tag ->
-                            TagPill(info = tagDisplayInfo(tag.name, tag.type), modifier = Modifier.clickable {
+                            TagPill(info = tagDisplayInfo(tag.name, tag.type), large = true, modifier = Modifier.clickable {
                                 onSearchFacet(tagSearchFacet(tag.name, tag.type))
                             })
                         }
+                    }
                         if (gallery.tags.size > 3) Text("+${gallery.tags.size - 3}", style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -607,7 +635,7 @@ private fun GalleryCard(
             }
             Spacer(Modifier.width(14.dp))
             Column(
-                modifier = Modifier.weight(1f).height(144.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 144.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(
@@ -641,6 +669,7 @@ private fun GalleryCard(
                         tags.forEach { tag ->
                             TagPill(
                                 info = tagDisplayInfo(tag.name, tag.type),
+                                large = true,
                                 modifier = Modifier.clickable {
                                     onSearchFacet(tagSearchFacet(tag.name, tag.type))
                                 },

@@ -1,6 +1,6 @@
 package com.doujinmenu.android.model
 
-enum class HistorySource(val label: String) { SEARCH("검색"), DEVICE("기기"), PC("PC") }
+enum class HistorySource(val label: String) { SEARCH("검색 기록"), DEVICE("기기"), PC("PC") }
 enum class HistoryAction(val label: String) { DETAIL("상세 열람"), READING("읽는 중"), COMPLETED("읽음") }
 
 data class RecentHistoryEntry(
