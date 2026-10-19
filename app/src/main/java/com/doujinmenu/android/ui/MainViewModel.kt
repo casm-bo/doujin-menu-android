@@ -160,6 +160,7 @@ data class MainUiState(
     val currentPage: Int = 0,
     val hasNextPage: Boolean = false,
     val isLoadingPage: Boolean = false,
+    val searchJumpRevision: Int = 0,
     val isRestoringSearch: Boolean = false,
     val isRefreshing: Boolean = false,
     val readerPagesByGalleryId: Map<Long, List<String>> = emptyMap(),
@@ -666,8 +667,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
-    fun updateBrowserScroll(pageKey: String, sessionId: String?, anchorKey: String?, index: Int, offset: Int) {
-        val workspace = uiState.browserWorkspace.updateSearchScroll(pageKey, sessionId, anchorKey, index, offset)
+    fun updateBrowserScroll(pageKey: String, sessionId: String?, anchorKey: String?, index: Int, offset: Int, scrollPage: Int) {
+        val workspace = uiState.browserWorkspace.updateSearchScroll(pageKey, sessionId, anchorKey, index, offset, scrollPage)
         if (workspace != uiState.browserWorkspace) {
             uiState = uiState.copy(browserWorkspace = workspace)
             browserPreferenceStore.saveBrowserWorkspace(workspace)
@@ -768,6 +769,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadNextPage() {
         if (uiState.isLoadingPage || !uiState.hasNextPage || uiState.currentPage < 1) return
         startBrowserSearch(reset = false)
+    }
+
+    fun jumpToSearchPage(page: Int) {
+        if (page !in 1..10000) return
+        val search = activeSearchPage() ?: return
+        val queries = search.submittedQueries.ifEmpty {
+            queriesWithPreferredLanguages(search.submittedQuery.ifBlank { search.query }, search.preferredLanguages)
+        }
+        if (queries.isEmpty()) return
+        browserSearchJob?.cancel()
+        cancelSearchWindow()
+        val sessionId = UUID.randomUUID().toString()
+        val previousState = uiState
+        val previous = uiState.browserWorkspace
+        val workspace = previous.updateActiveSearch { it.copy(resultSessionId = sessionId, scrollAnchorKey = null, scrollIndex = 0, scrollOffset = 0, scrollPage = page) }
+        uiState = uiState.copy(browserWorkspace = workspace, galleries = emptyList(),
+            searchResultWindow = SearchResultWindow(SearchResultIndex(sessionId, queries)),
+            isLoadingPage = true, currentPage = 0, hasNextPage = false, nextSearchPageError = null)
+        val revision = uiState.browserNavigationRevision
+        browserSearchJob = viewModelScope.launch {
+            try {
+                val loaded = searchResultPager.seek(sessionId, queries, page)
+                if (!isSearchSessionCurrent(search.key, sessionId, revision)) return@launch
+                val targetOffset = loaded.index.pages.take(page - loaded.index.firstPage).sumOf { it.size }
+                val anchor = loaded.index.ids.getOrNull(targetOffset)?.let { "gallery:$it" }
+                val ready = uiState.browserWorkspace.updateActiveSearch { it.copy(
+                    scrollAnchorKey = anchor, scrollIndex = targetOffset + 2, scrollOffset = 0,
+                    scrollPage = page, currentPage = loaded.index.lastPage,
+                ) }
+                visibleSearchResults = targetOffset..targetOffset
+                uiState = uiState.copy(browserWorkspace = ready, searchResultWindow = loaded, galleries = loaded.galleries,
+                    galleryCache = cacheGalleries(uiState.galleryCache, loaded.galleries),
+                    currentPage = loaded.index.lastPage, hasNextPage = loaded.index.hasNextPage,
+                    searchJumpRevision = uiState.searchJumpRevision + 1)
+                syncActiveSearch(persist = true)
+                removeClosedSearchSessions(previous, uiState.browserWorkspace)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (isSearchSessionCurrent(search.key, sessionId, revision)) uiState = uiState.copy(
+                    browserWorkspace = previousState.browserWorkspace, searchResultWindow = previousState.searchResultWindow,
+                    galleries = previousState.galleries, currentPage = previousState.currentPage,
+                    hasNextPage = previousState.hasNextPage, isLoadingPage = false,
+                    message = error.message ?: "페이지를 이동하지 못했습니다.", isError = true)
+            } finally {
+                if (isSearchSessionCurrent(search.key, sessionId, revision)) uiState = uiState.copy(isLoadingPage = false)
+            }
+        }
+    }
+
+    fun loadPreviousSearchPage() {
+        val window = uiState.searchResultWindow ?: return
+        if (window.index.firstPage <= 1 || uiState.isLoadingPage || uiState.isRestoringSearch) return
+        val search = activeSearchPage() ?: return
+        val revision = uiState.browserNavigationRevision
+        cancelSearchWindow()
+        browserSearchJob = viewModelScope.launch {
+            uiState = uiState.copy(isLoadingPage = true)
+            try {
+                val loaded = searchResultPager.prepend(window.index)
+                if (!isSearchSessionCurrent(search.key, window.index.sessionId, revision)) return@launch
+                val added = loaded.index.pages.first().size
+                visibleSearchResults = (visibleSearchResults.first + added)..(visibleSearchResults.last + added)
+                val pages = loaded.index.window(visibleSearchResults.first, visibleSearchResults.last)
+                publishSearchWindow(loaded.copy(residentPages = window.residentPages + loaded.residentPages).retainPages(pages))
+                uiState = uiState.copy(galleryCache = cacheGalleries(uiState.galleryCache, loaded.galleries))
+                syncActiveSearch(persist = true)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (isSearchSessionCurrent(search.key, window.index.sessionId, revision)) uiState = uiState.copy(message = error.message, isError = true)
+            } finally {
+                if (isSearchSessionCurrent(search.key, window.index.sessionId, revision)) uiState = uiState.copy(isLoadingPage = false)
+            }
+        }
     }
 
     fun refresh() {
@@ -2021,7 +2095,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun publishSearchWindow(window: SearchResultWindow) {
         uiState = uiState.copy(searchResultWindow = window, galleries = window.galleries,
-            currentPage = window.index.pages.size, hasNextPage = window.index.hasNextPage)
+            currentPage = window.index.lastPage, hasNextPage = window.index.hasNextPage)
     }
 
     private fun restoreBrowserSearch() {
@@ -2041,8 +2115,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         browserPreferenceStore.saveBrowserWorkspace(workspace)
         browserSearchJob = viewModelScope.launch {
             try {
-                val index = searchResultPager.restore(sessionId, queries, search.currentPage)
+                val index = searchResultPager.restore(sessionId, queries, search.scrollPage)
                 if (!isSearchSessionCurrent(search.key, sessionId, revision)) return@launch
+                visibleSearchResults = index.ids.indexOf(search.scrollAnchorKey?.removePrefix("gallery:")?.toLongOrNull()).coerceAtLeast(0).let { it..it }
                 publishSearchWindow(SearchResultWindow(index))
                 syncActiveSearch(persist = true)
                 loadVisibleSearchResults(visibleSearchResults.first, visibleSearchResults.last)
@@ -2241,6 +2316,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val previousWorkspace = uiState.browserWorkspace
         val workspace = previousWorkspace.updateActiveSearch { search ->
             search.copy(resultSessionId = index.sessionId,
+                scrollPage = if (reset && !preserveResults) 1 else search.scrollPage,
                 scrollAnchorKey = if (reset && !preserveResults) null else search.scrollAnchorKey,
                 scrollIndex = if (reset && !preserveResults) 0 else search.scrollIndex,
                 scrollOffset = if (reset && !preserveResults) 0 else search.scrollOffset)

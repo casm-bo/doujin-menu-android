@@ -719,17 +719,19 @@ private fun MainTabContent(
                 onSelectSuggestion = viewModel::selectFilterSuggestion,
                 onRefresh = viewModel::refresh,
                 onLoadNextPage = viewModel::loadNextPage,
+                onLoadPreviousPage = viewModel::loadPreviousSearchPage,
+                onJumpToPage = viewModel::jumpToSearchPage,
                 onGalleryClick = onGalleryClick,
                 onGalleryLongClick = onGalleryLongClick,
                 onSearchFacet = viewModel::searchFromFacet,
                 onToggleLibraryFavorite = viewModel::toggleLibraryFavorite,
                 onConnect = openConnectionSettings,
-                pageKey = "${search?.key.orEmpty()}:${search?.resultSessionId.orEmpty()}",
+                pageKey = "${search?.key.orEmpty()}:${search?.resultSessionId.orEmpty()}:${viewModel.uiState.searchJumpRevision}",
                 initialScrollAnchorKey = search?.scrollAnchorKey,
                 initialScrollIndex = search?.scrollIndex ?: 0,
                 initialScrollOffset = search?.scrollOffset ?: 0,
-                onScrollChange = { anchor, index, offset ->
-                    search?.let { viewModel.updateBrowserScroll(it.key, it.resultSessionId, anchor, index, offset) }
+                onScrollChange = { anchor, index, offset, page ->
+                    search?.let { viewModel.updateBrowserScroll(it.key, it.resultSessionId, anchor, index, offset, page) }
                 },
                 onEnsureResults = viewModel::ensureSearchResults,
                 onVisibleResultsChange = viewModel::loadVisibleSearchResults,

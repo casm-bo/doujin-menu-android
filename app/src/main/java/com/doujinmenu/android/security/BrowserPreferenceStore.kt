@@ -268,6 +268,7 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
         .put("submittedQuery", submittedQuery)
         .put("submittedQueries", JSONArray(submittedQueries))
         .put("resultSessionId", resultSessionId)
+        .put("scrollPage", scrollPage)
         .put("currentPage", currentPage)
         .put("scrollAnchorKey", scrollAnchorKey)
         .put("scrollIndex", scrollIndex)
@@ -312,6 +313,7 @@ private fun JSONObject.toBrowserPage(): BrowserPage? {
             submittedQuery = optString("submittedQuery"),
             submittedQueries = optJSONArray("submittedQueries").stringList(),
             resultSessionId = optString("resultSessionId").takeIf { it.isNotBlank() && it != "null" },
+            scrollPage = optInt("scrollPage", 1).coerceAtLeast(1),
             currentPage = optInt("currentPage", 0).coerceAtLeast(0),
             scrollAnchorKey = optString("scrollAnchorKey").takeIf(String::isNotBlank),
             scrollIndex = optInt("scrollIndex", 0).coerceAtLeast(0),

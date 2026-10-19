@@ -74,8 +74,9 @@ class SearchResultPagerTest {
                 SearchResult(ids(page), true)
             }, { error("restore index must not fetch gallery details") })
             val index = pager.restore("missing", listOf("saved-query"), 100)
-            assertEquals(100, index.pages.size)
-            assertEquals(3000, index.ids.size)
+            assertEquals(99, index.firstPage)
+            assertEquals(100, index.lastPage)
+            assertEquals(60, index.ids.size)
         } finally { directory.deleteRecursively() }
     }
 
@@ -88,6 +89,45 @@ class SearchResultPagerTest {
                 assertEquals(listOf("new"), queries); SearchResult(listOf(2), false)
             }, { error("no details during index restore") })
             assertEquals(listOf(2L), pager.restore("session", listOf("new"), 1).ids)
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `jump to page 100 loads only target and previous then extends on demand`() = runBlocking {
+        val directory = Files.createTempDirectory("search-jump").toFile()
+        try {
+            val searches = mutableListOf<Int>()
+            val details = mutableListOf<Long>()
+            val cache = SearchResultCache(directory, minimumFreeBytes = 0)
+            val pager = SearchResultPager(cache, { _, page ->
+                searches += page; SearchResult(ids(page), true)
+            }, { requested -> details += requested; requested.map(::gallery) })
+            val window = pager.seek("jump", listOf("query"), 100)
+            assertEquals(listOf(100, 99), searches)
+            assertEquals(60, details.size)
+            assertEquals(setOf(99, 100), window.residentPages.keys)
+            assertEquals(100, window.index.pageAt(30))
+            val previous = pager.prepend(window.index)
+            assertEquals(98, searches.last())
+            assertEquals(98, previous.index.firstPage)
+            assertEquals(ids(100), previous.index.pageIds(100))
+            val next = pager.append(previous.index)
+            assertEquals(101, searches.last())
+            assertEquals(101, next.index.lastPage)
+            assertEquals(ids(100).map(::gallery), cache.readPage(next.index, 100))
+            assertEquals(next.index, cache.readIndex("jump"))
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `out of range jump does not crawl earlier pages`() = runBlocking {
+        val directory = Files.createTempDirectory("search-jump").toFile()
+        try {
+            val searches = mutableListOf<Int>()
+            val pager = SearchResultPager(SearchResultCache(directory, minimumFreeBytes = 0), { _, page ->
+                searches += page; SearchResult(emptyList(), false)
+            }, { error("empty target must not fetch details") })
+            try { pager.seek("jump", listOf("query"), 1000); fail("must reject empty page") }
+            catch (_: IllegalArgumentException) { }
+            assertEquals(listOf(1000), searches)
         } finally { directory.deleteRecursively() }
     }
 

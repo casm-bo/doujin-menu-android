@@ -26,6 +26,7 @@ sealed interface BrowserPage {
         val scrollIndex: Int = 0,
         val scrollOffset: Int = 0,
         val resultSessionId: String? = null,
+        val scrollPage: Int = 1,
     ) : BrowserPage
 
     data class OnlineGallery(
@@ -94,11 +95,11 @@ val BrowserWorkspace.searchResultSessionIds: Set<String>
 
 /** A departing search can finish saving after another tab/page became active. */
 fun BrowserWorkspace.updateSearchScroll(
-    pageKey: String, sessionId: String?, anchorKey: String?, index: Int, offset: Int,
+    pageKey: String, sessionId: String?, anchorKey: String?, index: Int, offset: Int, scrollPage: Int = 1,
 ): BrowserWorkspace {
     fun BrowserTab.saveScroll() = copy(history = history.map { page ->
         if (page is BrowserPage.Search && page.key == pageKey && page.resultSessionId == sessionId) {
-            page.copy(scrollAnchorKey = anchorKey, scrollIndex = index.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0))
+            page.copy(scrollAnchorKey = anchorKey, scrollIndex = index.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0), scrollPage = scrollPage.coerceAtLeast(1))
         } else page
     })
     return copy(tabs = tabs.map { it.saveScroll() }, groups = groups.map { group ->

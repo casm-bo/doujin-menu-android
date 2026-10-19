@@ -18,7 +18,7 @@ class BrowserWorkspacePersistenceTest {
     fun cachedSearchSessionSurvivesHistoryAndGroupArchivingWithoutResultPayloads() {
         val page = BrowserPage.Search(query = "draft", submittedQuery = "tag:full_color",
             submittedQueries = listOf("tag:full_color language:korean"), resultSessionId = "cached-search",
-            currentPage = 40, scrollAnchorKey = "gallery:1200", scrollIndex = 1201, scrollOffset = 35)
+            currentPage = 40, scrollPage = 40, scrollAnchorKey = "gallery:1200", scrollIndex = 1201, scrollOffset = 35)
         val workspace = BrowserWorkspace.initial(page).let {
             it.createGroup(setOf(it.activeTabId), "Saved")
         }.let { it.archiveGroup(it.groups.single().id) }

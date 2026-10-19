@@ -110,6 +110,8 @@ fun BrowserScreen(
     onSelectSuggestion: (FilterSuggestion) -> Unit,
     onRefresh: () -> Unit,
     onLoadNextPage: () -> Unit,
+    onLoadPreviousPage: () -> Unit,
+    onJumpToPage: (Int) -> Unit,
     onGalleryClick: (Long) -> Unit,
     onGalleryLongClick: (Long) -> Unit,
     onSearchFacet: (String) -> Unit,
@@ -119,7 +121,7 @@ fun BrowserScreen(
     initialScrollAnchorKey: String?,
     initialScrollIndex: Int,
     initialScrollOffset: Int,
-    onScrollChange: (String?, Int, Int) -> Unit,
+    onScrollChange: (String?, Int, Int, Int) -> Unit,
     onEnsureResults: () -> Unit,
     onVisibleResultsChange: (Int, Int) -> Unit,
 ) {
@@ -137,6 +139,7 @@ fun BrowserScreen(
     }
     val resultIds = state.searchResultWindow?.index?.let { index -> remember(index) { index.ids } }
         ?: remember(state.galleries) { state.galleries.map { it.id } }
+    val galleryPositions = remember(resultIds) { resultIds.withIndex().associate { "gallery:${it.value}" to it.index } }
     val galleriesById = remember(state.galleries) { state.galleries.associateBy { it.id } }
     val canRestoreResults = state.searchResultWindow == null && state.currentPage > 0 &&
         !state.isLoadingPage && !state.isRestoringSearch
@@ -178,9 +181,10 @@ fun BrowserScreen(
         }
     }
     fun persistScroll() {
+        if (state.searchResultWindow?.index?.pages.isNullOrEmpty()) return
         val index = listState.firstVisibleItemIndex
         val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key?.toString()
-        onScrollChange(anchor, index, listState.firstVisibleItemScrollOffset)
+        onScrollChange(anchor, index, listState.firstVisibleItemScrollOffset, visibleSearchPage(index, state.searchResultWindow.index))
     }
     // Keep per-frame list offsets out of MainUiState; save when the gesture settles.
     LaunchedEffect(pageKey, listState, scrollRestored) {
@@ -202,10 +206,14 @@ fun BrowserScreen(
         if (!scrollRestored || resultIds.isEmpty()) return@LaunchedEffect
         snapshotFlow {
             val visible = listState.layoutInfo.visibleItemsInfo.filter { it.key.toString().startsWith("gallery:") }
-            val first = visible.firstOrNull()?.index?.minus(2)?.coerceAtLeast(0) ?: 0
-            val last = visible.lastOrNull()?.index?.minus(2)?.coerceAtLeast(first) ?: first
-            first to last
-        }.distinctUntilChanged().collect { (first, last) -> onVisibleResultsChange(first, last) }
+            val first = visible.firstOrNull()?.key?.toString()?.let(galleryPositions::get) ?: 0
+            val last = visible.lastOrNull()?.key?.toString()?.let(galleryPositions::get) ?: first
+            Triple(first, last, listState.isScrollInProgress)
+        }.distinctUntilChanged().collect { (first, last, scrolling) ->
+            onVisibleResultsChange(first, last)
+            val index = state.searchResultWindow?.index
+            if (scrolling && index != null && index.firstPage > 1 && index.pageAt(first) == index.firstPage) onLoadPreviousPage()
+        }
     }
     var editing by rememberSaveable { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
@@ -214,19 +222,6 @@ fun BrowserScreen(
     var compact by rememberSaveable { mutableStateOf(false) }
     var pageDialog by rememberSaveable { mutableStateOf(false) }
     var pageInput by rememberSaveable { mutableStateOf("") }
-    var targetPage by rememberSaveable { mutableStateOf<Int?>(null) }
-    LaunchedEffect(pageKey, state.currentPage, state.isLoadingPage, state.isRestoringSearch, targetPage) {
-        val target = targetPage ?: return@LaunchedEffect
-        if (state.isLoadingPage || state.isRestoringSearch) return@LaunchedEffect
-        if (state.nextSearchPageError != null) { targetPage = null; return@LaunchedEffect }
-        val pages = state.searchResultWindow?.index?.pages.orEmpty()
-        val targetIndex = pages.take((target - 1).coerceAtMost((pages.size - 1).coerceAtLeast(0))).sumOf { it.size }
-        if (target <= state.currentPage || !state.hasNextPage) {
-            val index = targetIndex.coerceAtMost((resultIds.size - 1).coerceAtLeast(0))
-            if (resultIds.isNotEmpty()) listState.scrollToItem(contentKeys.indexOf("gallery:${resultIds[index]}").coerceAtLeast(0))
-            targetPage = null
-        } else onLoadNextPage()
-    }
     val canCollapse = resultIds.isNotEmpty() && !editing && menu == null && !pageDialog
     val collapseEnabled by rememberUpdatedState(canCollapse)
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { collapseEnabled })
@@ -238,7 +233,6 @@ fun BrowserScreen(
         Column {
         tabHeader({
             UnifiedSearchField(state.searchQuery, onQueryChange, "검색 조건", { editing = true }, {
-                targetPage = null
                 editing = false
                 onSearch()
             })
@@ -255,7 +249,7 @@ fun BrowserScreen(
                         DropdownMenuItem(text = { Text("페이지 이동") }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
                         DropdownMenuItem(text = { Text("보기  ›") }, leadingIcon = { ActionIcon(ActionSymbol.LIST) }, onClick = { menu = "view" })
                         HorizontalDivider()
-                        DropdownMenuItem(text = { Text("새로고침") }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { targetPage = null; menu = null; onRefresh() })
+                        DropdownMenuItem(text = { Text("새로고침") }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { menu = null; onRefresh() })
                         DropdownMenuItem(text = { Text("검색어 지우기") }, leadingIcon = { ActionIcon(ActionSymbol.CLEAR) }, onClick = { onQueryChange(""); menu = null; editing = true })
                     }
                 }
@@ -272,7 +266,6 @@ fun BrowserScreen(
             SearchSortMenu(state.searchQuery, enabled = !state.isLoadingPage) { oldest ->
                 val query = state.searchQuery.replace(Regex("(?i)(^|\\s)sort:(oldest|newest)(?=\\s|$)"), " ").trim()
                 onQueryChange(listOf(query, if (oldest) "sort:oldest" else "sort:newest").filter { it.isNotBlank() }.joinToString(" "))
-                targetPage = null
                 onSearch()
             }
         }
@@ -341,8 +334,7 @@ fun BrowserScreen(
                                     onClick = {
                                         expandedPanel = null
                                         editing = false
-                                        targetPage = null
-                                        focusManager.clearFocus()
+                                                                focusManager.clearFocus()
                                         onFavoriteSearch(favorite)
                                     },
                                     modifier = Modifier.weight(1f),
@@ -379,10 +371,6 @@ fun BrowserScreen(
             }
         }
         }
-        }
-        if (targetPage != null) Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("${targetPage}페이지로 이동 중…", Modifier.weight(1f).padding(start = 16.dp))
-            TextButton(onClick = { targetPage = null }) { Text("취소") }
         }
     PullToRefreshBox(
         isRefreshing = state.isRefreshing,
@@ -449,8 +437,8 @@ fun BrowserScreen(
 
         if (resultIds.isNotEmpty() && (state.hasNextPage || state.isLoadingPage)) {
             item(key = "page-loader-${state.currentPage}") {
-                LaunchedEffect(state.currentPage, state.hasNextPage, state.isLoadingPage, state.isRestoringSearch, state.nextSearchPageError) {
-                    if (state.hasNextPage && !state.isLoadingPage && !state.isRestoringSearch && state.nextSearchPageError == null) onLoadNextPage()
+                LaunchedEffect(state.currentPage, state.hasNextPage, state.isLoadingPage, state.isRestoringSearch, state.nextSearchPageError, listState.isScrollInProgress) {
+                    if (listState.isScrollInProgress && state.hasNextPage && !state.isLoadingPage && !state.isRestoringSearch && state.nextSearchPageError == null) onLoadNextPage()
                 }
                 if (state.nextSearchPageError != null) {
                     TextButton(onClick = onLoadNextPage, modifier = Modifier.fillMaxWidth()) { Text("다음 페이지 다시 불러오기") }
@@ -473,7 +461,7 @@ fun BrowserScreen(
         onDismissRequest = { pageDialog = false },
         title = { Text("페이지 이동") },
         text = { OutlinedTextField(value = pageInput, onValueChange = { pageInput = it.filter(Char::isDigit).take(5) }, label = { Text("페이지 번호") }, singleLine = true) },
-        confirmButton = { TextButton(enabled = pageInput.toIntOrNull() in 1..10000, onClick = { targetPage = pageInput.toInt(); pageDialog = false }) { Text("이동") } },
+        confirmButton = { TextButton(enabled = pageInput.toIntOrNull() in 1..10000, onClick = { onJumpToPage(pageInput.toInt()); pageDialog = false }) { Text("이동") } },
         dismissButton = { TextButton(onClick = { pageDialog = false }) { Text("취소") } },
     )
 
