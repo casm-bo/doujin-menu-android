@@ -56,6 +56,7 @@ import com.doujinmenu.android.model.pushPage
 import com.doujinmenu.android.model.selectTab
 import com.doujinmenu.android.model.selectSearchTab
 import com.doujinmenu.android.model.searchResultSessionIds
+import com.doujinmenu.android.model.updateSearchScroll
 import com.doujinmenu.android.model.updateActiveSearch
 import com.doujinmenu.android.model.updateActiveLibraryHome
 import com.doujinmenu.android.network.CompanionClient
@@ -665,16 +666,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
-    fun updateBrowserScroll(anchorKey: String?, index: Int, offset: Int) {
-        val workspace = uiState.browserWorkspace.updateActiveSearch { search ->
-            search.copy(
-                scrollAnchorKey = anchorKey,
-                scrollIndex = index.coerceAtLeast(0),
-                scrollOffset = offset.coerceAtLeast(0),
-            )
-        }
+    fun updateBrowserScroll(pageKey: String, sessionId: String?, anchorKey: String?, index: Int, offset: Int) {
+        val workspace = uiState.browserWorkspace.updateSearchScroll(pageKey, sessionId, anchorKey, index, offset)
         if (workspace != uiState.browserWorkspace) {
             uiState = uiState.copy(browserWorkspace = workspace)
+            browserPreferenceStore.saveBrowserWorkspace(workspace)
         }
     }
 

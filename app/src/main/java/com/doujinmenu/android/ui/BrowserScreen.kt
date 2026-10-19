@@ -46,6 +46,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.flow.filter
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -161,14 +166,26 @@ fun BrowserScreen(
             }
         }
     }
+    fun persistScroll() {
+        val index = listState.firstVisibleItemIndex
+        val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key?.toString()
+        onScrollChange(anchor, index, listState.firstVisibleItemScrollOffset)
+    }
+    // Keep per-frame list offsets out of MainUiState; save when the gesture settles.
     LaunchedEffect(pageKey, listState, scrollRestored) {
         if (!scrollRestored) return@LaunchedEffect
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .distinctUntilChanged()
-            .collect { (index, offset) ->
-                val anchorKey = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key?.toString()
-                onScrollChange(anchorKey, index, offset)
-            }
+        snapshotFlow { listState.isScrollInProgress }.filter { !it }.collect { persistScroll() }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(pageKey, listState, scrollRestored, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && scrollRestored) persistScroll()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            if (scrollRestored && listState.layoutInfo.totalItemsCount > 0) persistScroll()
+        }
     }
     LaunchedEffect(pageKey, listState, scrollRestored, resultIds.size) {
         if (!scrollRestored || resultIds.isEmpty()) return@LaunchedEffect
@@ -396,7 +413,7 @@ fun BrowserScreen(
                 val id = resultIds[index]
                 val gallery = galleriesById[id]
                 if (gallery == null) {
-                    Card(Modifier.fillMaxWidth().height(168.dp)) {
+                    Card(Modifier.fillMaxWidth().height(if (compact) 112.dp else 168.dp)) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("#$id · 불러오는 중…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -511,7 +528,9 @@ private fun GalleryCard(
     onSearchFacet: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    val request = gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id) }
+    val request = remember(context, gallery.thumbnailUrl, gallery.id) {
+        gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id) }
+    }
 
     Card(modifier = Modifier.fillMaxWidth().combinedClickable(
         onClick = onClick,

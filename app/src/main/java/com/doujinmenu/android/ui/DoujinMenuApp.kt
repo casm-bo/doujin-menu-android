@@ -728,7 +728,9 @@ private fun MainTabContent(
                 initialScrollAnchorKey = search?.scrollAnchorKey,
                 initialScrollIndex = search?.scrollIndex ?: 0,
                 initialScrollOffset = search?.scrollOffset ?: 0,
-                onScrollChange = viewModel::updateBrowserScroll,
+                onScrollChange = { anchor, index, offset ->
+                    search?.let { viewModel.updateBrowserScroll(it.key, it.resultSessionId, anchor, index, offset) }
+                },
                 onEnsureResults = viewModel::ensureSearchResults,
                 onVisibleResultsChange = viewModel::loadVisibleSearchResults,
             )

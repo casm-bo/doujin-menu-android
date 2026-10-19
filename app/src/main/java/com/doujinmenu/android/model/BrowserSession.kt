@@ -92,6 +92,20 @@ val BrowserWorkspace.searchResultSessionIds: Set<String>
     get() = (tabs + groups.flatMap { it.archivedTabs }).flatMap { it.history }
         .filterIsInstance<BrowserPage.Search>().mapNotNull { it.resultSessionId }.toSet()
 
+/** A departing search can finish saving after another tab/page became active. */
+fun BrowserWorkspace.updateSearchScroll(
+    pageKey: String, sessionId: String?, anchorKey: String?, index: Int, offset: Int,
+): BrowserWorkspace {
+    fun BrowserTab.saveScroll() = copy(history = history.map { page ->
+        if (page is BrowserPage.Search && page.key == pageKey && page.resultSessionId == sessionId) {
+            page.copy(scrollAnchorKey = anchorKey, scrollIndex = index.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0))
+        } else page
+    })
+    return copy(tabs = tabs.map { it.saveScroll() }, groups = groups.map { group ->
+        group.copy(archivedTabs = group.archivedTabs.map { it.saveScroll() })
+    })
+}
+
 fun BrowserWorkspace.selectSearchTab(
     query: String,
     preferredLanguages: Set<String> = emptySet(),
