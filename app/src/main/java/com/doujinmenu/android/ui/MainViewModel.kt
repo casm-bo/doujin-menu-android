@@ -69,6 +69,7 @@ import com.doujinmenu.android.network.SyncedBookState
 import com.doujinmenu.android.network.EndpointNormalizer
 import com.doujinmenu.android.network.FilterSuggestion
 import com.doujinmenu.android.network.HitomiSuggestionClient
+import com.doujinmenu.android.network.AvailableLanguage
 import com.doujinmenu.android.network.GitHubReleaseChecker
 import com.doujinmenu.android.network.SeriesSyncUpdate
 import com.doujinmenu.android.network.SeriesSyncResult
@@ -113,6 +114,9 @@ data class MainUiState(
     val searchFavorites: List<SearchFavorite> = emptyList(),
     val preferredLanguages: Set<String> = emptySet(),
     val customLanguages: Set<String> = emptySet(),
+    val availableLanguages: List<AvailableLanguage> = emptyList(),
+    val isLoadingLanguages: Boolean = false,
+    val languageLoadError: String? = null,
     val filterSuggestions: List<FilterSuggestion> = emptyList(),
     val isLoadingFilterSuggestions: Boolean = false,
     val knownFilterTokens: Set<String> = emptySet(),
@@ -354,6 +358,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(searchQuery = favorite.query)
         syncActiveSearch()
         search()
+    }
+
+    fun loadAvailableLanguages() {
+        if (uiState.isLoadingLanguages || uiState.availableLanguages.isNotEmpty()) return
+        uiState = uiState.copy(isLoadingLanguages = true, languageLoadError = null)
+        viewModelScope.launch {
+            try {
+                val languages = suggestionClient.getAvailableLanguages()
+                uiState = uiState.copy(availableLanguages = languages)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                uiState = uiState.copy(languageLoadError = "언어 목록을 불러오지 못했습니다. 연결을 확인하고 다시 시도하세요.")
+            } finally {
+                uiState = uiState.copy(isLoadingLanguages = false)
+            }
+        }
     }
 
     fun togglePreferredLanguage(language: String) {

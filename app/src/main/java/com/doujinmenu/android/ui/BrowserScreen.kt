@@ -33,6 +33,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,7 +59,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -78,10 +82,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -97,6 +99,7 @@ import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.model.resolveScrollIndex
 import com.doujinmenu.android.network.parseHitomiSearchOrder
 import com.doujinmenu.android.network.FilterSuggestion
+import com.doujinmenu.android.network.AvailableLanguage
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -112,6 +115,7 @@ fun BrowserScreen(
     onRemoveFavorite: (String) -> Unit,
     onFavoriteSearch: (SearchFavorite) -> Unit,
     onToggleLanguage: (String) -> Unit,
+    onLoadLanguages: () -> Unit,
     onAddCustomLanguage: (String) -> Unit,
     onRemoveCustomLanguage: (String) -> Unit,
     onSelectSuggestion: (FilterSuggestion) -> Unit,
@@ -133,7 +137,6 @@ fun BrowserScreen(
     onVisibleResultsChange: (Int, Int) -> Unit,
 ) {
     val context = LocalContext.current
-    val hapticFeedback = LocalHapticFeedback.current
     var expandedPanel by rememberSaveable { mutableStateOf<String?>(null) }
     var addLanguageDialog by rememberSaveable { mutableStateOf(false) }
     var languageInput by rememberSaveable { mutableStateOf("") }
@@ -223,12 +226,15 @@ fun BrowserScreen(
         }
     }
     var editing by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(editing, expandedPanel) {
+        if (editing && expandedPanel == "languages") onLoadLanguages()
+    }
     val focusManager = LocalFocusManager.current
     fun togglePanel(name: String) {
         val close = editing && expandedPanel == name
         expandedPanel = if (close) null else name
         editing = !close
-        if (close) focusManager.clearFocus()
+        focusManager.clearFocus()
     }
     BackHandler(editing) { editing = false; focusManager.clearFocus() }
     var menu by remember { mutableStateOf<String?>(null) }
@@ -299,42 +305,33 @@ fun BrowserScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            PREFERRED_LANGUAGES.forEach { (value, label) ->
-                                FilterChip(
-                                    selected = value in state.preferredLanguages,
-                                    onClick = { onToggleLanguage(value) },
-                                    label = { Text(label) },
-                                )
+                        Text("전체 ${state.availableLanguages.size}개 · ${state.preferredLanguages.size}개 선택 (복수 선택)", style = MaterialTheme.typography.labelMedium)
+                        if (state.isLoadingLanguages) LoadingRow("전체 언어 목록 불러오는 중…")
+                        state.languageLoadError?.let { error ->
+                            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = onLoadLanguages) { Text("다시 시도") }
+                        }
+                        val languages = remember(state.availableLanguages, state.customLanguages, state.preferredLanguages) {
+                            val known = state.availableLanguages.mapTo(hashSetOf()) { it.code }
+                            state.availableLanguages + (state.customLanguages + state.preferredLanguages - known).sorted().map {
+                                AvailableLanguage(it, it.replace('_', ' ').replaceFirstChar { char -> char.uppercase() })
                             }
-                            (state.customLanguages + (state.preferredLanguages -
-                                PREFERRED_LANGUAGES.mapTo(linkedSetOf()) { it.first }))
-                                .sorted().forEach { language ->
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (language in state.preferredLanguages)
-                                        MaterialTheme.colorScheme.secondaryContainer
-                                    else MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.combinedClickable(
-                                        onClick = { onToggleLanguage(language) },
-                                        onLongClick = {
-                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            deleteLanguage = language
-                                        },
-                                    ),
-                                ) {
-                                    Text(
-                                        language.replaceFirstChar { it.uppercase() },
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                                    )
+                        }
+                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+                            items(languages, key = { it.code }) { language ->
+                                val selected = language.code in state.preferredLanguages
+                                Row(Modifier.fillMaxWidth().toggleable(value = selected, role = Role.Checkbox,
+                                    onValueChange = { onToggleLanguage(language.code) }), verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = selected, onCheckedChange = null, modifier = Modifier.padding(12.dp))
+                                    Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+                                        Text(language.label, style = MaterialTheme.typography.bodyMedium)
+                                        Text(language.code, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    if (language.code in state.customLanguages) TextButton(onClick = { deleteLanguage = language.code }) { Text("삭제") }
                                 }
                             }
-                            FilterChip(
-                                selected = false,
-                                onClick = { addLanguageDialog = true },
-                                label = { Text("+") },
-                            )
                         }
+                        TextButton(onClick = { addLanguageDialog = true }) { Text("언어 직접 추가") }
                     }
 
                     if (expandedPanel == "favorites") {
@@ -524,13 +521,6 @@ fun BrowserScreen(
         )
     }
 }
-
-private val PREFERRED_LANGUAGES = listOf(
-    "korean" to "한국어",
-    "japanese" to "일본어",
-    "english" to "영어",
-    "chinese" to "중국어",
-)
 
 @Composable
 private fun GalleryCard(
