@@ -46,7 +46,7 @@ fun BrowserTabStrip(
     val scope = rememberCoroutineScope()
     fun captureThen(action: () -> Unit) { scope.launch { previews.captureNow(); action() } }
 
-    Surface(modifier = Modifier.statusBarsPadding(), color = MaterialTheme.colorScheme.surfaceContainer) {
+    Surface(modifier = if (titleContent == null) Modifier.statusBarsPadding() else Modifier, color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) IconButton(onClick = { captureThen(onBack) },
                 modifier = Modifier.semantics { contentDescription = "뒤로" }) { Text("‹") }

@@ -93,6 +93,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.material3.LocalContentColor
@@ -370,6 +371,8 @@ fun LibraryScreen(
     }
 
     var queryExpanded by rememberSaveable { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    BackHandler(queryExpanded && !selectionMode && !seriesSelectionMode) { queryExpanded = false; focusManager.clearFocus() }
     var options by remember { mutableStateOf<String?>(null) }
     val changeSeriesMode: (Boolean) -> Unit = {
         addingToSeries = null
@@ -476,7 +479,7 @@ fun LibraryScreen(
                     Text("title:제목 artist:작가 tag:태그 series:시리즈 · -제외 · \"문구\"", style = MaterialTheme.typography.bodySmall)
                     Row {
                         TextButton(onClick = { onQueryChange("") }) { Text("검색어 지우기") }
-                        TextButton(onClick = { queryExpanded = false }) { Text("접기") }
+                        TextButton(onClick = { queryExpanded = false; focusManager.clearFocus() }) { Text("접기") }
                     }
                 }
             }

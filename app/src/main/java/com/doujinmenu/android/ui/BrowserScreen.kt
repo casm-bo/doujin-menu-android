@@ -1,6 +1,8 @@
 package com.doujinmenu.android.ui
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -124,6 +126,7 @@ fun BrowserScreen(
         !state.isLoadingPage && !state.isRestoringSearch
     val contentKeys = remember(resultIds, state.isLoadingPage, state.currentPage, state.hasNextPage, canRestoreResults) { buildList {
         add("search-controls")
+        if (resultIds.isEmpty() && !state.isLoadingPage && !canRestoreResults) add("empty-results")
         if (state.isLoadingPage && resultIds.isEmpty()) add("initial-loader")
         if (canRestoreResults) add("restore-results")
         if (resultIds.isNotEmpty()) {
@@ -177,6 +180,8 @@ fun BrowserScreen(
         }.distinctUntilChanged().collect { (first, last) -> onVisibleResultsChange(first, last) }
     }
     var editing by rememberSaveable { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    BackHandler(editing) { editing = false; focusManager.clearFocus() }
     var menu by remember { mutableStateOf<String?>(null) }
     var compact by rememberSaveable { mutableStateOf(false) }
     var pageDialog by rememberSaveable { mutableStateOf(false) }
@@ -252,7 +257,7 @@ fun BrowserScreen(
                         ) { Text("언어 ${state.preferredLanguages.size}") }
                         Spacer(Modifier.weight(1f))
                         Button(
-                            onClick = { editing = false; targetPage = null; onSearch() },
+                            onClick = { focusManager.clearFocus(); editing = false; targetPage = null; onSearch() },
                             enabled = !state.isLoadingPage &&
                                 (state.searchQuery.isNotBlank() || state.preferredLanguages.isNotEmpty()),
                         ) { Text("검색") }
@@ -313,6 +318,9 @@ fun BrowserScreen(
                                 TextButton(
                                     onClick = {
                                         expandedPanel = null
+                                        editing = false
+                                        targetPage = null
+                                        focusManager.clearFocus()
                                         onFavoriteSearch(favorite)
                                     },
                                     modifier = Modifier.weight(1f),
@@ -345,7 +353,7 @@ fun BrowserScreen(
                             modifier = Modifier.padding(top = 8.dp),
                         ) { Text("현재 조건 저장") }
                     }
-                TextButton(onClick = { editing = false }) { Text("접기") }
+                TextButton(onClick = { focusManager.clearFocus(); editing = false }) { Text("접기") }
             }
         }
         if (targetPage != null) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -365,6 +373,12 @@ fun BrowserScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
         item(key = "search-controls") { Spacer(Modifier.height(0.dp)) }
+        if (resultIds.isEmpty() && !state.isLoadingPage && !canRestoreResults) {
+            item(key = "empty-results") {
+                Text(if (state.currentPage > 0) "검색 결과가 없습니다. 검색 조건을 바꿔 보세요." else "상단 검색창에서 검색어를 입력하세요. 언어와 즐겨찾기도 선택할 수 있습니다.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
 
         if (state.isLoadingPage && resultIds.isEmpty()) {
             item(key = "initial-loader") { LoadingRow("불러오는 중…") }
