@@ -467,14 +467,16 @@ private fun AppSearchTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = 
 }
 
 @Composable
-private fun AppGalleryTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null, showSync: Boolean = false) {
+private fun AppGalleryTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null, showSync: Boolean = false, titleContent: (@Composable () -> Unit)? = null, actions: @Composable () -> Unit = {}) {
     BrowserTabStrip(
         workspace = viewModel.uiState.galleryWorkspace,
         onNew = viewModel::newGalleryTab,
         onShowOverview = { viewModel.showTabOverview(isGallery = true) },
         previews = viewModel.tabPreviews,
         onBack = onBack,
+        titleContent = titleContent,
         extraActions = {
+            actions()
             if (showSync) IconButton(onClick = viewModel::syncLibraryNow,
                 enabled = !viewModel.uiState.isLibrarySyncing && viewModel.uiState.selectedProfileId != null,
                 modifier = Modifier.semantics { contentDescription = "라이브러리 동기화, 대기 ${viewModel.uiState.librarySyncPendingCount}개" }) {
@@ -544,8 +546,7 @@ private fun MainShell(
             }
             when (selected) {
                 MainDestination.Browser -> Unit
-                MainDestination.Library -> AppGalleryTabStrip(viewModel, showSync = true,
-                    onBack = if (viewModel.canGoBackInGalleryTab()) ({ viewModel.goBackInGalleryTab(); Unit }) else null)
+                MainDestination.Library -> Unit
                 else -> Unit
             }
         }
@@ -730,6 +731,10 @@ private fun MainTabContent(
             val libraryHome = viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome
             LibraryScreen(
                 state = viewModel.uiState,
+                tabHeader = { query, actions -> AppGalleryTabStrip(viewModel,
+                    onBack = if (viewModel.canGoBackInGalleryTab()) ({ viewModel.goBackInGalleryTab(); Unit }) else null,
+                    titleContent = query, actions = actions) },
+                onSync = viewModel::syncLibraryNow,
                 contentPadding = contentPadding,
                 onQueryChange = viewModel::setLibraryQuery,
                 onToggleFavoritesFilter = viewModel::toggleLibraryFavoritesFilter,
