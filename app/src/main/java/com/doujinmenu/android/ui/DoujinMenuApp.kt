@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -106,11 +106,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     message = when {
                         result.tabId == null -> "새 탭을 열지 못했습니다."
                         result.alreadyOpen -> "이미 열린 탭이 있습니다."
-                        else -> "새 탭에 열었습니다."
+                        else -> "새로운 탭에서 열었습니다."
                     },
                     actionLabel = result.tabId?.let { "이동" },
                     withDismissAction = true,
-                    duration = SnackbarDuration.Long,
+                    duration = SnackbarDuration.Short,
                 )
                 if (action == SnackbarResult.ActionPerformed &&
                     viewModel.uiState.browserWorkspace.tabs.any { it.id == result.tabId }) {
@@ -123,6 +123,16 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var lastMainDestination by rememberSaveable { mutableStateOf(MainDestination.Browser.route) }
     var searchOpenedFromGallery by rememberSaveable { mutableStateOf(false) }
+    var lastShownNewTabNotice by rememberSaveable { mutableStateOf(0) }
+    val newTabNotice = viewModel.uiState.newTabNotice
+    LaunchedEffect(newTabNotice) {
+        if (newTabNotice > 0 && newTabNotice != lastShownNewTabNotice) {
+            lastShownNewTabNotice = newTabNotice
+            backgroundTabNotice?.cancel()
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar("새로운 탭에서 열었습니다.", duration = SnackbarDuration.Short)
+        }
+    }
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -151,7 +161,9 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
 
     val browserNavigationRevision = viewModel.uiState.browserNavigationRevision
     LaunchedEffect(browserNavigationRevision) {
-        when (val page = viewModel.activeBrowserPage()) {
+        val page = viewModel.activeBrowserPage()
+        if (page is BrowserPage.LibraryHome || page is BrowserPage.LibraryBook || page is BrowserPage.LibraryReader) searchOpenedFromGallery = false
+        when (page) {
             is BrowserPage.LibraryHome -> {
                 lastMainDestination = MainDestination.Library.route
                 navController.popBackStack("main", inclusive = false)
@@ -391,13 +403,14 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
 
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(12.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = 88.dp),
         ) { data ->
+            val isError = appMessageIsError && data.visuals.message == appMessage
             Snackbar(
                 snackbarData = data,
-                containerColor = if (appMessageIsError) MaterialTheme.colorScheme.errorContainer
+                containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
                     else MaterialTheme.colorScheme.inverseSurface,
-                contentColor = if (appMessageIsError) MaterialTheme.colorScheme.onErrorContainer
+                contentColor = if (isError) MaterialTheme.colorScheme.onErrorContainer
                     else MaterialTheme.colorScheme.inverseOnSurface,
             )
         }
@@ -521,6 +534,7 @@ private fun MainShell(
             },
         onBack = {
             when {
+                selected == MainDestination.Browser && viewModel.canReturnFromNewTab(false) -> viewModel.goBackInBrowserTab()
                 onBackToOrigin != null -> onBackToOrigin()
                 selected == MainDestination.Browser -> viewModel.goBackInBrowserTab()
                 else -> viewModel.goBackInGalleryTab()
@@ -704,7 +718,8 @@ private fun MainTabContent(
             BrowserScreen(
                 state = viewModel.uiState,
                 tabHeader = { query, actions -> AppSearchTabStrip(viewModel,
-                    onBack = onBackToOrigin ?: if (viewModel.canGoBackInBrowserTab()) ({ viewModel.goBackInBrowserTab(); Unit }) else null,
+                    onBack = if (viewModel.canReturnFromNewTab(false)) ({ viewModel.goBackInBrowserTab(); Unit })
+                        else onBackToOrigin ?: if (viewModel.canGoBackInBrowserTab()) ({ viewModel.goBackInBrowserTab(); Unit }) else null,
                     titleContent = query, actions = actions) },
                 contentPadding = contentPadding,
                 onQueryChange = viewModel::setSearchQuery,
@@ -774,7 +789,8 @@ private fun MainTabContent(
                 onSeriesModeChange = viewModel::setLibrarySeriesMode,
                 onSelectedSeriesChange = viewModel::selectLibrarySeries,
                 onBackToSearch = {
-                    onNavigate(MainDestination.Browser)
+                    if (viewModel.canReturnFromNewTab(true)) viewModel.goBackInGalleryTab()
+                    else onNavigate(MainDestination.Browser)
                 },
                 pageKey = libraryHome?.key.orEmpty(),
                 initialScrollAnchorKey = libraryHome?.scrollAnchorKey,
