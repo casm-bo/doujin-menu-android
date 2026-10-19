@@ -247,4 +247,14 @@ internal fun normalizeSearchSeparators(query: String): String = query
     .trim()
     .replace(Regex("\\s+"), " ")
 
+internal fun queriesWithPreferredLanguages(query: String, preferredLanguages: Set<String>): List<String> {
+    val normalized = normalizeSearchSeparators(query)
+    if (preferredLanguages.isEmpty()) return listOf(normalized.ifBlank { "sort:newest" })
+    val base = normalized.replace(Regex("(?i)(^|\\s)-?language:[^\\s]+"), " ")
+        .trim().replace(Regex("\\s+"), " ")
+    return preferredLanguages.sorted().map { language ->
+        listOf(base, "language:$language").filter(String::isNotBlank).joinToString(" ")
+    }
+}
+
 private const val MAX_TAB_HISTORY = 50

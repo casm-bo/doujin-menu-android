@@ -3,6 +3,7 @@ package com.doujinmenu.android.data
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.SearchResult
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
 import kotlin.coroutines.coroutineContext
 
 data class SearchResultWindow(
@@ -19,7 +20,13 @@ class SearchResultPager(
     private val fetchGalleries: suspend (List<Long>) -> List<GallerySummary>,
 ) {
     suspend fun restore(sessionId: String, queries: List<String>, pageCount: Int): SearchResultIndex {
-        cache.readIndex(sessionId)?.takeIf { it.queries == queries }?.let { return it }
+        cache.readIndex(sessionId)?.takeIf { it.queries == queries }?.let { cached ->
+            if (cached.totalCount != null) return cached
+            val summary = try { searchPage(queries, pageCount) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { return cached }
+            return cached.copy(totalCount = summary.totalCount, maxPage = summary.maxPage).also { cache.writeIndex(it) }
+        }
         return seek(sessionId, queries, pageCount, loadDetails = false).index
     }
 
@@ -28,7 +35,7 @@ class SearchResultPager(
         val target = searchPage(queries, page)
         require(page == 1 || target.galleryIds.isNotEmpty()) { "${page}페이지에 검색 결과가 없습니다." }
         val first = (page - 1).coerceAtLeast(1)
-        var index = SearchResultIndex(sessionId, queries, firstPage = first)
+        var index = SearchResultIndex(sessionId, queries, firstPage = first, totalCount = target.totalCount, maxPage = target.maxPage)
         if (first < page) index = index.appendIds(searchPage(queries, first).galleryIds, true)
         index = index.appendIds(target.galleryIds, target.hasNextPage)
         val resident = linkedMapOf<Int, List<GallerySummary>>()
@@ -49,7 +56,8 @@ class SearchResultPager(
         val result = searchPage(index.queries, page)
         val existing = index.ids.toHashSet()
         val ids = result.galleryIds.filter { existing.add(it) }
-        val next = index.copy(firstPage = page, pages = listOf(ids) + index.pages)
+        val next = index.copy(firstPage = page, pages = listOf(ids) + index.pages,
+            totalCount = result.totalCount ?: index.totalCount, maxPage = result.maxPage ?: index.maxPage)
         val galleries = fetchGalleries(ids)
         coroutineContext.ensureActive()
         cache.writePage(next, page, galleries)
@@ -59,7 +67,8 @@ class SearchResultPager(
 
     suspend fun append(index: SearchResultIndex): SearchResultWindow {
         val result = searchPage(index.queries, index.lastPage + 1)
-        val next = index.appendIds(result.galleryIds, result.hasNextPage)
+        val next = index.appendIds(result.galleryIds, result.hasNextPage).copy(
+            totalCount = result.totalCount ?: index.totalCount, maxPage = result.maxPage ?: index.maxPage)
         val page = next.lastPage
         val galleries = fetchGalleries(next.pages.last())
         coroutineContext.ensureActive()

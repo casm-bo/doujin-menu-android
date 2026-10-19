@@ -22,6 +22,8 @@ data class SearchResultIndex(
     val pages: List<List<Long>> = emptyList(),
     val hasNextPage: Boolean = false,
     val firstPage: Int = 1,
+    val totalCount: Int? = null,
+    val maxPage: Int? = null,
 ) {
     val ids: List<Long> get() = pages.flatten()
     val lastPage: Int get() = firstPage + pages.size - 1
@@ -62,18 +64,21 @@ class SearchResultCache(
 
     suspend fun readIndex(sessionId: String): SearchResultIndex? = io {
         read(file(sessionId, "index"))?.let { raw ->
-            require(raw.getInt("version") in 1..2 && raw.getString("sessionId") == sessionId)
+            require(raw.getInt("version") in 1..3 && raw.getString("sessionId") == sessionId)
             SearchResultIndex(sessionId, raw.getJSONArray("queries").strings(),
                 raw.getJSONArray("pages").let { pages -> List(pages.length()) { page ->
                     pages.getJSONArray(page).let { ids -> List(ids.length()) { ids.getLong(it).also { id -> require(id > 0) } } }
-                } }, raw.getBoolean("hasNextPage"), raw.optInt("firstPage", 1).also { require(it > 0) })
+                } }, raw.getBoolean("hasNextPage"), raw.optInt("firstPage", 1).also { require(it > 0) },
+                raw.takeIf { it.has("totalCount") }?.getInt("totalCount")?.also { require(it >= 0) },
+                raw.takeIf { it.has("maxPage") }?.getInt("maxPage")?.also { require(it >= 0) })
         }
     }
 
     suspend fun writeIndex(index: SearchResultIndex): Boolean = io {
-        write(file(index.sessionId, "index"), JSONObject().put("version", 2)
+        write(file(index.sessionId, "index"), JSONObject().put("version", 3)
             .put("sessionId", index.sessionId).put("queries", JSONArray(index.queries))
-            .put("firstPage", index.firstPage).put("pages", JSONArray(index.pages.map(::JSONArray))).put("hasNextPage", index.hasNextPage))
+            .put("firstPage", index.firstPage).put("pages", JSONArray(index.pages.map(::JSONArray))).put("hasNextPage", index.hasNextPage)
+            .put("totalCount", index.totalCount).put("maxPage", index.maxPage))
     } ?: false
 
     suspend fun readPage(index: SearchResultIndex, page: Int): List<GallerySummary>? = io {

@@ -20,6 +20,8 @@ import com.doujinmenu.android.model.recordHistory
 import com.doujinmenu.android.model.findBook
 import com.doujinmenu.android.security.RecentHistoryStore
 import com.doujinmenu.android.model.SearchResult
+import com.doujinmenu.android.model.combineLanguageSearchResults
+import com.doujinmenu.android.model.queriesWithPreferredLanguages
 import com.doujinmenu.android.data.DownloadRequestStore
 import com.doujinmenu.android.data.DownloadTarget
 import com.doujinmenu.android.data.RequestStatus
@@ -2185,8 +2187,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun fetchSearchPage(queries: List<String>, page: Int): SearchResult = coroutineScope {
-        val results = queries.map { query -> async { hitomiClient.search(query, page) } }.awaitAll()
-        SearchResult(results.flatMap { it.galleryIds }.distinct(), results.any { it.hasNextPage })
+        val results = queries.distinct().map { query -> async { hitomiClient.search(query, page) } }.awaitAll()
+        combineLanguageSearchResults(results)
     }
 
     private fun openSearchTab(query: String, preferredLanguages: Set<String>) {
@@ -2436,21 +2438,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private inline fun update(transform: MainUiState.() -> MainUiState) {
         uiState = uiState.transform()
-    }
-
-    private fun queriesWithPreferredLanguages(
-        query: String,
-        preferredLanguages: Set<String>,
-    ): List<String> {
-        val normalizedQuery = normalizeSearchSeparators(query)
-        val baseQuery = normalizedQuery
-            .replace(Regex("(?i)(^|\\s)-?language:[^\\s]+"), " ")
-            .trim()
-            .replace(Regex("\\s+"), " ")
-        if (preferredLanguages.isEmpty()) return listOf(normalizedQuery).filter { it.isNotBlank() }
-        return preferredLanguages.sorted().map { language ->
-            listOf(baseQuery, "language:$language").filter { it.isNotBlank() }.joinToString(" ")
-        }
     }
 
     private fun normalizeFilterFacet(facet: String): String {

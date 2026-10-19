@@ -23,6 +23,16 @@ data class PairingResult(
 data class SearchResult(
     val galleryIds: List<Long>,
     val hasNextPage: Boolean,
+    val totalCount: Int? = null,
+    val maxPage: Int? = totalCount?.let { ((it.toLong() + 29) / 30).toInt() },
+)
+
+internal fun combineLanguageSearchResults(results: List<SearchResult>): SearchResult = SearchResult(
+    galleryIds = results.flatMap { it.galleryIds }.distinct(),
+    hasNextPage = results.any { it.hasNextPage },
+    // Callers partition the same conditions by distinct languages.
+    totalCount = results.takeIf { it.all { result -> result.totalCount != null } }?.sumOf { it.totalCount!! },
+    maxPage = results.takeIf { it.all { result -> result.maxPage != null } }?.maxOfOrNull { it.maxPage!! },
 )
 
 data class GalleryTag(
