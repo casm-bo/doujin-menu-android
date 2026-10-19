@@ -15,6 +15,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -87,6 +88,7 @@ import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.model.resolveScrollIndex
+import com.doujinmenu.android.network.parseHitomiSearchOrder
 import com.doujinmenu.android.network.FilterSuggestion
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -226,7 +228,8 @@ fun BrowserScreen(
         } else onLoadNextPage()
     }
     val canCollapse = resultIds.isNotEmpty() && !editing && menu == null && !pageDialog
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { canCollapse })
+    val collapseEnabled by rememberUpdatedState(canCollapse)
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { collapseEnabled })
     LaunchedEffect(pageKey, canCollapse) {
         if (!canCollapse) scrollBehavior.state.heightOffset = 0f
     }
@@ -243,22 +246,14 @@ fun BrowserScreen(
             Box {
                 IconButton(onClick = { menu = "root" }, modifier = Modifier.semantics { contentDescription = "검색 옵션" }) { Text("⋯") }
                 DropdownMenu(expanded = menu != null, onDismissRequest = { menu = null }) {
-                    if (menu == "sort") {
+                    if (menu == "view") {
                         DropdownMenuItem(text = { Text("검색 옵션") }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { menu = "root" })
-                        listOf("최신순" to false, "오래된순" to true).forEach { (label, oldest) ->
-                            DropdownMenuItem(text = { Text(label) }, leadingIcon = { ActionIcon(ActionSymbol.SORT) }, onClick = {
-                                val query = state.searchQuery.replace(Regex("(?i)(^|\\s)sort:(oldest|newest)(?=\\s|$)"), " ").trim()
-                                onQueryChange(listOf(query, if (oldest) "sort:oldest" else "sort:newest").filter { it.isNotBlank() }.joinToString(" "))
-                                menu = null
-                                targetPage = null
-                                onSearch()
-                            }, enabled = !state.isLoadingPage)
-                        }
+                        ChoiceMenuItem("자세히 보기", !compact, onClick = { compact = false; menu = null })
+                        ChoiceMenuItem("리스트 보기", compact, onClick = { compact = true; menu = null })
                     } else {
                         DropdownMenuItem(text = { Text("이 검색 즐겨찾기 등록") }, leadingIcon = { ActionIcon(ActionSymbol.STAR) }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
                         DropdownMenuItem(text = { Text("페이지 이동") }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
-                        DropdownMenuItem(text = { Text(if (compact) "자세히 보기" else "리스트 보기") }, leadingIcon = { ActionIcon(if (compact) ActionSymbol.GRID else ActionSymbol.LIST) }, onClick = { compact = !compact; menu = null })
-                        DropdownMenuItem(text = { Text("정렬…") }, leadingIcon = { ActionIcon(ActionSymbol.SORT) }, onClick = { menu = "sort" })
+                        DropdownMenuItem(text = { Text("보기  ›") }, leadingIcon = { ActionIcon(ActionSymbol.LIST) }, onClick = { menu = "view" })
                         HorizontalDivider()
                         DropdownMenuItem(text = { Text("새로고침") }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { targetPage = null; menu = null; onRefresh() })
                         DropdownMenuItem(text = { Text("검색어 지우기") }, leadingIcon = { ActionIcon(ActionSymbol.CLEAR) }, onClick = { onQueryChange(""); menu = null; editing = true })
@@ -266,6 +261,21 @@ fun BrowserScreen(
                 }
             }
         })
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { editing = true; expandedPanel = if (expandedPanel == "languages") null else "languages" }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                ActionIcon(ActionSymbol.LANGUAGE); Spacer(Modifier.width(4.dp)); Text("언어")
+            }
+            TextButton(onClick = { editing = true; expandedPanel = if (expandedPanel == "favorites") null else "favorites" }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                ActionIcon(ActionSymbol.STAR); Spacer(Modifier.width(4.dp)); Text("즐겨찾기")
+            }
+            Spacer(Modifier.weight(1f))
+            SearchSortMenu(state.searchQuery, enabled = !state.isLoadingPage) { oldest ->
+                val query = state.searchQuery.replace(Regex("(?i)(^|\\s)sort:(oldest|newest)(?=\\s|$)"), " ").trim()
+                onQueryChange(listOf(query, if (oldest) "sort:oldest" else "sort:newest").filter { it.isNotBlank() }.joinToString(" "))
+                targetPage = null
+                onSearch()
+            }
+        }
         AnimatedVisibility(visible = editing, enter = expandVertically(expandFrom = Alignment.Top), exit = shrinkVertically(shrinkTowards = Alignment.Top)) {
             Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
                 if (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions) {
@@ -274,22 +284,6 @@ fun BrowserScreen(
                     }
                     if (state.isLoadingFilterSuggestions) Text("필터 목록 불러오는 중…")
                 }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(
-                            onClick = {
-                                expandedPanel = if (expandedPanel == "favorites") null else "favorites"
-                            },
-                        ) { ActionIcon(ActionSymbol.STAR); Spacer(Modifier.width(6.dp)); Text("즐겨찾기 ${state.searchFavorites.size}") }
-                        TextButton(
-                            onClick = {
-                                expandedPanel = if (expandedPanel == "languages") null else "languages"
-                            },
-                        ) { ActionIcon(ActionSymbol.LANGUAGE); Spacer(Modifier.width(6.dp)); Text("언어 ${state.preferredLanguages.size}") }
-
-                    }
 
                     if (expandedPanel == "languages") {
                         Text(
@@ -702,5 +696,20 @@ private fun BoxScope.SearchPageIndicator(listState: LazyListState, index: Search
             .semantics { contentDescription = "현재 ${page}페이지. 눌러서 페이지 이동" }) {
         Text("${page}페이지", Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+@Composable
+private fun SearchSortMenu(query: String, enabled: Boolean, onSelect: (Boolean) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val oldest = remember(query) { parseHitomiSearchOrder(query).oldest }
+    Box {
+        TextButton(onClick = { expanded = true }, enabled = enabled, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            ActionIcon(ActionSymbol.SORT); Spacer(Modifier.width(4.dp)); Text("정렬")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ChoiceMenuItem("최신순", !oldest, onClick = { expanded = false; onSelect(false) }, enabled = enabled)
+            ChoiceMenuItem("오래된순", oldest, onClick = { expanded = false; onSelect(true) }, enabled = enabled)
+        }
     }
 }

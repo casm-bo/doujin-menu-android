@@ -19,6 +19,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -43,8 +44,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.ui.semantics.contentDescription
@@ -409,26 +408,15 @@ fun LibraryScreen(
                     DropdownMenu(expanded = options != null, onDismissRequest = { options = null }) {
                         if (options != "갤러리 옵션") DropdownMenuItem(text = { Text(options.orEmpty()) }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { options = "갤러리 옵션" })
                         when (options) {
-                            "정렬" -> LibrarySort.entries.forEach { sort ->
-                                val label = when (sort) {
-                                    LibrarySort.TITLE_ASC -> "제목 · 오름차순"
-                                    LibrarySort.TITLE_DESC -> "제목 · 내림차순"
-                                    LibrarySort.ARTIST_ASC -> "작가 · 오름차순"
-                                    LibrarySort.ARTIST_DESC -> "작가 · 내림차순"
-                                    LibrarySort.NEWEST -> "수정일 · 최신순"
-                                    LibrarySort.OLDEST -> "수정일 · 오래된순"
-                                }
-                                DropdownMenuItem(text = { Text((if (state.librarySort == sort) "✓ " else "") + label) }, leadingIcon = { ActionIcon(ActionSymbol.SORT) }, onClick = { onSortChange(sort); options = null })
-                            }
                             "보기" -> {
                                 LibraryViewMode.entries.forEach { mode ->
-                                    DropdownMenuItem(text = { Text((if (viewMode == mode) "✓ " else "") + if (mode == LibraryViewMode.GRID) "그리드 보기" else "리스트 보기") }, leadingIcon = { ActionIcon(if (mode == LibraryViewMode.GRID) ActionSymbol.GRID else ActionSymbol.LIST) }, onClick = {
+                                    ChoiceMenuItem(label = if (mode == LibraryViewMode.GRID) "그리드 보기" else "리스트 보기", checked = viewMode == mode, onClick = {
                                         viewModeName = mode.name; libraryPreferences.saveLibraryViewMode(mode.name); options = null
                                     })
                                 }
                                 HorizontalDivider()
                                 listOf(2 to "크게 · 2열", 3 to "중간 · 3열", 4 to "작게 · 4열").forEach { (columns, label) ->
-                                    DropdownMenuItem(text = { Text((if (gridColumns == columns) "✓ " else "") + label) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, onClick = {
+                                    ChoiceMenuItem(label = label, checked = viewMode == LibraryViewMode.GRID && gridColumns == columns, onClick = {
                                         gridColumns = columns; libraryPreferences.saveLibraryGridColumns(columns)
                                         viewModeName = LibraryViewMode.GRID.name; libraryPreferences.saveLibraryViewMode(viewModeName); options = null
                                     })
@@ -441,8 +429,11 @@ fun LibraryScreen(
                                     DropdownMenuItem(text = { Text((if (state.selectedLibraryLocationUris == null || location.uri in state.selectedLibraryLocationUris) "✓ " else "") + (if (location.isCloud) "PC · " else "기기 · ") + location.displayName) }, leadingIcon = { ActionIcon(if (location.isCloud) ActionSymbol.PC else ActionSymbol.DEVICE) }, onClick = { onLocationChange(location.uri) })
                                 }
                             }
-                            "시리즈 편집" -> {
-                                DropdownMenuItem(text = { Text(if (state.isAutoCreatingSeries) "분석 중…" else "시리즈 자동 생성") }, leadingIcon = { ActionIcon(ActionSymbol.SERIES) }, enabled = !state.isAutoCreatingSeries, onClick = { onAutoCreateSeries(); options = null })
+                            else -> {
+                                listOf("보기" to ActionSymbol.GRID, "저장 위치" to ActionSymbol.FOLDER).forEach { (category, symbol) ->
+                                    DropdownMenuItem(text = { Text("$category  ›") }, leadingIcon = { ActionIcon(symbol) }, onClick = { options = category })
+                                }
+                                DropdownMenuItem(text = { Text(if (state.isAutoCreatingSeries) "분석 중…" else "자동 생성") }, leadingIcon = { ActionIcon(ActionSymbol.SERIES) }, enabled = !state.isAutoCreatingSeries, onClick = { onAutoCreateSeries(); options = null })
                                 if (selectedSeries != null) {
                                     DropdownMenuItem(text = { Text(if (editingSeriesOrder) "순서 편집 완료" else "순서 편집") }, leadingIcon = { ActionIcon(ActionSymbol.SORT) }, onClick = { editingSeriesOrder = !editingSeriesOrder; options = null })
                                     DropdownMenuItem(text = { Text("시리즈 구성원 편집") }, leadingIcon = { ActionIcon(ActionSymbol.EDIT) }, enabled = !editingSeriesOrder, onClick = {
@@ -451,23 +442,9 @@ fun LibraryScreen(
                                         onSelectedSeriesChange(null); onSeriesModeChange(false); options = null
                                     })
                                 }
-                            }
-                            "선택 및 관리" -> {
-                                DropdownMenuItem(text = { Text(if (seriesMode && selectedSeries == null) "시리즈 선택" else "책 선택") }, leadingIcon = { ActionIcon(ActionSymbol.SELECT) }, enabled = books.isNotEmpty(), onClick = {
-                                    editingSeriesOrder = false
-                                    if (seriesMode && selectedSeries == null) seriesSelectionMode = true else selectionMode = true
-                                    options = null
-                                })
-                                DropdownMenuItem(text = { Text("길게 눌러도 선택할 수 있습니다") }, onClick = {}, enabled = false)
-                            }
-                            else -> {
-                                listOf("정렬" to ActionSymbol.SORT, "보기" to ActionSymbol.GRID, "저장 위치" to ActionSymbol.FOLDER,
-                                    "시리즈 편집" to ActionSymbol.SERIES, "선택 및 관리" to ActionSymbol.SELECT).forEach { (category, symbol) ->
-                                    DropdownMenuItem(text = { Text("$category  ›") }, leadingIcon = { ActionIcon(symbol) }, onClick = { options = category })
-                                }
                                 HorizontalDivider()
                                 DropdownMenuItem(text = { Text("새로고침") }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { options = null; onRefresh() })
-                                DropdownMenuItem(text = { Text(if (state.isLibrarySyncing) "PC 동기화 중…" else "PC 동기화 · 대기 ${state.librarySyncPendingCount}개") }, leadingIcon = { ActionIcon(ActionSymbol.SYNC) },
+                                DropdownMenuItem(text = { Text(if (state.isLibrarySyncing) "PC 동기화 중…" else "PC 동기화 · 대기 ${state.librarySyncPendingCount}개") }, leadingIcon = { ActionIcon(ActionSymbol.PC) },
                                     enabled = !state.isLibrarySyncing && state.selectedProfileId != null, onClick = { options = null; onSync() })
                             }
                         }
@@ -575,13 +552,14 @@ fun LibraryScreen(
                     },
                 )
             } else {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FilterChip(selected = !seriesMode, onClick = { changeSeriesMode(false) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, label = { Text("전체") })
-                    FilterChip(selected = seriesMode, onClick = { changeSeriesMode(true) }, leadingIcon = { ActionIcon(ActionSymbol.SERIES) }, label = { Text("시리즈") })
-                    Spacer(Modifier.weight(1f))
+                FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !seriesMode, onClick = { changeSeriesMode(false) }, label = { Text("전체") })
+                    FilterChip(selected = seriesMode, onClick = { changeSeriesMode(true) }, label = { Text("시리즈") })
                     LibraryFilterMenu(state.libraryFavoritesOnly, state.libraryReadFilter, state.libraryVisibilityFilter,
                         onToggleFavoritesFilter, onReadFilterChange, onVisibilityFilterChange)
+                    LibrarySortMenu(state.librarySort, onSortChange)
                 }
+
             }
 
             if (seriesMode && selectedSeries != null && !selectionMode) {
@@ -903,11 +881,11 @@ private fun LibraryFilterMenu(
     val active = favoritesOnly || readFilter != LibraryReadFilter.ALL ||
         visibilityFilter != LibraryVisibilityFilter.VISIBLE
     Box {
-        val filterModifier = Modifier.semantics { contentDescription = "필터" }
-        if (active) {
-            FilledTonalIconButton(onClick = { expanded = true }, modifier = filterModifier) { ActionIcon(ActionSymbol.FILTER) }
-        } else {
-            OutlinedIconButton(onClick = { expanded = true }, modifier = filterModifier) { ActionIcon(ActionSymbol.FILTER) }
+        OutlinedButton(onClick = { expanded = true },
+            contentPadding = PaddingValues(horizontal = 10.dp),
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
+            ActionIcon(ActionSymbol.FILTER)
+            Text("필터", Modifier.padding(start = 6.dp))
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             LibraryFilterItems(favoritesOnly, readFilter, visibilityFilter, onToggleFavorites, onReadFilterChange, onVisibilityFilterChange)
@@ -925,11 +903,7 @@ private fun LibraryFilterItems(
     onReadFilterChange: (LibraryReadFilter) -> Unit,
     onVisibilityFilterChange: (LibraryVisibilityFilter) -> Unit,
 ) {
-            DropdownMenuItem(
-                text = { Text(if (favoritesOnly) "✓ 즐겨찾기" else "즐겨찾기") },
-                leadingIcon = { ActionIcon(ActionSymbol.HEART) },
-                onClick = onToggleFavorites,
-            )
+            ChoiceMenuItem("즐겨찾기", favoritesOnly, onToggleFavorites)
             HorizontalDivider()
             LibraryReadFilter.entries.forEach { filter ->
                 val label = when (filter) {
@@ -937,11 +911,7 @@ private fun LibraryFilterItems(
                     LibraryReadFilter.UNREAD -> "안읽음"
                     LibraryReadFilter.READ -> "읽음"
                 }
-                DropdownMenuItem(
-                    text = { Text(if (readFilter == filter) "✓ $label" else label) },
-                    leadingIcon = { ActionIcon(ActionSymbol.READ) },
-                    onClick = { onReadFilterChange(filter) },
-                )
+                ChoiceMenuItem(label, readFilter == filter, onClick = { onReadFilterChange(filter) })
             }
             HorizontalDivider()
             LibraryVisibilityFilter.entries.forEach { filter ->
@@ -950,12 +920,32 @@ private fun LibraryFilterItems(
                     LibraryVisibilityFilter.HIDDEN -> "숨김 항목"
                     LibraryVisibilityFilter.ALL -> "표시+숨김 전체"
                 }
-                DropdownMenuItem(
-                    text = { Text(if (visibilityFilter == filter) "✓ $label" else label) },
-                    leadingIcon = { ActionIcon(ActionSymbol.HIDE) },
-                    onClick = { onVisibilityFilterChange(filter) },
-                )
+                ChoiceMenuItem(label, visibilityFilter == filter, onClick = { onVisibilityFilterChange(filter) })
             }
+}
+
+@Composable
+private fun LibrarySortMenu(sort: LibrarySort, onSortChange: (LibrarySort) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+            ActionIcon(ActionSymbol.SORT)
+            Text("정렬", Modifier.padding(start = 6.dp))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            LibrarySort.entries.forEach { option ->
+                val label = when (option) {
+                    LibrarySort.TITLE_ASC -> "제목 · 오름차순"
+                    LibrarySort.TITLE_DESC -> "제목 · 내림차순"
+                    LibrarySort.ARTIST_ASC -> "작가 · 오름차순"
+                    LibrarySort.ARTIST_DESC -> "작가 · 내림차순"
+                    LibrarySort.NEWEST -> "수정일 · 최신순"
+                    LibrarySort.OLDEST -> "수정일 · 오래된순"
+                }
+                ChoiceMenuItem(label, sort == option, onClick = { onSortChange(option); expanded = false })
+            }
+        }
+    }
 }
 
 @Composable
