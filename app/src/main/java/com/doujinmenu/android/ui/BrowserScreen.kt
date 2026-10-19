@@ -3,11 +3,16 @@ package com.doujinmenu.android.ui
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import kotlinx.coroutines.delay
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -40,8 +45,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -160,7 +167,7 @@ fun BrowserScreen(
     val savedAnchorKey = remember(pageKey) { initialScrollAnchorKey }
     val restoredIndex = resolveScrollIndex(savedAnchorKey, initialScrollIndex, contentKeys)
     val listState = remember(pageKey) {
-        LazyListState(
+        LazyGridState(
             firstVisibleItemIndex = restoredIndex,
             firstVisibleItemScrollOffset = initialScrollOffset,
         )
@@ -217,9 +224,15 @@ fun BrowserScreen(
     }
     var editing by rememberSaveable { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    fun togglePanel(name: String) {
+        val close = editing && expandedPanel == name
+        expandedPanel = if (close) null else name
+        editing = !close
+        if (close) focusManager.clearFocus()
+    }
     BackHandler(editing) { editing = false; focusManager.clearFocus() }
     var menu by remember { mutableStateOf<String?>(null) }
-    var compact by rememberSaveable { mutableStateOf(false) }
+    var gridView by rememberSaveable { mutableStateOf(false) }
     var pageDialog by rememberSaveable { mutableStateOf(false) }
     var pageInput by rememberSaveable { mutableStateOf("") }
     val canCollapse = resultIds.isNotEmpty() && !editing && menu == null && !pageDialog
@@ -242,8 +255,8 @@ fun BrowserScreen(
                 DropdownMenu(expanded = menu != null, onDismissRequest = { menu = null }) {
                     if (menu == "view") {
                         DropdownMenuItem(text = { Text("검색 옵션") }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { menu = "root" })
-                        ChoiceMenuItem("자세히 보기", !compact, onClick = { compact = false; menu = null })
-                        ChoiceMenuItem("리스트 보기", compact, onClick = { compact = true; menu = null })
+                        ChoiceMenuItem("리스트 보기", !gridView, onClick = { gridView = false; menu = null })
+                        ChoiceMenuItem("그리드 보기", gridView, onClick = { gridView = true; menu = null })
                     } else {
                         DropdownMenuItem(text = { Text("이 검색 즐겨찾기 등록") }, leadingIcon = { ActionIcon(ActionSymbol.STAR) }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
                         DropdownMenuItem(text = { Text("페이지 이동") }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
@@ -256,10 +269,10 @@ fun BrowserScreen(
             }
         })
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { editing = true; expandedPanel = if (expandedPanel == "languages") null else "languages" }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            TextButton(onClick = { togglePanel("languages") }, contentPadding = PaddingValues(horizontal = 8.dp)) {
                 ActionIcon(ActionSymbol.LANGUAGE); Spacer(Modifier.width(4.dp)); Text("언어")
             }
-            TextButton(onClick = { editing = true; expandedPanel = if (expandedPanel == "favorites") null else "favorites" }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            TextButton(onClick = { togglePanel("favorites") }, contentPadding = PaddingValues(horizontal = 8.dp)) {
                 ActionIcon(ActionSymbol.STAR); Spacer(Modifier.width(4.dp)); Text("즐겨찾기")
             }
             Spacer(Modifier.weight(1f))
@@ -367,7 +380,6 @@ fun BrowserScreen(
                             modifier = Modifier.padding(top = 8.dp),
                         ) { Text("현재 조건 저장") }
                     }
-                TextButton(onClick = { focusManager.clearFocus(); editing = false }) { Text("접기") }
             }
         }
         }
@@ -378,33 +390,35 @@ fun BrowserScreen(
         modifier = Modifier.fillMaxWidth().weight(1f),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(if (gridView) 2 else 1),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize(),
             state = listState,
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-        item(key = "search-controls") { Spacer(Modifier.height(0.dp)) }
+        item(key = "search-controls", span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(0.dp)) }
         if (resultIds.isEmpty() && !state.isLoadingPage && !canRestoreResults) {
-            item(key = "empty-results") {
+            item(key = "empty-results", span = { GridItemSpan(maxLineSpan) }) {
                 Text(if (state.currentPage > 0) "검색 결과가 없습니다. 검색 조건을 바꿔 보세요." else "상단 검색창에서 검색어를 입력하세요. 언어와 즐겨찾기도 선택할 수 있습니다.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
         }
 
         if (state.isLoadingPage && resultIds.isEmpty()) {
-            item(key = "initial-loader") { LoadingRow("불러오는 중…") }
+            item(key = "initial-loader", span = { GridItemSpan(maxLineSpan) }) { LoadingRow("불러오는 중…") }
         }
         if (canRestoreResults) {
-            item(key = "restore-results") {
+            item(key = "restore-results", span = { GridItemSpan(maxLineSpan) }) {
                 TextButton(onClick = onEnsureResults, modifier = Modifier.fillMaxWidth()) { Text("검색 결과 다시 불러오기") }
             }
         }
 
         if (resultIds.isNotEmpty()) {
-            item(key = "result-count") {
+            item(key = "result-count", span = { GridItemSpan(maxLineSpan) }) {
                 Text(
-                    "검색 결과 ${resultIds.size}개",
+                    "불러온 결과 ${resultIds.size}개",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -413,7 +427,7 @@ fun BrowserScreen(
                 val id = resultIds[index]
                 val gallery = galleriesById[id]
                 if (gallery == null) {
-                    Card(Modifier.fillMaxWidth().height(if (compact) 112.dp else 168.dp)) {
+                    Card(Modifier.fillMaxWidth().height(if (gridView) 280.dp else 168.dp)) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("#$id · 불러오는 중…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -422,7 +436,7 @@ fun BrowserScreen(
                     val libraryBook = libraryBookByGalleryId[gallery.id]
                     GalleryCard(
                         gallery = gallery,
-                        compact = compact,
+                        gridView = gridView,
                         read = gallery.id in state.viewedGalleryIds || libraryBook?.id in state.libraryReadIds,
                         libraryBook = libraryBook,
                         favorite = libraryBook?.id?.let { it in state.libraryFavoriteIds } == true,
@@ -436,7 +450,7 @@ fun BrowserScreen(
         }
 
         if (resultIds.isNotEmpty() && (state.hasNextPage || state.isLoadingPage)) {
-            item(key = "page-loader-${state.currentPage}") {
+            item(key = "page-loader-${state.currentPage}", span = { GridItemSpan(maxLineSpan) }) {
                 LaunchedEffect(state.currentPage, state.hasNextPage, state.isLoadingPage, state.isRestoringSearch, state.nextSearchPageError, listState.isScrollInProgress) {
                     if (listState.isScrollInProgress && state.hasNextPage && !state.isLoadingPage && !state.isRestoringSearch && state.nextSearchPageError == null) onLoadNextPage()
                 }
@@ -521,7 +535,7 @@ private val PREFERRED_LANGUAGES = listOf(
 @Composable
 private fun GalleryCard(
     gallery: GallerySummary,
-    compact: Boolean = false,
+    gridView: Boolean = false,
     read: Boolean,
     libraryBook: LibraryBook?,
     favorite: Boolean,
@@ -535,6 +549,22 @@ private fun GalleryCard(
         gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id) }
     }
 
+    if (gridView) {
+        Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "새 탭에서 열기")) {
+            Box(Modifier.fillMaxWidth().aspectRatio(0.72f).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                Text("#${gallery.id}", style = MaterialTheme.typography.labelSmall)
+                if (request != null) AsyncImage(model = request, contentDescription = "${preferredLocalizedTitle(gallery.title)} 썸네일", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                LibraryThumbnailBadges(read, libraryBook?.isCloud, favorite, showFavorite = libraryBook != null, onToggleFavorite = onToggleFavorite, scale = 0.75f)
+            }
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(preferredLocalizedTitle(gallery.title), maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                Text(gallery.artists.joinToString().ifBlank { "작가 정보 없음" }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                Text(listOfNotNull(gallery.language, gallery.pageCount.takeIf { it > 0 }?.let { "${it}페이지" }).joinToString(" · "), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                gallery.loadError?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall) }
+            }
+        }
+        return
+    }
     Card(modifier = Modifier.fillMaxWidth().combinedClickable(
         onClick = onClick,
         onLongClick = onLongClick,
@@ -543,8 +573,8 @@ private fun GalleryCard(
         Row(modifier = Modifier.padding(12.dp)) {
             Box(
                 modifier = Modifier
-                    .width(if (compact) 64.dp else 104.dp)
-                    .height(if (compact) 88.dp else 144.dp)
+                    .width(104.dp)
+                    .height(144.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
@@ -569,7 +599,7 @@ private fun GalleryCard(
             }
             Spacer(Modifier.width(14.dp))
             Column(
-                modifier = Modifier.weight(1f).height(if (compact) 88.dp else 144.dp),
+                modifier = Modifier.weight(1f).height(144.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(
@@ -595,7 +625,7 @@ private fun GalleryCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                gallery.tags.take(3).takeIf { !compact && it.isNotEmpty() }?.let { tags ->
+                gallery.tags.take(3).takeIf { it.isNotEmpty() }?.let { tags ->
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -676,14 +706,21 @@ internal fun visibleSearchPage(firstVisibleListIndex: Int, index: SearchResultIn
     index.pageAt((firstVisibleListIndex - 2).coerceAtLeast(0))
 
 @Composable
-private fun BoxScope.SearchPageIndicator(listState: LazyListState, index: SearchResultIndex, onClick: () -> Unit) {
+private fun BoxScope.SearchPageIndicator(listState: LazyGridState, index: SearchResultIndex, onClick: () -> Unit) {
     val page by remember(listState, index) { derivedStateOf { visibleSearchPage(listState.firstVisibleItemIndex, index) } }
-    Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), tonalElevation = 4.dp,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 16.dp)
-            .semantics { contentDescription = "현재 ${page}페이지. 눌러서 페이지 이동" }) {
-        Text("${page}페이지", Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) visible = true
+        else { delay(1200); visible = false }
+    }
+    AnimatedVisibility(visible = visible, enter = fadeIn(tween(120)), exit = fadeOut(tween(180)),
+        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 16.dp)) {
+        Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), tonalElevation = 4.dp,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.semantics { contentDescription = "현재 ${page}페이지. 눌러서 페이지 이동" }) {
+            Text("${page}페이지", Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 

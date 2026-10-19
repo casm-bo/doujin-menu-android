@@ -18,6 +18,7 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
@@ -44,6 +45,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.ui.semantics.contentDescription
@@ -552,12 +554,26 @@ fun LibraryScreen(
                     },
                 )
             } else {
-                FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = !seriesMode, onClick = { changeSeriesMode(false) }, label = { Text("전체") })
-                    FilterChip(selected = seriesMode, onClick = { changeSeriesMode(true) }, label = { Text("시리즈") })
-                    LibraryFilterMenu(state.libraryFavoritesOnly, state.libraryReadFilter, state.libraryVisibilityFilter,
-                        onToggleFavoritesFilter, onReadFilterChange, onVisibilityFilterChange)
-                    LibrarySortMenu(state.librarySort, onSortChange)
+                BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                    val modes: @Composable () -> Unit = {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FilterChip(selected = !seriesMode, onClick = { changeSeriesMode(false) }, label = { Text("전체") })
+                            FilterChip(selected = seriesMode, onClick = { changeSeriesMode(true) }, label = { Text("시리즈") })
+                        }
+                    }
+                    val tools: @Composable () -> Unit = {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            LibraryFilterMenu(state.libraryFavoritesOnly, state.libraryReadFilter, state.libraryVisibilityFilter,
+                                onToggleFavoritesFilter, onReadFilterChange, onVisibilityFilterChange)
+                            LibrarySortMenu(state.librarySort, onSortChange)
+                        }
+                    }
+                    if (maxWidth >= 344.dp) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        modes(); Spacer(Modifier.weight(1f)); tools()
+                    } else Column {
+                        modes()
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { tools() }
+                    }
                 }
 
             }
@@ -882,7 +898,7 @@ private fun LibraryFilterMenu(
         visibilityFilter != LibraryVisibilityFilter.VISIBLE
     Box {
         OutlinedButton(onClick = { expanded = true },
-            contentPadding = PaddingValues(horizontal = 10.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp),
             colors = ButtonDefaults.outlinedButtonColors(containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
             ActionIcon(ActionSymbol.FILTER)
             Text("필터", Modifier.padding(start = 6.dp))
@@ -924,26 +940,34 @@ private fun LibraryFilterItems(
             }
 }
 
+internal fun LibrarySort.isAscending(): Boolean = this == LibrarySort.TITLE_ASC || this == LibrarySort.ARTIST_ASC || this == LibrarySort.OLDEST
+
+internal fun LibrarySort.withDirection(ascending: Boolean): LibrarySort = when (this) {
+    LibrarySort.TITLE_ASC, LibrarySort.TITLE_DESC -> if (ascending) LibrarySort.TITLE_ASC else LibrarySort.TITLE_DESC
+    LibrarySort.ARTIST_ASC, LibrarySort.ARTIST_DESC -> if (ascending) LibrarySort.ARTIST_ASC else LibrarySort.ARTIST_DESC
+    LibrarySort.NEWEST, LibrarySort.OLDEST -> if (ascending) LibrarySort.OLDEST else LibrarySort.NEWEST
+}
+
 @Composable
 private fun LibrarySortMenu(sort: LibrarySort, onSortChange: (LibrarySort) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 10.dp)) {
-            ActionIcon(ActionSymbol.SORT)
-            Text("정렬", Modifier.padding(start = 6.dp))
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            LibrarySort.entries.forEach { option ->
-                val label = when (option) {
-                    LibrarySort.TITLE_ASC -> "제목 · 오름차순"
-                    LibrarySort.TITLE_DESC -> "제목 · 내림차순"
-                    LibrarySort.ARTIST_ASC -> "작가 · 오름차순"
-                    LibrarySort.ARTIST_DESC -> "작가 · 내림차순"
-                    LibrarySort.NEWEST -> "수정일 · 최신순"
-                    LibrarySort.OLDEST -> "수정일 · 오래된순"
-                }
-                ChoiceMenuItem(label, sort == option, onClick = { onSortChange(option); expanded = false })
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box {
+            OutlinedButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                ActionIcon(ActionSymbol.SORT)
+                Text("정렬", Modifier.padding(start = 4.dp))
             }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                listOf("제목" to LibrarySort.TITLE_ASC, "작가" to LibrarySort.ARTIST_ASC, "수정일" to LibrarySort.OLDEST).forEach { (label, field) ->
+                    val option = field.withDirection(sort.isAscending())
+                    ChoiceMenuItem(label, sort == option, onClick = { onSortChange(option); expanded = false })
+                }
+            }
+        }
+        val direction = if (sort.isAscending()) "오름차순" else "내림차순"
+        OutlinedIconButton(onClick = { onSortChange(sort.withDirection(!sort.isAscending())) },
+            modifier = Modifier.semantics { contentDescription = "$direction, 정렬 방향 전환" }) {
+            Text(if (sort.isAscending()) "↑" else "↓", style = MaterialTheme.typography.titleLarge)
         }
     }
 }

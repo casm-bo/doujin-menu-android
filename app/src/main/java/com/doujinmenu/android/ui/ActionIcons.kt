@@ -41,7 +41,7 @@ internal fun ActionIcon(symbol: ActionSymbol, modifier: Modifier = Modifier) {
             }
             when (symbol) {
                 ActionSymbol.FILTER -> path(3f to 4f, 21f to 4f, 14f to 12f, 14f to 21f, 10f to 18f, 10f to 12f, close = true, fill = true)
-                ActionSymbol.SORT -> { line(3f, 6f, 15f, 6f); line(3f, 12f, 12f, 12f); line(3f, 18f, 9f, 18f); line(19f, 4f, 19f, 20f); path(16f to 17f, 19f to 20f, 22f to 17f) }
+                ActionSymbol.SORT -> { line(3f, 6f, 15f, 6f); line(3f, 12f, 12f, 12f); line(3f, 18f, 9f, 18f) }
                 ActionSymbol.GRID -> { box(3f, 3f, 7f, 7f); box(14f, 3f, 7f, 7f); box(3f, 14f, 7f, 7f); box(14f, 14f, 7f, 7f) }
                 ActionSymbol.LIST -> repeat(3) { row -> val y = 5f + row * 7f; box(3f, y - 1f, 2f, 2f); line(9f, y, 21f, y) }
                 ActionSymbol.FOLDER -> path(3f to 6f, 10f to 6f, 12f to 8f, 21f to 8f, 21f to 20f, 3f to 20f, close = true)
