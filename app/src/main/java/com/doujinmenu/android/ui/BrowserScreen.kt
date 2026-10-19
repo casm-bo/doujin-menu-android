@@ -344,7 +344,7 @@ fun BrowserScreen(
                                     onClick = {
                                         expandedPanel = null
                                         editing = false
-                                                                focusManager.clearFocus()
+                                        focusManager.clearFocus()
                                         onFavoriteSearch(favorite)
                                     },
                                     modifier = Modifier.weight(1f),
