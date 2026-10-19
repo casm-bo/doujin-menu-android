@@ -57,9 +57,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.semantics
@@ -664,19 +667,23 @@ private fun MainDestinationIcon(destination: MainDestination) {
             }
             MainDestination.Settings -> {
                 val center = Offset(size.width / 2f, size.height / 2f)
-                drawCircle(color, size.width * 0.25f, center, style = Stroke(width = size.width * 0.12f))
-                drawCircle(color, size.width * 0.08f, center)
-                repeat(8) { index ->
-                    val angle = index * Math.PI / 4.0
-                    val start = size.width * 0.34f
-                    val end = size.width * 0.46f
-                    drawLine(
-                        color,
-                        Offset(center.x + cos(angle).toFloat() * start, center.y + sin(angle).toFloat() * start),
-                        Offset(center.x + cos(angle).toFloat() * end, center.y + sin(angle).toFloat() * end),
-                        strokeWidth = size.width * 0.14f,
-                    )
+                val gear = Path().apply {
+                    val angles = floatArrayOf(-22.5f, -13f, -10f, 10f, 13f, 22.5f)
+                    val radii = floatArrayOf(0.34f, 0.34f, 0.46f, 0.46f, 0.34f, 0.34f)
+                    repeat(8) { tooth ->
+                        angles.forEachIndexed { point, degrees ->
+                            val angle = (tooth * 45 + degrees) * Math.PI / 180
+                            val radius = size.width * radii[point]
+                            val x = center.x + cos(angle).toFloat() * radius
+                            val y = center.y + sin(angle).toFloat() * radius
+                            if (tooth == 0 && point == 0) moveTo(x, y) else lineTo(x, y)
+                        }
+                    }
+                    close()
+                    addOval(Rect(center, size.width * 0.16f))
+                    fillType = PathFillType.EvenOdd
                 }
+                drawPath(gear, color)
             }
         }
     }
