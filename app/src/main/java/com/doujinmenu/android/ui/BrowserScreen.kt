@@ -1,6 +1,18 @@
 package com.doujinmenu.android.ui
 
 import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -42,15 +54,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -70,6 +78,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 @Composable
 fun BrowserScreen(
     state: MainUiState,
+    tabHeader: @Composable (@Composable () -> Unit, @Composable () -> Unit) -> Unit,
     contentPadding: PaddingValues,
     onQueryChange: (String) -> Unit,
     onFavoriteNameChange: (String) -> Unit,
@@ -107,14 +116,6 @@ fun BrowserScreen(
         visibleBooks.mapNotNull { it.metadata.hitomiId?.toLongOrNull() }
             .distinct()
             .associateWith { preferredLibraryBookForGalleryId(visibleBooks, it) }
-    }
-    var queryFieldValue by remember {
-        mutableStateOf(
-            TextFieldValue(
-                text = state.searchQuery,
-                selection = TextRange(state.searchQuery.length),
-            ),
-        )
     }
     val resultIds = state.searchResultWindow?.index?.let { index -> remember(index) { index.ids } }
         ?: remember(state.galleries) { state.galleries.map { it.id } }
@@ -175,83 +176,66 @@ fun BrowserScreen(
             first to last
         }.distinctUntilChanged().collect { (first, last) -> onVisibleResultsChange(first, last) }
     }
-    val queryFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(state.searchQuery) {
-        if (queryFieldValue.text != state.searchQuery) {
-            queryFieldValue = TextFieldValue(
-                text = state.searchQuery,
-                selection = TextRange(state.searchQuery.length),
-            )
-        }
+    var editing by rememberSaveable { mutableStateOf(false) }
+    var menu by remember { mutableStateOf<String?>(null) }
+    var compact by rememberSaveable { mutableStateOf(false) }
+    var pageDialog by rememberSaveable { mutableStateOf(false) }
+    var pageInput by rememberSaveable { mutableStateOf("") }
+    var targetPage by rememberSaveable { mutableStateOf<Int?>(null) }
+    LaunchedEffect(pageKey, state.currentPage, state.isLoadingPage, targetPage) {
+        val target = targetPage ?: return@LaunchedEffect
+        if (state.isLoadingPage || state.isRestoringSearch) return@LaunchedEffect
+        if (state.nextSearchPageError != null) { targetPage = null; return@LaunchedEffect }
+        val pages = state.searchResultWindow?.index?.pages.orEmpty()
+        val targetIndex = pages.take((target - 1).coerceAtMost((pages.size - 1).coerceAtLeast(0))).sumOf { it.size }
+        if (target <= state.currentPage || !state.hasNextPage) {
+            val index = targetIndex.coerceAtMost((resultIds.size - 1).coerceAtLeast(0))
+            if (resultIds.isNotEmpty()) listState.scrollToItem(contentKeys.indexOf("gallery:${resultIds[index]}").coerceAtLeast(0))
+            targetPage = null
+        } else onLoadNextPage()
     }
-
-    PullToRefreshBox(
-        isRefreshing = state.isRefreshing,
-        onRefresh = onRefresh,
-        modifier = Modifier.fillMaxSize().padding(contentPadding),
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            state = listState,
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-        item(key = "search-controls") {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        "Hitomi 직접 검색",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = queryFieldValue,
-                        onValueChange = { value ->
-                            queryFieldValue = value
-                            onQueryChange(value.text)
-                        },
-                        modifier = Modifier.fillMaxWidth().focusRequester(queryFocusRequester),
-                        label = { Text("검색 조건") },
-                        placeholder = { Text("tag:full_color artist:sample_artist") },
-                        trailingIcon = {
-                            if (state.searchQuery.isNotEmpty()) {
-                                TextButton(onClick = { onQueryChange("") }) { Text("×") }
-                            }
-                        },
-                        singleLine = true,
-                        enabled = !state.isLoadingPage,
-                    )
-                    if (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                            state.filterSuggestions.forEach { suggestion ->
-                                TextButton(
-                                    onClick = {
-                                        onSelectSuggestion(suggestion)
-                                        queryFocusRequester.requestFocus()
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        Text(suggestion.token, fontWeight = FontWeight.SemiBold)
-                                        Text(
-                                            suggestion.displayName,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            }
-                            if (state.isLoadingFilterSuggestions) {
-                                Text(
-                                    "필터 목록 불러오는 중…",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+        tabHeader({
+            UnifiedSearchField(state.searchQuery, onQueryChange, "검색 조건", { editing = true }, {
+                targetPage = null
+                editing = false
+                onSearch()
+            })
+        }, {
+            Box {
+                IconButton(onClick = { menu = "root" }, modifier = Modifier.semantics { contentDescription = "검색 옵션" }) { Text("⋯") }
+                DropdownMenu(expanded = menu != null, onDismissRequest = { menu = null }) {
+                    if (menu == "sort") {
+                        DropdownMenuItem(text = { Text("‹ 검색 옵션") }, onClick = { menu = "root" })
+                        listOf("최신순" to false, "오래된순" to true).forEach { (label, oldest) ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = {
+                                val query = state.searchQuery.replace(Regex("(?i)(^|\\s)sort:(oldest|newest)(?=\\s|$)"), " ").trim()
+                                onQueryChange(listOf(query, if (oldest) "sort:oldest" else "").filter { it.isNotBlank() }.joinToString(" "))
+                                menu = null
+                                targetPage = null
+                                onSearch()
+                            }, enabled = !state.isLoadingPage)
                         }
+                    } else {
+                        DropdownMenuItem(text = { Text("이 검색 즐겨찾기 등록") }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
+                        DropdownMenuItem(text = { Text("페이지 이동") }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
+                        DropdownMenuItem(text = { Text(if (compact) "자세히 보기" else "리스트 보기") }, onClick = { compact = !compact; menu = null })
+                        DropdownMenuItem(text = { Text("정렬…") }, onClick = { menu = "sort" })
+                        HorizontalDivider()
+                        DropdownMenuItem(text = { Text("새로고침") }, onClick = { targetPage = null; menu = null; onRefresh() })
+                        DropdownMenuItem(text = { Text("검색어 지우기") }, onClick = { onQueryChange(""); menu = null; editing = true })
                     }
+                }
+            }
+        })
+        AnimatedVisibility(visible = editing, enter = expandVertically(expandFrom = Alignment.Top), exit = shrinkVertically(shrinkTowards = Alignment.Top)) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+                if (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions) {
+                    state.filterSuggestions.forEach { suggestion ->
+                        TextButton(onClick = { onSelectSuggestion(suggestion) }) { Text("${suggestion.token} · ${suggestion.displayName}") }
+                    }
+                    if (state.isLoadingFilterSuggestions) Text("필터 목록 불러오는 중…")
+                }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -268,7 +252,7 @@ fun BrowserScreen(
                         ) { Text("언어 ${state.preferredLanguages.size}") }
                         Spacer(Modifier.weight(1f))
                         Button(
-                            onClick = onSearch,
+                            onClick = { editing = false; targetPage = null; onSearch() },
                             enabled = !state.isLoadingPage &&
                                 (state.searchQuery.isNotBlank() || state.preferredLanguages.isNotEmpty()),
                         ) { Text("검색") }
@@ -361,9 +345,26 @@ fun BrowserScreen(
                             modifier = Modifier.padding(top = 8.dp),
                         ) { Text("현재 조건 저장") }
                     }
-                }
+                TextButton(onClick = { editing = false }) { Text("접기") }
             }
         }
+        if (targetPage != null) Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${targetPage}페이지로 이동 중…", Modifier.weight(1f).padding(start = 16.dp))
+            TextButton(onClick = { targetPage = null }) { Text("취소") }
+        }
+    PullToRefreshBox(
+        isRefreshing = state.isRefreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxWidth().weight(1f),
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+        item(key = "search-controls") { Spacer(Modifier.height(0.dp)) }
 
         if (state.isLoadingPage && resultIds.isEmpty()) {
             item(key = "initial-loader") { LoadingRow("불러오는 중…") }
@@ -395,6 +396,7 @@ fun BrowserScreen(
                     val libraryBook = libraryBookByGalleryId[gallery.id]
                     GalleryCard(
                         gallery = gallery,
+                        compact = compact,
                         read = gallery.id in state.viewedGalleryIds || libraryBook?.id in state.libraryReadIds,
                         libraryBook = libraryBook,
                         favorite = libraryBook?.id?.let { it in state.libraryFavoriteIds } == true,
@@ -424,6 +426,15 @@ fun BrowserScreen(
         DynamicVerticalScrollbar(listState)
         }
     }
+
+    }
+    if (pageDialog) AlertDialog(
+        onDismissRequest = { pageDialog = false },
+        title = { Text("페이지 이동") },
+        text = { OutlinedTextField(value = pageInput, onValueChange = { pageInput = it.filter(Char::isDigit).take(5) }, label = { Text("페이지 번호") }, singleLine = true) },
+        confirmButton = { TextButton(enabled = pageInput.toIntOrNull() in 1..10000, onClick = { targetPage = pageInput.toInt(); pageDialog = false }) { Text("이동") } },
+        dismissButton = { TextButton(onClick = { pageDialog = false }) { Text("취소") } },
+    )
 
     if (addLanguageDialog) {
         AlertDialog(
@@ -481,6 +492,7 @@ private val PREFERRED_LANGUAGES = listOf(
 @Composable
 private fun GalleryCard(
     gallery: GallerySummary,
+    compact: Boolean = false,
     read: Boolean,
     libraryBook: LibraryBook?,
     favorite: Boolean,
@@ -500,8 +512,8 @@ private fun GalleryCard(
         Row(modifier = Modifier.padding(12.dp)) {
             Box(
                 modifier = Modifier
-                    .width(104.dp)
-                    .height(144.dp)
+                    .width(if (compact) 64.dp else 104.dp)
+                    .height(if (compact) 88.dp else 144.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
@@ -526,7 +538,7 @@ private fun GalleryCard(
             }
             Spacer(Modifier.width(14.dp))
             Column(
-                modifier = Modifier.weight(1f).height(144.dp),
+                modifier = Modifier.weight(1f).height(if (compact) 88.dp else 144.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(
@@ -552,7 +564,7 @@ private fun GalleryCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                gallery.tags.take(3).takeIf { it.isNotEmpty() }?.let { tags ->
+                gallery.tags.take(3).takeIf { !compact && it.isNotEmpty() }?.let { tags ->
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(3.dp),

@@ -22,10 +22,11 @@ class HitomiClient {
     suspend fun search(searchQuery: String, page: Int = 1): SearchResult = withContext(Dispatchers.IO) {
         require(page > 0)
         val query = searchQuery.trim().lowercase(Locale.ROOT)
-        val terms = query.split(Regex("\\s+")).filter(String::isNotBlank)
+        val order = parseHitomiSearchOrder(query)
+        val terms = order.terms
         val directId = terms.firstNotNullOfOrNull { it.removePrefix("id:").toLongOrNull()?.takeIf { id -> id > 0 } }
         if (directId != null) return@withContext SearchResult(if (page == 1) listOf(directId) else emptyList(), false)
-        if (terms.size == 1 && ':' in terms[0] && !terms[0].startsWith('-')) {
+        if (!order.oldest && terms.size == 1 && ':' in terms[0] && !terms[0].startsWith('-')) {
             val start = (page.toLong() - 1) * 30 * 4
             val ids = decodeHitomiIds(readResource(hitomiNozomiPath(terms[0]), start..start + 123, missingIsEmpty = true))
             return@withContext SearchResult(ids.take(30), ids.size > 30)
@@ -43,7 +44,7 @@ class HitomiClient {
             }
             if (result == null) result = nozomi("/n/index-all.nozomi").toMutableSet()
             for (term in negative) result.removeAll(termIds(term).toSet())
-            result.sortedDescending().also { found ->
+            order.sortIds(result).also { found ->
                 synchronized(searches) {
                     if (searches.size >= 3) searches.remove(searches.keys.first())
                     searches[query] = System.currentTimeMillis() to found
@@ -214,4 +215,13 @@ internal fun hitomiNozomiPath(term: String): String {
         "male", "female" -> "/n/tag/$type:$encoded-all.nozomi"
         else -> "/n/$type/$encoded-all.nozomi"
     }
+}
+
+internal data class HitomiSearchOrder(val terms: List<String>, val oldest: Boolean) {
+    fun sortIds(ids: Collection<Long>): List<Long> = if (oldest) ids.sorted() else ids.sortedDescending()
+}
+
+internal fun parseHitomiSearchOrder(query: String): HitomiSearchOrder {
+    val tokens = query.trim().lowercase(Locale.ROOT).split(Regex("\\s+")).filter(String::isNotBlank)
+    return HitomiSearchOrder(tokens.filterNot { it == "sort:oldest" || it == "sort:newest" }, tokens.lastOrNull { it.startsWith("sort:") } == "sort:oldest")
 }

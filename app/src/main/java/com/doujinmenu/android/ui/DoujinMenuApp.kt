@@ -454,13 +454,15 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
 }
 
 @Composable
-private fun AppSearchTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null) {
+private fun AppSearchTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null, titleContent: (@Composable () -> Unit)? = null, actions: @Composable () -> Unit = {}) {
     BrowserTabStrip(
         workspace = viewModel.uiState.browserWorkspace,
         onNew = viewModel::newBrowserTab,
         onShowOverview = { viewModel.showTabOverview(isGallery = false) },
         previews = viewModel.tabPreviews,
         onBack = onBack,
+        titleContent = titleContent,
+        extraActions = { actions() },
     )
 }
 
@@ -532,6 +534,7 @@ private fun MainShell(
             onGalleryLongClick = onGalleryLongClick,
             onLibraryBookClick = onLibraryBookClick,
             onNavigate = navigate,
+            onBackToOrigin = onBackToOrigin,
         )
     }
     val topBar: @Composable () -> Unit = {
@@ -540,8 +543,7 @@ private fun MainShell(
                 TopAppBar(title = { Text(selected.label) })
             }
             when (selected) {
-                MainDestination.Browser -> AppSearchTabStrip(viewModel, onBack = onBackToOrigin
-                    ?: if (viewModel.canGoBackInBrowserTab()) ({ viewModel.goBackInBrowserTab(); Unit }) else null)
+                MainDestination.Browser -> Unit
                 MainDestination.Library -> AppGalleryTabStrip(viewModel, showSync = true,
                     onBack = if (viewModel.canGoBackInGalleryTab()) ({ viewModel.goBackInGalleryTab(); Unit }) else null)
                 else -> Unit
@@ -668,6 +670,7 @@ private fun MainTabContent(
     onGalleryLongClick: (Long) -> Unit,
     onLibraryBookClick: (String) -> Unit,
     onNavigate: (MainDestination) -> Unit,
+    onBackToOrigin: (() -> Unit)? = null,
 ) {
     var connectionSettingsRequested by rememberSaveable { mutableStateOf(false) }
     val openConnectionSettings: () -> Unit = {
@@ -693,6 +696,9 @@ private fun MainTabContent(
             val search = viewModel.uiState.browserWorkspace.activeTab.currentPage as? BrowserPage.Search
             BrowserScreen(
                 state = viewModel.uiState,
+                tabHeader = { query, actions -> AppSearchTabStrip(viewModel,
+                    onBack = onBackToOrigin ?: if (viewModel.canGoBackInBrowserTab()) ({ viewModel.goBackInBrowserTab(); Unit }) else null,
+                    titleContent = query, actions = actions) },
                 contentPadding = contentPadding,
                 onQueryChange = viewModel::setSearchQuery,
                 onFavoriteNameChange = viewModel::setFavoriteName,

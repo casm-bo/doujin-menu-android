@@ -40,6 +40,7 @@ fun BrowserTabStrip(
     onShowOverview: () -> Unit,
     previews: BrowserTabPreviewCache,
     onBack: (() -> Unit)? = null,
+    titleContent: (@Composable () -> Unit)? = null,
     extraActions: @Composable RowScope.() -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -51,7 +52,7 @@ fun BrowserTabStrip(
                 modifier = Modifier.semantics { contentDescription = "뒤로" }) { Text("‹") }
             Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(28.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                Text(workspace.activeTab.currentPage.toolbarTitle,
+                if (titleContent != null) titleContent() else Text(workspace.activeTab.currentPage.toolbarTitle,
                     Modifier.padding(horizontal = 16.dp, vertical = 13.dp), maxLines = 1,
                     overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
             }
