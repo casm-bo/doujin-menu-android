@@ -50,17 +50,17 @@ fun RecentHistoryScreen(
             Box {
                 IconButton(onClick = { options = true }) { Text("⋯") }
                 DropdownMenu(expanded = options, onDismissRequest = { options = false }) {
-                    DropdownMenuItem(text = { Text(if (state.historyRecording) "기록 일시 중지" else "기록 다시 시작") }, onClick = { onRecordingChange(!state.historyRecording); options = false })
-                    DropdownMenuItem(text = { Text("전체 기록 삭제") }, enabled = state.recentHistory.isNotEmpty(), onClick = { options = false; clearDialog = true })
+                    DropdownMenuItem(text = { Text(if (state.historyRecording) "기록 일시 중지" else "기록 다시 시작") }, leadingIcon = { ActionIcon(if (state.historyRecording) ActionSymbol.PAUSE else ActionSymbol.PLAY) }, onClick = { onRecordingChange(!state.historyRecording); options = false })
+                    DropdownMenuItem(text = { Text("전체 기록 삭제") }, leadingIcon = { ActionIcon(ActionSymbol.DELETE) }, enabled = state.recentHistory.isNotEmpty(), onClick = { options = false; clearDialog = true })
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text("최근 ${RECENT_HISTORY_LIMIT}개 저장") }, onClick = {}, enabled = false)
                 }
             }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = sourceName == null, onClick = { sourceName = null }, label = { Text("전체") })
+            FilterChip(selected = sourceName == null, onClick = { sourceName = null }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, label = { Text("전체") })
             HistorySource.entries.forEach { source ->
-                FilterChip(selected = sourceName == source.name, onClick = { sourceName = source.name }, label = { Text(source.label) })
+                FilterChip(selected = sourceName == source.name, onClick = { sourceName = source.name }, leadingIcon = { ActionIcon(when (source) { HistorySource.SEARCH -> ActionSymbol.SEARCH; HistorySource.DEVICE -> ActionSymbol.DEVICE; HistorySource.PC -> ActionSymbol.PC }) }, label = { Text(source.label) })
             }
         }
         if (!state.historyRecording) Text("기록 일시 중지 중 · 읽기 진도는 계속 저장됩니다.", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
@@ -109,7 +109,7 @@ private fun HistoryCard(entry: RecentHistoryEntry, state: MainUiState, onOpen: (
             Box {
                 IconButton(onClick = { options = true }) { Text("⋯") }
                 DropdownMenu(expanded = options, onDismissRequest = { options = false }) {
-                    DropdownMenuItem(text = { Text("기록 삭제") }, onClick = { options = false; onRemove() })
+                    DropdownMenuItem(text = { Text("기록 삭제") }, leadingIcon = { ActionIcon(ActionSymbol.DELETE) }, onClick = { options = false; onRemove() })
                 }
             }
         }

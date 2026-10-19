@@ -187,7 +187,7 @@ fun BrowserScreen(
     var pageDialog by rememberSaveable { mutableStateOf(false) }
     var pageInput by rememberSaveable { mutableStateOf("") }
     var targetPage by rememberSaveable { mutableStateOf<Int?>(null) }
-    LaunchedEffect(pageKey, state.currentPage, state.isLoadingPage, targetPage) {
+    LaunchedEffect(pageKey, state.currentPage, state.isLoadingPage, state.isRestoringSearch, targetPage) {
         val target = targetPage ?: return@LaunchedEffect
         if (state.isLoadingPage || state.isRestoringSearch) return@LaunchedEffect
         if (state.nextSearchPageError != null) { targetPage = null; return@LaunchedEffect }
@@ -211,24 +211,24 @@ fun BrowserScreen(
                 IconButton(onClick = { menu = "root" }, modifier = Modifier.semantics { contentDescription = "검색 옵션" }) { Text("⋯") }
                 DropdownMenu(expanded = menu != null, onDismissRequest = { menu = null }) {
                     if (menu == "sort") {
-                        DropdownMenuItem(text = { Text("‹ 검색 옵션") }, onClick = { menu = "root" })
+                        DropdownMenuItem(text = { Text("검색 옵션") }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { menu = "root" })
                         listOf("최신순" to false, "오래된순" to true).forEach { (label, oldest) ->
-                            DropdownMenuItem(text = { Text(label) }, onClick = {
+                            DropdownMenuItem(text = { Text(label) }, leadingIcon = { ActionIcon(ActionSymbol.SORT) }, onClick = {
                                 val query = state.searchQuery.replace(Regex("(?i)(^|\\s)sort:(oldest|newest)(?=\\s|$)"), " ").trim()
-                                onQueryChange(listOf(query, if (oldest) "sort:oldest" else "").filter { it.isNotBlank() }.joinToString(" "))
+                                onQueryChange(listOf(query, if (oldest) "sort:oldest" else "sort:newest").filter { it.isNotBlank() }.joinToString(" "))
                                 menu = null
                                 targetPage = null
                                 onSearch()
                             }, enabled = !state.isLoadingPage)
                         }
                     } else {
-                        DropdownMenuItem(text = { Text("이 검색 즐겨찾기 등록") }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
-                        DropdownMenuItem(text = { Text("페이지 이동") }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
-                        DropdownMenuItem(text = { Text(if (compact) "자세히 보기" else "리스트 보기") }, onClick = { compact = !compact; menu = null })
-                        DropdownMenuItem(text = { Text("정렬…") }, onClick = { menu = "sort" })
+                        DropdownMenuItem(text = { Text("이 검색 즐겨찾기 등록") }, leadingIcon = { ActionIcon(ActionSymbol.STAR) }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
+                        DropdownMenuItem(text = { Text("페이지 이동") }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
+                        DropdownMenuItem(text = { Text(if (compact) "자세히 보기" else "리스트 보기") }, leadingIcon = { ActionIcon(if (compact) ActionSymbol.GRID else ActionSymbol.LIST) }, onClick = { compact = !compact; menu = null })
+                        DropdownMenuItem(text = { Text("정렬…") }, leadingIcon = { ActionIcon(ActionSymbol.SORT) }, onClick = { menu = "sort" })
                         HorizontalDivider()
-                        DropdownMenuItem(text = { Text("새로고침") }, onClick = { targetPage = null; menu = null; onRefresh() })
-                        DropdownMenuItem(text = { Text("검색어 지우기") }, onClick = { onQueryChange(""); menu = null; editing = true })
+                        DropdownMenuItem(text = { Text("새로고침") }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { targetPage = null; menu = null; onRefresh() })
+                        DropdownMenuItem(text = { Text("검색어 지우기") }, leadingIcon = { ActionIcon(ActionSymbol.CLEAR) }, onClick = { onQueryChange(""); menu = null; editing = true })
                     }
                 }
             }
@@ -249,18 +249,13 @@ fun BrowserScreen(
                             onClick = {
                                 expandedPanel = if (expandedPanel == "favorites") null else "favorites"
                             },
-                        ) { Text("☆ 즐겨찾기 ${state.searchFavorites.size}") }
+                        ) { ActionIcon(ActionSymbol.STAR); Spacer(Modifier.width(6.dp)); Text("즐겨찾기 ${state.searchFavorites.size}") }
                         TextButton(
                             onClick = {
                                 expandedPanel = if (expandedPanel == "languages") null else "languages"
                             },
-                        ) { Text("언어 ${state.preferredLanguages.size}") }
-                        Spacer(Modifier.weight(1f))
-                        Button(
-                            onClick = { focusManager.clearFocus(); editing = false; targetPage = null; onSearch() },
-                            enabled = !state.isLoadingPage &&
-                                (state.searchQuery.isNotBlank() || state.preferredLanguages.isNotEmpty()),
-                        ) { Text("검색") }
+                        ) { ActionIcon(ActionSymbol.LANGUAGE); Spacer(Modifier.width(6.dp)); Text("언어 ${state.preferredLanguages.size}") }
+
                     }
 
                     if (expandedPanel == "languages") {
