@@ -535,6 +535,17 @@ private fun GalleryCard(
                 Text(preferredLocalizedTitle(gallery.title), maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                 Text(gallery.artists.joinToString().ifBlank { "작가 정보 없음" }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Text(listOfNotNull(gallery.language, gallery.pageCount.takeIf { it > 0 }?.let { "${it}페이지" }).joinToString(" · "), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (gallery.tags.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        gallery.tags.take(3).forEach { tag ->
+                            TagPill(info = tagDisplayInfo(tag.name, tag.type), modifier = Modifier.clickable {
+                                onSearchFacet(tagSearchFacet(tag.name, tag.type))
+                            })
+                        }
+                        if (gallery.tags.size > 3) Text("+${gallery.tags.size - 3}", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 gallery.loadError?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall) }
             }
         }
