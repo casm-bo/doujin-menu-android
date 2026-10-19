@@ -12,6 +12,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
+import com.doujinmenu.android.data.SearchResultIndex
+import kotlin.math.roundToInt
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
@@ -216,7 +225,14 @@ fun BrowserScreen(
             targetPage = null
         } else onLoadNextPage()
     }
-    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+    val canCollapse = resultIds.isNotEmpty() && !editing && menu == null && !pageDialog
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { canCollapse })
+    LaunchedEffect(pageKey, canCollapse) {
+        if (!canCollapse) scrollBehavior.state.heightOffset = 0f
+    }
+    Column(Modifier.fillMaxSize().padding(contentPadding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        CollapsingSearchToolbar(scrollBehavior) {
+        Column {
         tabHeader({
             UnifiedSearchField(state.searchQuery, onQueryChange, "검색 조건", { editing = true }, {
                 targetPage = null
@@ -368,6 +384,8 @@ fun BrowserScreen(
                 TextButton(onClick = { focusManager.clearFocus(); editing = false }) { Text("접기") }
             }
         }
+        }
+        }
         if (targetPage != null) Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${targetPage}페이지로 이동 중…", Modifier.weight(1f).padding(start = 16.dp))
             TextButton(onClick = { targetPage = null }) { Text("취소") }
@@ -450,6 +468,9 @@ fun BrowserScreen(
         }
         }
         DynamicVerticalScrollbar(listState)
+        state.searchResultWindow?.index?.takeIf { resultIds.isNotEmpty() }?.let { index ->
+            SearchPageIndicator(listState, index, onClick = { pageDialog = true })
+        }
         }
     }
 
@@ -653,5 +674,33 @@ fun LoadingRow(label: String) {
         CircularProgressIndicator(modifier = Modifier.width(28.dp).height(28.dp))
         Spacer(Modifier.width(12.dp))
         Text(label)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CollapsingSearchToolbar(behavior: TopAppBarScrollBehavior, content: @Composable () -> Unit) {
+    Box(Modifier.clipToBounds().layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        behavior.state.heightOffsetLimit = -placeable.height.toFloat()
+        val offset = behavior.state.heightOffset.roundToInt()
+        layout(placeable.width, (placeable.height + offset).coerceAtLeast(0)) {
+            placeable.placeRelative(0, offset)
+        }
+    }) { content() }
+}
+
+internal fun visibleSearchPage(firstVisibleListIndex: Int, index: SearchResultIndex): Int =
+    index.pageAt((firstVisibleListIndex - 2).coerceAtLeast(0))
+
+@Composable
+private fun BoxScope.SearchPageIndicator(listState: LazyListState, index: SearchResultIndex, onClick: () -> Unit) {
+    val page by remember(listState, index) { derivedStateOf { visibleSearchPage(listState.firstVisibleItemIndex, index) } }
+    Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), tonalElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 16.dp)
+            .semantics { contentDescription = "현재 ${page}페이지. 눌러서 페이지 이동" }) {
+        Text("${page}페이지", Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }
