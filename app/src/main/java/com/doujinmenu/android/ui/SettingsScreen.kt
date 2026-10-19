@@ -59,6 +59,7 @@ import com.doujinmenu.android.model.ViewerPreferences
 private enum class SettingsSection {
     HOME,
     APPEARANCE,
+    LOCK,
     VIEWER,
     LIBRARY,
     CONNECTION,
@@ -105,6 +106,7 @@ fun SettingsScreen(
     }
 
     when (section) {
+        SettingsSection.LOCK -> SettingsDetailLayout("앱 잠금", contentPadding, { openSection(SettingsSection.HOME) }) { AppLockSettings() }
         SettingsSection.HOME -> SettingsHomeScreen(
             state = state,
             contentPadding = contentPadding,
@@ -171,6 +173,9 @@ private fun SettingsHomeScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item {
+            SettingsCategoryCard(title = "앱 잠금", description = "PIN, 비밀번호, 패턴 및 생체잠금", onClick = { onOpenSection(SettingsSection.LOCK) })
+        }
         item {
             SettingsCategoryCard(
                 title = "화면 설정",

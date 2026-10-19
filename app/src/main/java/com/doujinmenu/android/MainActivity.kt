@@ -1,7 +1,9 @@
 package com.doujinmenu.android
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.viewModels
+import android.view.WindowManager
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,15 +14,28 @@ import com.doujinmenu.android.ui.LocalGalleryBorders
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.doujinmenu.android.ui.DoujinMenuApp
 import com.doujinmenu.android.ui.MainViewModel
+import com.doujinmenu.android.ui.AppLockViewModel
+import com.doujinmenu.android.ui.AppLockScreen
+import com.doujinmenu.android.ui.LocalAppLock
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.doujinmenu.android.ui.theme.DoujinMenuTheme
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
+    private val appLock: AppLockViewModel by viewModels()
+
+    override fun onStop() {
+        if (!isChangingConfigurations) appLock.onBackground()
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             val viewModel: MainViewModel = viewModel()
             val darkTheme = viewModel.uiState.themeMode.usesDarkTheme(isSystemInDarkTheme())
             SideEffect {
+                if (appLock.enabled) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 val transparent = android.graphics.Color.TRANSPARENT
                 val systemBarStyle = if (darkTheme) {
                     SystemBarStyle.dark(transparent)
@@ -30,8 +45,10 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(systemBarStyle, systemBarStyle)
             }
             DoujinMenuTheme(darkTheme = darkTheme) {
-                CompositionLocalProvider(LocalGalleryBorders provides viewModel.uiState.galleryBorders) {
-                DoujinMenuApp(viewModel)
+                CompositionLocalProvider(LocalGalleryBorders provides viewModel.uiState.galleryBorders, LocalAppLock provides appLock) {
+                    val holder = rememberSaveableStateHolder()
+                    if (appLock.locked) AppLockScreen(appLock) { moveTaskToBack(true) }
+                    else holder.SaveableStateProvider("app") { DoujinMenuApp(viewModel) }
                 }
             }
         }
