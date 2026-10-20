@@ -138,8 +138,10 @@ private fun HistoryCard(entry: RecentHistoryEntry, state: MainUiState, grid: Boo
             }
         }
         if (entry.page != null) Button(onClick = { onOpen(true) }, enabled = !state.isBusy,
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
             modifier = Modifier.align(Alignment.BottomCenter).padding(4.dp)) {
-            Text(strings[R.string.ui_continue_reading], maxLines = 1)
+            Text(strings[R.string.ui_continue_short], style = MaterialTheme.typography.labelMedium, maxLines = 2,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
 }

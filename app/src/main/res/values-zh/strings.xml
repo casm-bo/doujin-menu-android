@@ -1,4 +1,6 @@
 <resources>
+    <string name="ui_history_navigation">最近记录</string>
+    <string name="ui_continue_short">继续阅读</string>
     <string name="app_name">Doujin Menu</string>
     <string name="ui_app_lock">"应用锁"</string>
     <string name="ui_unlock_with">"请使用%1$s解锁。"</string>

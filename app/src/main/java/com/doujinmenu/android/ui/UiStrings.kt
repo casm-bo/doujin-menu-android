@@ -19,7 +19,7 @@ internal val LockMethod.labelResource: Int get() = when (this) {
 
 internal val HistorySource.labelResource: Int get() = when (this) {
     HistorySource.SEARCH -> R.string.history_search
-    HistorySource.DEVICE -> R.string.ui_device
+    HistorySource.DEVICE -> R.string.ui_device_d79c45
     HistorySource.PC -> R.string.history_pc
 }
 
