@@ -89,6 +89,7 @@ fun SettingsScreen(
     onClearDownloadLocation: () -> Unit,
     onViewerPreferencesChange: (ViewerPreferences) -> Unit,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    onAppStyleChange: (com.doujinmenu.android.model.AppStyle) -> Unit,
     onFontSizeChange: (Float) -> Unit,
     onGalleryBorderChange: (GalleryBorderKind, GalleryBorderStyle) -> Unit,
     onCheckForUpdates: () -> Unit,
@@ -124,6 +125,8 @@ fun SettingsScreen(
             contentPadding = contentPadding,
             onBack = { openSection(SettingsSection.HOME) },
             onChange = onThemeModeChange,
+            appStyle = state.appStyle,
+            onAppStyleChange = onAppStyleChange,
             fontSizeSp = state.fontSizeSp,
             onFontSizeChange = onFontSizeChange,
             borders = state.galleryBorders,
@@ -238,6 +241,8 @@ private fun AppearanceSettingsScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
     onChange: (AppThemeMode) -> Unit,
+    appStyle: com.doujinmenu.android.model.AppStyle,
+    onAppStyleChange: (com.doujinmenu.android.model.AppStyle) -> Unit,
     fontSizeSp: Float,
     onFontSizeChange: (Float) -> Unit,
     borders: GalleryBorders,
@@ -252,6 +257,7 @@ private fun AppearanceSettingsScreen(
             HorizontalDivider()
             ThemeModeOption(strings[R.string.ui_dark], strings[R.string.ui_always_use_dark_theme], AppThemeMode.DARK, themeMode, onChange)
         }
+        StyleSettings(appStyle, onAppStyleChange)
         FontSizeSettings(fontSizeSp, onFontSizeChange)
         BorderSettingsCard(strings[R.string.ui_gallery_borders], borders.normal) { onBorderChange(GalleryBorderKind.NORMAL, it) }
         BorderSettingsCard(strings[R.string.ui_series_borders], borders.series) { onBorderChange(GalleryBorderKind.SERIES, it) }

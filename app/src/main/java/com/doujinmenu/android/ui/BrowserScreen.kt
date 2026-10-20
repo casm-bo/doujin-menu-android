@@ -266,7 +266,7 @@ fun BrowserScreen(
     LaunchedEffect(pageKey, canCollapse) {
         if (!canCollapse) scrollBehavior.state.heightOffset = 0f
     }
-    Column(Modifier.fillMaxSize().padding(contentPadding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+    Column(Modifier.fillMaxSize().padding(contentPadding).background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
         CollapsingSearchToolbar(scrollBehavior) {
         Column {
         tabHeader({
@@ -447,7 +447,7 @@ fun BrowserScreen(
         onRefresh = onRefresh,
         modifier = Modifier.fillMaxWidth().weight(1f),
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(if (gridView) 2 else 1),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

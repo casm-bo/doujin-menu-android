@@ -474,4 +474,13 @@
     <string name="ui_font_large">Large</string>
     <string name="ui_custom_font_sp">Custom base size (sp)</string>
     <string name="ui_font_preview">Titles, text, tags and menus follow this size.</string>
+    <string name="ui_style">Style</string>
+    <string name="ui_default_style">Default</string>
+    <string name="ui_accent_color">Accent color</string>
+    <string name="ui_browsing_background">Browsing background</string>
+    <string name="ui_toolbar_color">Toolbar surface</string>
+    <string name="ui_card_color">Card color</string>
+    <string name="ui_text_color">Text color</string>
+    <string name="ui_contrast_adjusted">Text contrast is adjusted for readability. Light and dark colors are saved separately.</string>
+    <string name="ui_reset_style">Reset style</string>
 </resources>

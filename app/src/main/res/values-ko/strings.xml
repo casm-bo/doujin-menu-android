@@ -474,4 +474,13 @@
     <string name="ui_font_large">크게</string>
     <string name="ui_custom_font_sp">사용자 설정 기준 크기 (sp)</string>
     <string name="ui_font_preview">제목, 본문, 태그와 메뉴에 적용됩니다.</string>
+    <string name="ui_style">스타일</string>
+    <string name="ui_default_style">기본</string>
+    <string name="ui_accent_color">강조색</string>
+    <string name="ui_browsing_background">브라우징 배경</string>
+    <string name="ui_toolbar_color">도구 영역</string>
+    <string name="ui_card_color">카드 색상</string>
+    <string name="ui_text_color">문자 색상</string>
+    <string name="ui_contrast_adjusted">읽기 어려운 문자 색상은 자동 보정합니다. 라이트·다크 색상은 따로 저장합니다.</string>
+    <string name="ui_reset_style">스타일 기본값 복원</string>
 </resources>

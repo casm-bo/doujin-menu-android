@@ -474,4 +474,13 @@
     <string name="ui_font_large">大</string>
     <string name="ui_custom_font_sp">自定义基础大小 (sp)</string>
     <string name="ui_font_preview">应用于标题、正文、标签和菜单。</string>
+    <string name="ui_style">样式</string>
+    <string name="ui_default_style">默认</string>
+    <string name="ui_accent_color">强调色</string>
+    <string name="ui_browsing_background">浏览背景</string>
+    <string name="ui_toolbar_color">工具区域</string>
+    <string name="ui_card_color">卡片颜色</string>
+    <string name="ui_text_color">文字颜色</string>
+    <string name="ui_contrast_adjusted">自动调整文字对比度。浅色和深色配色分别保存。</string>
+    <string name="ui_reset_style">重置样式</string>
 </resources>

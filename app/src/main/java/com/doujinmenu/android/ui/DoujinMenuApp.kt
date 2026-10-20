@@ -876,6 +876,7 @@ private fun MainTabContent(
                 onClearDownloadLocation = viewModel::clearDownloadLocation,
                 onViewerPreferencesChange = viewModel::updateViewerPreferences,
                 onThemeModeChange = viewModel::setThemeMode,
+                onAppStyleChange = viewModel::setAppStyle,
                 onFontSizeChange = viewModel::setFontSize,
                 onGalleryBorderChange = viewModel::setGalleryBorder,
                 onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },

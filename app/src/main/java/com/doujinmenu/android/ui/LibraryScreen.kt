@@ -1040,7 +1040,7 @@ private fun LibraryGrid(
     onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         state = gridState,
@@ -1104,7 +1104,7 @@ private fun LibraryList(
     onToggleSeriesFavorite: (String) -> Unit,
     onToggleRead: (String) -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -1465,7 +1465,7 @@ private fun LibrarySeriesOverview(
         return
     }
     if (viewMode == LibraryViewMode.GRID) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
             state = gridState,
@@ -1493,7 +1493,7 @@ private fun LibrarySeriesOverview(
         DynamicVerticalScrollbar(gridState)
         }
     } else {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),

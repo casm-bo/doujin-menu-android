@@ -1,5 +1,6 @@
 package com.doujinmenu.android.ui
 
+import androidx.compose.foundation.background
 import com.doujinmenu.android.R
 
 import androidx.compose.foundation.clickable
@@ -46,7 +47,7 @@ fun RecentHistoryScreen(
                 (query.isBlank() || entry.title.contains(query, true) || entry.artist.contains(query, true) || entry.galleryId?.toString() == query)
         }
     }
-    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+    Column(Modifier.fillMaxSize().padding(contentPadding).background(MaterialTheme.colorScheme.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text(strings[R.string.ui_search_recent_history]) },
                 singleLine = true, modifier = Modifier.weight(1f))
@@ -69,7 +70,7 @@ fun RecentHistoryScreen(
         if (!state.historyRecording) Text(strings[R.string.ui_history_paused_reading_progress_is_still_saved], Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
         if (entries.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(if (state.recentHistory.isEmpty()) strings[R.string.ui_galleries_you_open_will_appear_here] else strings[R.string.ui_no_matching_history])
-        } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        } else LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(entries, key = { it.key }) { entry ->
                 HistoryCard(entry, state, onOpen = { onOpen(entry, it) }, onRemove = { onRemove(entry.key) })
             }

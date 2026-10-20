@@ -1,5 +1,6 @@
 package com.doujinmenu.android.ui
 
+import androidx.compose.foundation.background
 import com.doujinmenu.android.R
 
 import android.content.Intent
@@ -98,7 +99,7 @@ fun DownloadsScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(contentPadding),
+        modifier = Modifier.fillMaxSize().padding(contentPadding).background(MaterialTheme.colorScheme.surface),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -177,7 +178,7 @@ fun DownloadsScreen(
             }
             else -> {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
