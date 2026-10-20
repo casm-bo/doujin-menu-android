@@ -21,6 +21,18 @@ import org.junit.Test
 class CardLayoutTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun selectionIsAccessibleAndDoesNotChangeCardGeometry() {
+        var selected by mutableStateOf(false)
+        compose.setContent { DoujinMenuTheme {
+            WorkCard("Selected book", "Artist", "Pages", emptyList(), "", grid = true,
+                selected = selected, onClick = { selected = !selected }) { Text("Cover") }
+        } }
+        val before = compose.onNodeWithText("Selected book").getUnclippedBoundsInRoot()
+        compose.onNodeWithText("Selected book").performClick()
+        compose.onNode(isSelected()).assertExists()
+        assertEquals(before, compose.onNodeWithText("Selected book").getUnclippedBoundsInRoot())
+    }
+
     @Test fun cardsKeepEqualHeightsAcrossColumnsFontsAndListAndOnlyLayOutFittingTags() {
         // Equal-weight columns can differ by one physical pixel; aspect-ratio rounding adds at most two height pixels.
         val gridTolerance = 2f / InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density + .01f

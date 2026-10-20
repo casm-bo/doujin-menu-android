@@ -14,7 +14,8 @@ internal fun readableContentColor(background: Color): Color = Color(readableFore
 ))
 
 @Composable
-internal fun appCardColors() = CardDefaults.cardColors(
-    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-    contentColor = readableContentColor(MaterialTheme.colorScheme.surfaceContainerLow),
-)
+internal fun appCardColors(selected: Boolean = false): androidx.compose.material3.CardColors {
+    val background = if (selected) androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme.primary, .12f)
+        else MaterialTheme.colorScheme.surfaceContainerLow
+    return CardDefaults.cardColors(containerColor = background, contentColor = readableContentColor(background))
+}

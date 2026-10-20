@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 
 internal data class CardTag(val info: TagDisplayInfo, val onClick: (() -> Unit)? = null)
 internal data class TagPlacement(val index: Int, val x: Int, val row: Int)
@@ -83,6 +85,7 @@ internal fun WorkCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
     border: BorderStroke? = null,
+    selected: Boolean = false,
     cover: @Composable BoxScope.() -> Unit,
 ) {
     val density = LocalDensity.current
@@ -101,13 +104,21 @@ internal fun WorkCard(
             Text(footer, color = if (footerError) MaterialTheme.colorScheme.error else LocalContentColor.current, style = typography.labelSmall, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
-    Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = longClickLabel), border = border,
-        colors = appCardColors()) {
+    val selectionTint = MaterialTheme.colorScheme.primary.copy(alpha = .10f)
+    @Composable fun Cover(modifier: Modifier) {
+        Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
+            cover()
+            if (selected) Box(Modifier.matchParentSize().background(selectionTint))
+        }
+    }
+    Card(modifier = Modifier.fillMaxWidth().semantics { if (selected) this.selected = true }
+        .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = longClickLabel), border = border,
+        colors = appCardColors(selected)) {
         if (grid) Column {
-            Box(Modifier.fillMaxWidth().aspectRatio(.72f).background(MaterialTheme.colorScheme.surfaceVariant), content = cover)
+            Cover(Modifier.fillMaxWidth().aspectRatio(.72f))
             Body(Modifier.fillMaxWidth())
         } else Row(Modifier.fillMaxWidth().height(bodyHeight)) {
-            Box(Modifier.width(104.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant), content = cover)
+            Cover(Modifier.width(104.dp).fillMaxHeight())
             Body(Modifier.weight(1f))
         }
     }

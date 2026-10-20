@@ -938,32 +938,33 @@ private fun LibrarySelectionToolbar(
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+        modifier = Modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.secondaryContainer)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(strings[R.string.ui_selected, (selectedCount)], fontWeight = FontWeight.Bold)
+        Text(strings[R.string.ui_selected, (selectedCount)], Modifier.weight(1f), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         TextButton(onClick = onSelectAll) { ActionIcon(ActionSymbol.SELECT); Text(if (allSelected) strings[R.string.ui_deselect_all] else strings[R.string.ui_select_all]) }
-        Spacer(Modifier.weight(1f))
+        if (onDelete != null) IconButton(onClick = onDelete, enabled = selectedCount > 0,
+            modifier = Modifier.semantics { contentDescription = strings[R.string.ui_delete] }) { ActionIcon(ActionSymbol.DELETE) }
         var menuExpanded by remember { mutableStateOf(false) }
         Box {
-            TextButton(onClick = { menuExpanded = true }) { Text("⋯") }
+            IconButton(onClick = { menuExpanded = true }) { Text("⋯") }
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                 listOf(
                     Triple(strings[R.string.ui_add_favorite], onFavorite, ActionSymbol.HEART), Triple(readLabel ?: strings[R.string.ui_read], onRead, ActionSymbol.READ),
                     Triple(seriesLabel ?: strings[R.string.ui_series], onSeries, ActionSymbol.SERIES),
                     Triple(strings[R.string.ui_add_to_series], onExistingSeries, ActionSymbol.SERIES), Triple(strings[R.string.ui_merge], onMerge, ActionSymbol.MERGE),
                     Triple(strings[R.string.ui_save], onSave, ActionSymbol.SAVE), Triple(strings[R.string.ui_rename], onRename, ActionSymbol.EDIT),
-                    Triple(hideLabel ?: strings[R.string.ui_hide], onHide, ActionSymbol.HIDE), Triple(strings[R.string.ui_delete], onDelete, ActionSymbol.DELETE),
+                    Triple(hideLabel ?: strings[R.string.ui_hide], onHide, ActionSymbol.HIDE),
                 ).forEach { (label, action, symbol) ->
                     if (action != null) DropdownMenuItem(text = { Text(label) }, leadingIcon = { ActionIcon(symbol) }, enabled = selectedCount > 0 || label == strings[R.string.ui_save],
                         onClick = { menuExpanded = false; action() })
                 }
             }
         }
-        TextButton(onClick = onClose) { ActionIcon(ActionSymbol.CLEAR); Text(strings[R.string.ui_cancel]) }
+        IconButton(onClick = onClose, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_cancel] }) { ActionIcon(ActionSymbol.CLEAR) }
     }
 }
 
@@ -1409,7 +1410,7 @@ private fun LibraryWorkCard(
         metadata = listOfNotNull(book.metadata.language, strings[R.string.ui_pages, book.pages.size]).joinToString(" · "),
         tags = book.metadata.tags.map { CardTag(tagDisplayInfo(it)) },
         footer = if (progress > 0) strings[R.string.ui_from_page, progress + 1] else "",
-        grid = grid, onClick = onOpen, onLongClick = onLongPress, border = galleryCardBorder(favorite = favorite)) {
+        grid = grid, onClick = onOpen, onLongClick = onLongPress, selected = selected, border = galleryCardBorder(favorite = favorite)) {
         AsyncImage(model, strings[R.string.ui_cover, book.title], Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
             colorFilter = selectionColorFilter(selectionMode))
         if (!selectionMode) LibraryThumbnailBadges(read, book.isCloud, favorite, onToggleFavorite = onToggleFavorite, scale = badgeScale)
@@ -1541,7 +1542,7 @@ private fun SeriesCard(
     WorkCard(title = name, artist = books.flatMap { it.metadata.artists }.distinct().joinToString(),
         metadata = strings[R.string.ui_chapters, books.size, ""],
         tags = books.flatMap { it.metadata.tags }.distinct().map { CardTag(tagDisplayInfo(it)) },
-        footer = strings[R.string.ui_series], grid = !listMode, onClick = onClick, onLongClick = onLongPress,
+        footer = strings[R.string.ui_series], grid = !listMode, onClick = onClick, onLongClick = onLongPress, selected = selected,
         border = galleryCardBorder(series = true, favorite = favorite)) {
         SeriesCover(book = books.firstOrNull(), books = books, context = context, favorite = favorite, read = read,
             onToggleFavorite = onToggleFavorite, selectionMode = selectionMode, selected = selected,
