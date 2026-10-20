@@ -107,7 +107,7 @@ internal fun historyTags(entry: RecentHistoryEntry, state: MainUiState): List<Ca
         ?: state.galleryCache[entry.galleryId]?.tags?.map { CardTag(tagDisplayInfo(it.name, it.type)) }.orEmpty()
 
 @Composable
-private fun HistoryCard(entry: RecentHistoryEntry, state: MainUiState, grid: Boolean, onLoadMetadata: suspend (Long) -> Unit, onOpen: (Boolean) -> Unit, onRemove: () -> Unit) {
+internal fun HistoryCard(entry: RecentHistoryEntry, state: MainUiState, grid: Boolean, onLoadMetadata: suspend (Long) -> Unit, onOpen: (Boolean) -> Unit, onRemove: () -> Unit) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val book = remember(entry, state.libraryBooks) { entry.findBook(state.libraryBooks) }
@@ -141,8 +141,7 @@ private fun HistoryCard(entry: RecentHistoryEntry, state: MainUiState, grid: Boo
         if (entry.page != null) Button(onClick = { onOpen(true) }, enabled = !state.isBusy,
             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
             modifier = Modifier.align(Alignment.BottomCenter).padding(4.dp)) {
-            Text(strings[R.string.ui_continue_short], style = MaterialTheme.typography.labelMedium, maxLines = 2,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(strings[R.string.ui_continue_short], style = MaterialTheme.typography.labelMedium, maxLines = 2)
         }
     }
 }

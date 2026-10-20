@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -86,7 +87,7 @@ import androidx.navigation.navArgument
 import kotlin.math.cos
 import kotlin.math.sin
 
-private enum class MainDestination(
+internal enum class MainDestination(
     val route: String,
     val labelResource: Int,
     val symbol: String,
@@ -648,21 +649,27 @@ private fun MainShell(
             Scaffold(
                 topBar = topBar,
                 bottomBar = {
-                    val labelHeight = with(androidx.compose.ui.platform.LocalDensity.current) { MaterialTheme.typography.labelMedium.lineHeight.toDp() }
-                    NavigationBar(modifier = Modifier.heightIn(min = 56.dp + labelHeight * 2)) {
-                        MainDestination.entries.forEach { destination ->
-                            NavigationBarItem(
-                                selected = destination == selected,
-                                onClick = { navigate(destination) },
-                                icon = { MainDestinationIcon(destination) },
-                                label = { Text(strings[if (destination == MainDestination.History) R.string.ui_history_navigation else destination.labelResource],
-                                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                            )
-                        }
-                    }
+                    MainBottomNavigation(selected, navigate)
                 },
             ) { padding -> content(padding) }
+        }
+    }
+}
+
+@Composable
+internal fun MainBottomNavigation(selected: MainDestination, navigate: (MainDestination) -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    val labelHeight = with(androidx.compose.ui.platform.LocalDensity.current) { MaterialTheme.typography.labelMedium.lineHeight.toDp() }
+    NavigationBar(modifier = Modifier.heightIn(min = 56.dp + labelHeight * 2)) {
+        MainDestination.entries.forEach { destination ->
+            NavigationBarItem(
+                selected = destination == selected,
+                onClick = { navigate(destination) },
+                icon = { MainDestinationIcon(destination) },
+                label = { Text(strings[if (destination == MainDestination.History) R.string.ui_history_navigation else destination.labelResource], modifier = Modifier.fillMaxWidth(),
+                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+            )
         }
     }
 }
