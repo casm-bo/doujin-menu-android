@@ -34,12 +34,6 @@ internal fun StyleSettings(style: AppStyle, onChange: (AppStyle) -> Unit) {
                 FilterChip(selected = !dark, onClick = { dark = false }, label = { Text(strings[R.string.ui_light]) })
                 FilterChip(selected = dark, onClick = { dark = true }, label = { Text(strings[R.string.ui_dark]) })
             }
-            fun change(value: AppPalette) = onChange(style.withPalette(dark, value))
-            StyleColorInput(strings[R.string.ui_accent_color], palette.accent) { change(palette.copy(accent = it)) }
-            StyleColorInput(strings[R.string.ui_browsing_background], palette.background) { change(palette.copy(background = it)) }
-            StyleColorInput(strings[R.string.ui_toolbar_color], palette.toolbar) { change(palette.copy(toolbar = it)) }
-            StyleColorInput(strings[R.string.ui_card_color], palette.card) { change(palette.copy(card = it)) }
-            StyleColorInput(strings[R.string.ui_text_color], palette.text) { change(palette.copy(text = it)) }
             Text(strings[R.string.ui_contrast_adjusted], style = MaterialTheme.typography.bodySmall)
             Surface(color = Color(palette.background), contentColor = Color(readableForeground(palette.text, palette.background))) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -54,14 +48,4 @@ internal fun StyleSettings(style: AppStyle, onChange: (AppStyle) -> Unit) {
             TextButton(onClick = { onChange(AppStyle()) }) { Text(strings[R.string.ui_reset_style]) }
         }
     }
-}
-
-@Composable
-private fun StyleColorInput(label: String, color: Long, onChange: (Long) -> Unit) {
-    var input by rememberSaveable(color) { mutableStateOf(color.toString(16).takeLast(6).uppercase()) }
-    OutlinedTextField(value = input, onValueChange = { value ->
-        input = value.filter { it.isDigit() || it.lowercaseChar() in 'a'..'f' }.take(6)
-        parseBorderColor(input)?.let(onChange)
-    }, modifier = Modifier.fillMaxWidth(), label = { Text(label) }, prefix = { Text("#") }, singleLine = true,
-        isError = parseBorderColor(input) == null)
 }

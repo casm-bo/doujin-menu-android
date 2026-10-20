@@ -22,7 +22,6 @@ import androidx.compose.ui.graphics.Color
 import com.doujinmenu.android.model.GalleryBorderKind
 import com.doujinmenu.android.model.GalleryBorders
 import com.doujinmenu.android.model.GalleryBorderStyle
-import com.doujinmenu.android.model.parseBorderColor
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -291,7 +290,6 @@ private fun FontSizeSettings(size: Float, onChange: (Float) -> Unit) {
 @Composable
 private fun BorderSettingsCard(title: String, style: GalleryBorderStyle, onChange: (GalleryBorderStyle) -> Unit) {
     val strings = androidx.compose.ui.platform.LocalResources.current
-    var hex by rememberSaveable(style.colorArgb) { mutableStateOf(style.colorArgb.toString(16).takeLast(6).uppercase()) }
     SectionCard(title) {
         Text(strings[R.string.ui_width_dp_0_disables_border, (style.widthDp.toInt())])
         Slider(value = style.widthDp, onValueChange = { onChange(style.copy(widthDp = it)) }, valueRange = 0f..6f, steps = 5)
@@ -301,11 +299,6 @@ private fun BorderSettingsCard(title: String, style: GalleryBorderStyle, onChang
                     label = { Text("●", color = Color(color)) })
             }
         }
-        OutlinedTextField(value = hex, onValueChange = { value ->
-            hex = value.filter { it.isDigit() || it.lowercaseChar() in 'a'..'f' }.take(6)
-            parseBorderColor(hex)?.let { onChange(style.copy(colorArgb = it)) }
-        }, label = { Text(strings[R.string.ui_color_hex_rrggbb]) }, prefix = { Text("#") }, singleLine = true,
-            isError = parseBorderColor(hex) == null)
         Card(colors = appCardColors(), border = if (style.widthDp > 0) BorderStroke(style.widthDp.dp, Color(style.colorArgb)) else null) {
             Text(strings[R.string.ui_preview], Modifier.padding(20.dp))
         }
