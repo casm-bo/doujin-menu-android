@@ -1400,7 +1400,7 @@ private fun LibraryWorkCard(
         metadata = listOfNotNull(book.metadata.language, strings[R.string.ui_pages, book.pages.size]).joinToString(" · "),
         tags = book.metadata.tags.map { CardTag(tagDisplayInfo(it)) },
         footer = if (progress > 0) strings[R.string.ui_from_page, progress + 1] else "",
-        grid = grid, onClick = onOpen, onLongClick = onLongPress, selected = selected, border = galleryCardBorder(favorite = favorite)) {
+        grid = grid, onClick = onOpen, onLongClick = onLongPress, selected = selected, webtoon = book.webtoon == true, border = galleryCardBorder(favorite = favorite)) {
         AsyncImage(model, strings[R.string.ui_cover, book.title], Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
             colorFilter = selectionColorFilter(selectionMode))
         if (!selectionMode) LibraryThumbnailBadges(read, book.isCloud, favorite, onToggleFavorite = onToggleFavorite, scale = badgeScale)

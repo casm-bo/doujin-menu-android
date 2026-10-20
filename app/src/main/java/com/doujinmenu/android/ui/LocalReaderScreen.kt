@@ -38,6 +38,7 @@ fun LocalReaderScreen(
     nextBookTitle: String?,
     onOpenNextBook: () -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
+    onReadingModeResolved: (com.doujinmenu.android.model.ViewerReadingMode) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     HideSystemBars()
@@ -81,6 +82,7 @@ fun LocalReaderScreen(
         onBack = onBack,
         onProgress = onProgress,
         onPreferencesChange = onPreferencesChange,
+        onReadingModeResolved = onReadingModeResolved,
         favorite = favorite,
         onToggleFavorite = onToggleFavorite,
         nextBookTitle = nextBookTitle,

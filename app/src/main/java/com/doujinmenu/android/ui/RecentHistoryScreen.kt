@@ -129,6 +129,7 @@ private fun HistoryCard(entry: RecentHistoryEntry, state: MainUiState, grid: Boo
         metadata = "${strings[entry.source.labelResource]} · ${strings[entry.action.labelResource]}",
         tags = historyTags(entry, state), footer = time + (entry.page?.let { " · ${it + 1}/${entry.pageCount}" } ?: ""),
         grid = grid, onClick = { onOpen(false) },
+        webtoon = book?.webtoon == true || state.galleryCache[entry.galleryId]?.webtoon == true,
         border = galleryCardBorder(favorite = book?.id in state.libraryFavoriteIds)) {
         AsyncImage(model = image, contentDescription = strings[R.string.ui_cover, entry.title], modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(Modifier.align(Alignment.TopEnd)) {

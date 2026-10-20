@@ -383,6 +383,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         }
                     },
                     onPreferencesChange = viewModel::updateViewerPreferences,
+                    onReadingModeResolved = { viewModel.classifyLibraryBook(bookId, it) },
                 )
             }
             composable("gallery/{galleryId}") { entry ->
@@ -452,6 +453,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         viewModel.updateOnlineReaderProgress(galleryId, position.page)
                     },
                     onPreferencesChange = viewModel::updateViewerPreferences,
+                    onReadingModeResolved = { viewModel.classifyGallery(galleryId, it) },
                 )
             }
         }

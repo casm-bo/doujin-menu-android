@@ -86,6 +86,7 @@ internal fun WorkCard(
     onLongClick: () -> Unit = {},
     border: BorderStroke? = null,
     selected: Boolean = false,
+    webtoon: Boolean = false,
     cover: @Composable BoxScope.() -> Unit,
 ) {
     val density = LocalDensity.current
@@ -100,7 +101,9 @@ internal fun WorkCard(
             Text(title, style = typography.titleSmall, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(artist, style = typography.bodySmall, color = MaterialTheme.colorScheme.primary, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(metadata, style = typography.labelSmall, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            WorkTags(tags, rows, Modifier.fillMaxWidth().height(tagHeight * rows + 3.dp * (rows - 1)))
+            val displayTags = if (webtoon) listOf(CardTag(TagDisplayInfo(androidx.compose.ui.platform.LocalResources.current[com.doujinmenu.android.R.string.ui_webtoon_tag], TagStyle.DEFAULT))) +
+                tags.filterNot { it.info.text.equals("webtoon", true) } else tags
+            WorkTags(displayTags, rows, Modifier.fillMaxWidth().height(tagHeight * rows + 3.dp * (rows - 1)))
             Text(footer, color = if (footerError) MaterialTheme.colorScheme.error else LocalContentColor.current, style = typography.labelSmall, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }

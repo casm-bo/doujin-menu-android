@@ -385,6 +385,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+    fun classifyGallery(id: Long, mode: com.doujinmenu.android.model.ViewerReadingMode) {
+        uiState.galleryCache[id]?.presentation()?.let { recordReadingMode(it, mode) }
+    }
+    fun classifyLibraryBook(id: String, mode: com.doujinmenu.android.model.ViewerReadingMode) {
+        uiState.libraryBooks.firstOrNull { it.id == id }?.let { book -> runCatching { book.presentation() }.getOrNull()?.let { recordReadingMode(it, mode) } }
+    }
+    private fun recordReadingMode(value: GalleryPresentation, mode: com.doujinmenu.android.model.ViewerReadingMode) {
+        if (mode == com.doujinmenu.android.model.ViewerReadingMode.AUTO) return
+        val latest = uiState.presentations[value.key]?.value ?: value
+        val webtoon = mode == com.doujinmenu.android.model.ViewerReadingMode.WEBTOON
+        if (latest.webtoon == webtoon || (latest.webtoon == null && !webtoon)) return
+        saveGalleryPresentation(latest.copy(webtoon = webtoon))
+    }
     fun acceptRemotePresentation(key: String) {
         presentationStore().acceptRemote(key)
         reloadPresentations()

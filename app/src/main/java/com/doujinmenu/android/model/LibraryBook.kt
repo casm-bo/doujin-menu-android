@@ -26,6 +26,7 @@ data class LibraryBook(
     val remoteBookId: Long? = null,
     val coverUriOverride: String? = null,
     val cloudToken: String? = null,
+    val webtoon: Boolean? = null,
 ) {
     val coverUri: String get() = coverUriOverride ?: pages.firstOrNull()?.uri.orEmpty()
 }

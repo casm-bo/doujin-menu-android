@@ -14,6 +14,13 @@ import org.junit.Test
 
 class DetailUiTest {
     @get:Rule val compose = createComposeRule()
+    @Test fun webtoonClassificationShowsOneLocalizedTagWithoutChangingUserTags() {
+        val strings = InstrumentationRegistry.getInstrumentation().targetContext.resources
+        compose.setContent { DoujinMenuTheme { WorkCard("Fixture", "Artist", "", listOf(CardTag(tagDisplayInfo("webtoon")), CardTag(tagDisplayInfo("user tag"))),
+            "", grid = true, onClick = {}, webtoon = true) {} } }
+        compose.onAllNodesWithText(strings.getString(R.string.ui_webtoon_tag)).assertCountEquals(1)
+        compose.onNodeWithText("user tag").assertExists()
+    }
     @Test fun metadataEditorSavesClearsAndKeepsOriginalSeriesSeparate() {
         val strings = InstrumentationRegistry.getInstrumentation().targetContext.resources
         val value = GalleryPresentation("hitomi:42", "Original title", LibraryMetadata(series = listOf("Original IP"), tags = listOf("source")))

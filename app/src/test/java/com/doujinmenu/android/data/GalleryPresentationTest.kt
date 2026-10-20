@@ -20,6 +20,12 @@ class GalleryPresentationTest {
     @Test fun snapshotsPreserveExplicitClearsDatesAndNullableValues() {
         val value = GalleryPresentation("hitomi:123", "Edited title", LibraryMetadata(tags = emptyList(), publishedDate = "2020-01-02"), webtoon = true)
         assertEquals(value, presentationFromJson(value.toJson()))
+        val book = LibraryBook("id", "Raw", locationUri = "device", locationName = "Device", folderUri = "folder", pages = emptyList(), modifiedAt = 1, syncId = "uuid")
+        val withTag = book.withPresentation(value)
+        assertEquals(true, withTag.webtoon)
+        assertTrue(withTag.metadata.tags.isEmpty())
+        assertEquals(true, withTag.presentation().webtoon)
+        assertEquals(false, book.withPresentation(value.copy(webtoon = false)).webtoon)
         val metadata = metadataFromJson(JSONObject("{\"hitomiId\":null,\"language\":null,\"galleryType\":null}"))
         assertNull(metadata.hitomiId); assertNull(metadata.language); assertNull(metadata.galleryType)
         assertTrue(runCatching { value.copy(coverHash = "../cover") }.isFailure)

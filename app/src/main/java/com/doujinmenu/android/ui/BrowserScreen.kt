@@ -572,6 +572,7 @@ private fun GalleryCard(
         footer = gallery.loadError.orEmpty(), footerError = gallery.loadError != null,
         longClickLabel = strings[R.string.ui_open_in_new_tab], grid = gridView, onClick = onClick, onLongClick = onLongClick,
         border = galleryCardBorder(favorite = favorite),
+        webtoon = gallery.webtoon == true,
     ) {
         Text("#${gallery.id}", style = MaterialTheme.typography.labelSmall)
         if (request != null) AsyncImage(request, strings[R.string.ui_thumbnail, preferredLocalizedTitle(gallery.title)], Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

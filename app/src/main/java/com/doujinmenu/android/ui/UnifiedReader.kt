@@ -61,6 +61,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -113,6 +114,7 @@ internal fun UnifiedReader(
     onToggleFavorite: (() -> Unit)? = null,
     nextBookTitle: String? = null,
     onOpenNextBook: (() -> Unit)? = null,
+    onReadingModeResolved: (ViewerReadingMode) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     ReaderKeepScreenOn(preferences.keepScreenOn)
@@ -143,6 +145,8 @@ internal fun UnifiedReader(
         }
     }
     val actualMode = if (selectedMode == ViewerReadingMode.AUTO) detectedMode else selectedMode
+    val modeCallback by rememberUpdatedState(onReadingModeResolved)
+    LaunchedEffect(workKey, actualMode) { actualMode?.let(modeCallback) }
     val pagerState = androidx.compose.runtime.key(readerKey) {
         rememberPagerState(
             initialPage = currentPage,
