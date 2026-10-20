@@ -81,6 +81,6 @@ internal fun tagColors(style: TagStyle): Pair<Color, Color> {
         else Color(0xFFFCE7F3) to Color(0xFF9D174D)
         TagStyle.MALE -> if (dark) Color(0xFF1E40AF) to Color(0xFFDBEAFE)
         else Color(0xFFDBEAFE) to Color(0xFF1E40AF)
-        TagStyle.DEFAULT -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+        TagStyle.DEFAULT -> MaterialTheme.colorScheme.surfaceVariant to readableContentColor(MaterialTheme.colorScheme.surfaceVariant)
     }
 }

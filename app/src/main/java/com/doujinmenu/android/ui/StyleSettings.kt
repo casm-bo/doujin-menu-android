@@ -15,7 +15,7 @@ internal fun StyleSettings(style: AppStyle, onChange: (AppStyle) -> Unit) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var dark by rememberSaveable { mutableStateOf(false) }
     val palette = style.palette(dark)
-    Card(Modifier.fillMaxWidth()) {
+    Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(strings[R.string.ui_style], style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

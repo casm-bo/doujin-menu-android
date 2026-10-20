@@ -580,7 +580,8 @@ private fun GalleryCard(
         artist = gallery.artists.joinToString().ifBlank { strings[R.string.ui_no_artist_information] },
         metadata = listOfNotNull(gallery.language, gallery.pageCount.takeIf { it > 0 }?.let { strings[R.string.ui_pages, it] }).joinToString(" · "),
         tags = gallery.tags.map { tag -> CardTag(tagDisplayInfo(tag.name, tag.type)) { onSearchFacet(tagSearchFacet(tag.name, tag.type)) } },
-        footer = gallery.loadError.orEmpty(), grid = gridView, onClick = onClick, onLongClick = onLongClick,
+        footer = gallery.loadError.orEmpty(), footerError = gallery.loadError != null,
+        longClickLabel = strings[R.string.ui_open_in_new_tab], grid = gridView, onClick = onClick, onLongClick = onLongClick,
         border = galleryCardBorder(favorite = favorite),
     ) {
         Text("#${gallery.id}", style = MaterialTheme.typography.labelSmall)

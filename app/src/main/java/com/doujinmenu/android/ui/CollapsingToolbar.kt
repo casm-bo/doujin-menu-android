@@ -2,6 +2,8 @@ package com.doujinmenu.android.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -20,7 +22,7 @@ internal fun CollapsingToolbar(behavior: TopAppBarScrollBehavior, content: @Comp
         behavior.state.heightOffsetLimit = -placeable.height.toFloat()
         val offset = behavior.state.heightOffset.roundToInt()
         layout(placeable.width, (placeable.height + offset).coerceAtLeast(0)) { placeable.placeRelative(0, offset) }
-    }) { Column { content() } }
+    }) { Surface(color = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface) { Column { content() } } }
 }
 
 internal fun galleryToolsTwoRows(width: Int, modesWidth: Int, toolsWidth: Int, gap: Int): Boolean =

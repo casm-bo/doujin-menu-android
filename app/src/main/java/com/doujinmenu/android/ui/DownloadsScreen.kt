@@ -183,7 +183,7 @@ fun DownloadsScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(visibleRequests, key = { "request:${it.id}" }) { request ->
-                        Card(Modifier.fillMaxWidth()) {
+                        Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(preferredLocalizedTitle(request.title), fontWeight = FontWeight.SemiBold)
                                 val local = request.target == DownloadTarget.LOCAL
@@ -259,7 +259,7 @@ private fun DownloadQueueCard(
             hitomiImageRequest(context, it, item.galleryId, crossfade = false)
         }
     }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -45,16 +45,24 @@ internal fun packTags(widths: List<Int>, width: Int, rows: Int, gap: Int, overfl
 
 @Composable
 private fun WorkTags(tags: List<CardTag>, rows: Int, modifier: Modifier) {
-    Layout(modifier = modifier, content = {
-        tags.take(60).forEach { tag ->
-            TagPill(tag.info, large = true, modifier = if (tag.onClick != null) Modifier.clickable(onClick = tag.onClick) else Modifier)
+    val style = MaterialTheme.typography.bodyMedium
+    SubcomposeLayout(modifier = modifier) { constraints ->
+        val overflow = subcompose("overflow") { Text("…", style = style) }.single().measure(Constraints(maxWidth = constraints.maxWidth))
+        val children = mutableListOf<androidx.compose.ui.layout.Placeable>()
+        var row = 0
+        var x = 0
+        val gap = 4.dp.roundToPx()
+        for ((index, tag) in tags.withIndex()) {
+            val child = subcompose(index) {
+                TagPill(tag.info, large = true, modifier = if (tag.onClick != null) Modifier.clickable(onClick = tag.onClick) else Modifier)
+            }.single().measure(Constraints(maxWidth = constraints.maxWidth))
+            children += child
+            if (x > 0 && x + child.width > constraints.maxWidth) { row++; x = 0 }
+            if (row >= rows) break
+            x += child.width + gap
         }
-        Text("…", style = MaterialTheme.typography.bodyMedium)
-    }) { measurables, constraints ->
-        val children = measurables.map { it.measure(Constraints(maxWidth = constraints.maxWidth)) }
         val rowHeight = ((constraints.maxHeight - (rows - 1) * 3.dp.roundToPx()) / rows).coerceAtLeast(1)
-        val overflow = children.last()
-        val packed = packTags(children.dropLast(1).map { it.width }, constraints.maxWidth, rows, 4.dp.roundToPx(), overflow.width, tags.size > 60)
+        val packed = packTags(children.map { it.width }, constraints.maxWidth, rows, gap, overflow.width, children.size < tags.size)
         layout(constraints.maxWidth, constraints.maxHeight) {
             packed.tags.forEach { item -> children[item.index].placeRelative(item.x, item.row * (rowHeight + 3.dp.roundToPx())) }
             packed.overflow?.let { overflow.placeRelative(it.x, it.row * (rowHeight + 3.dp.roundToPx())) }
@@ -69,6 +77,8 @@ internal fun WorkCard(
     metadata: String,
     tags: List<CardTag>,
     footer: String,
+    footerError: Boolean = false,
+    longClickLabel: String? = null,
     grid: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
@@ -88,11 +98,11 @@ internal fun WorkCard(
             Text(artist, style = typography.bodySmall, color = MaterialTheme.colorScheme.primary, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(metadata, style = typography.labelSmall, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
             WorkTags(tags, rows, Modifier.fillMaxWidth().height(tagHeight * rows + 3.dp * (rows - 1)))
-            Text(footer, style = typography.labelSmall, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(footer, color = if (footerError) MaterialTheme.colorScheme.error else LocalContentColor.current, style = typography.labelSmall, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
-    Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick), border = border,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = longClickLabel), border = border,
+        colors = appCardColors()) {
         if (grid) Column {
             Box(Modifier.fillMaxWidth().aspectRatio(.72f).background(MaterialTheme.colorScheme.surfaceVariant), content = cover)
             Body(Modifier.fillMaxWidth())

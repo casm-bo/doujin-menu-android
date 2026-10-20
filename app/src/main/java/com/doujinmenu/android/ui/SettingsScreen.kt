@@ -306,7 +306,7 @@ private fun BorderSettingsCard(title: String, style: GalleryBorderStyle, onChang
             parseBorderColor(hex)?.let { onChange(style.copy(colorArgb = it)) }
         }, label = { Text(strings[R.string.ui_color_hex_rrggbb]) }, prefix = { Text("#") }, singleLine = true,
             isError = parseBorderColor(hex) == null)
-        Card(border = if (style.widthDp > 0) BorderStroke(style.widthDp.dp, Color(style.colorArgb)) else null) {
+        Card(colors = appCardColors(), border = if (style.widthDp > 0) BorderStroke(style.widthDp.dp, Color(style.colorArgb)) else null) {
             Text(strings[R.string.ui_preview], Modifier.padding(20.dp))
         }
     }
@@ -406,7 +406,7 @@ private fun SettingsCategoryCard(
     description: String,
     onClick: () -> Unit,
 ) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    Card(colors = appCardColors(), onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -733,7 +733,7 @@ private fun SavedDesktopRows(
 
 @Composable
 private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))

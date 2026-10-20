@@ -1688,7 +1688,7 @@ private fun LibrarySeriesOrderEditor(
                 animationSpec = tween(160, easing = LinearOutSlowInEasing),
                 label = "seriesReorderOffset",
             )
-            Card(
+            Card(colors = appCardColors(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .onSizeChanged { itemHeights[book.id] = it.height }
