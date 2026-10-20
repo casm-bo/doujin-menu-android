@@ -1,6 +1,21 @@
 package com.doujinmenu.android.ui
 
 import com.doujinmenu.android.R
+import com.doujinmenu.android.model.ReaderImageSource
+import com.doujinmenu.android.model.ReaderPosition
+import com.doujinmenu.android.model.ImageDimensions
+import com.doujinmenu.android.model.ViewerReadingMode
+import com.doujinmenu.android.model.detectReadingMode
+import com.doujinmenu.android.model.webtoonSampleIndices
+import com.doujinmenu.android.data.ReaderImages
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -77,7 +92,7 @@ import com.doujinmenu.android.model.ViewerTapZones
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-internal data class ReaderPageModel(val key: String, val model: Any)
+internal data class ReaderPageModel(val key: String, val model: Any, val source: ReaderImageSource)
 
 internal fun initialThumbnailVisibility(preferences: ViewerPreferences): Boolean =
     !preferences.hideThumbnails
@@ -85,12 +100,14 @@ internal fun initialThumbnailVisibility(preferences: ViewerPreferences): Boolean
 @Composable
 internal fun UnifiedReader(
     readerKey: String,
+    workKey: String,
+    initialOffset: Int = 0,
     title: String,
     pages: List<ReaderPageModel>,
     initialPage: Int,
     preferences: ViewerPreferences,
     onBack: () -> Unit,
-    onProgress: (Int) -> Unit,
+    onProgress: (ReaderPosition) -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
     favorite: Boolean? = null,
     onToggleFavorite: (() -> Unit)? = null,
@@ -100,9 +117,35 @@ internal fun UnifiedReader(
     val strings = androidx.compose.ui.platform.LocalResources.current
     ReaderKeepScreenOn(preferences.keepScreenOn)
 
+    val context = LocalContext.current
+    val modeStore = remember(context) { com.doujinmenu.android.security.LibraryPreferenceStore(context) }
+    var overrideName by rememberSaveable(workKey) { mutableStateOf(modeStore.loadReaderMode(workKey)?.name.orEmpty()) }
+    val selectedMode = ViewerReadingMode.entries.firstOrNull { it.name == overrideName } ?: preferences.readingMode
+    var detectedMode by remember(readerKey) { mutableStateOf<ViewerReadingMode?>(null) }
+    var detectedSizes by remember(readerKey) { mutableStateOf(emptyMap<Int, ImageDimensions>()) }
+    var currentPage by rememberSaveable(readerKey) { mutableIntStateOf(initialPage.coerceIn(pages.indices)) }
+    var currentOffset by rememberSaveable(readerKey) { mutableIntStateOf(initialOffset) }
+    var webtoonJump by remember(readerKey) { mutableStateOf<Int?>(null) }
+    fun selectMode(mode: ViewerReadingMode?) {
+        overrideName = mode?.name.orEmpty(); modeStore.saveReaderMode(workKey, mode)
+    }
+    LaunchedEffect(readerKey, selectedMode) {
+        if (selectedMode == ViewerReadingMode.AUTO && detectedMode == null) {
+            val repository = ReaderImages(context)
+            val sizes = coroutineScope { webtoonSampleIndices(pages.size).map { index -> async {
+                val size = try { repository.probe(pages[index].source) }
+                    catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                    catch (_: Exception) { null }
+                index to size
+            } }.awaitAll() }.mapNotNull { (index, size) -> size?.let { index to it } }.toMap()
+            detectedSizes = sizes
+            detectedMode = detectReadingMode(sizes.values.toList())
+        }
+    }
+    val actualMode = if (selectedMode == ViewerReadingMode.AUTO) detectedMode else selectedMode
     val pagerState = androidx.compose.runtime.key(readerKey) {
         rememberPagerState(
-            initialPage = initialPage.coerceIn(0, pages.lastIndex),
+            initialPage = currentPage,
             pageCount = { pages.size },
         )
     }
@@ -113,7 +156,18 @@ internal fun UnifiedReader(
     }
     var settingsVisible by remember(readerKey) { mutableStateOf(false) }
     var nextBookDialog by remember(readerKey) { mutableStateOf(false) }
-    LaunchedEffect(pagerState.currentPage) { onProgress(pagerState.currentPage) }
+    var pagerReady by remember(readerKey) { mutableStateOf(false) }
+    LaunchedEffect(actualMode) {
+        pagerReady = false
+        if (actualMode == ViewerReadingMode.PAGE && pagerState.currentPage != currentPage) pagerState.scrollToPage(currentPage)
+        pagerReady = actualMode == ViewerReadingMode.PAGE
+    }
+    LaunchedEffect(pagerState.currentPage, actualMode, pagerReady) {
+        if (actualMode == ViewerReadingMode.PAGE && pagerReady) {
+            currentPage = pagerState.currentPage; currentOffset = 0
+            onProgress(ReaderPosition(currentPage))
+        }
+    }
     LaunchedEffect(controlsVisible) {
         if (controlsVisible) {
             delay(READER_CONTROLS_AUTO_HIDE_MS)
@@ -127,7 +181,7 @@ internal fun UnifiedReader(
 
     fun moveTo(page: Int) {
         when {
-            page in pages.indices -> scope.launch { pagerState.animateScrollToPage(page) }
+            page in pages.indices -> if (actualMode == ViewerReadingMode.WEBTOON) webtoonJump = page else scope.launch { pagerState.animateScrollToPage(page) }
             page >= pages.size && nextBookTitle != null && onOpenNextBook != null -> nextBookDialog = true
         }
     }
@@ -160,9 +214,17 @@ internal fun UnifiedReader(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        when (actualMode) {
+            null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            ViewerReadingMode.WEBTOON -> WebtoonReader(readerKey, pages, ReaderPosition(currentPage, currentOffset), detectedSizes,
+                webtoonJump, { webtoonJump = null }, { currentPage = it },
+                { position -> currentPage = position.page; currentOffset = position.offset; onProgress(position) },
+                { controlsVisible = !controlsVisible }, { selectMode(ViewerReadingMode.PAGE) },
+                if (nextBookTitle != null && onOpenNextBook != null) ({ nextBookDialog = true }) else null)
+            else -> {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().testTag("reader-pager"),
             beyondViewportPageCount = minOf(2, pages.lastIndex),
             key = { pages[it].key },
             reverseLayout = preferences.readingDirection == ViewerReadingDirection.RIGHT_TO_LEFT,
@@ -186,6 +248,8 @@ internal fun UnifiedReader(
                     )
                 },
             )
+        }
+            }
         }
 
         AnimatedVisibility(
@@ -217,7 +281,7 @@ internal fun UnifiedReader(
         ) {
             ReaderThumbnailBar(
                 pages = pages,
-                currentPage = pagerState.currentPage,
+                currentPage = currentPage,
                 onPageClick =(::moveTo),
                 onSwipeDown = { thumbnailsVisible = false },
             )
@@ -235,7 +299,7 @@ internal fun UnifiedReader(
 
         if (!controlsVisible && preferences.showPageNumber) {
             Text(
-                "${pagerState.currentPage + 1} / ${pages.size}",
+                "${currentPage + 1} / ${pages.size}",
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .padding(bottom = if (thumbnailsVisible) 120.dp else 0.dp)
                     .background(Color.Black.copy(alpha = 0.65f))
@@ -247,8 +311,12 @@ internal fun UnifiedReader(
 
     if (settingsVisible) {
         UnifiedViewerSettingsDialog(
-            preferences = preferences,
-            onChange = onPreferencesChange,
+            preferences = preferences.copy(readingMode = selectedMode),
+            onChange = { value ->
+                if (value.readingMode != selectedMode) selectMode(value.readingMode)
+                onPreferencesChange(value.copy(readingMode = preferences.readingMode))
+            },
+            onResetMode = { selectMode(null) },
             onDismiss = { settingsVisible = false },
         )
     }
@@ -437,6 +505,7 @@ private fun UnifiedZoomableImage(
 private fun UnifiedViewerSettingsDialog(
     preferences: ViewerPreferences,
     onChange: (ViewerPreferences) -> Unit,
+    onResetMode: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
@@ -444,11 +513,10 @@ private fun UnifiedViewerSettingsDialog(
         onDismissRequest = onDismiss,
         title = { Text(strings[R.string.ui_reader_settings]) },
         text = {
-            ViewerSettingsContent(
-                preferences = preferences,
-                onChange = onChange,
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            )
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                TextButton(onClick = onResetMode) { Text(strings[R.string.ui_use_app_reader_mode]) }
+                ViewerSettingsContent(preferences = preferences, onChange = onChange)
+            }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(strings[R.string.ui_completed]) } },
     )
@@ -466,6 +534,14 @@ internal fun ViewerSettingsContent(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        SettingsHeading(strings[R.string.ui_reading_mode])
+        ViewerReadingMode.entries.forEach { mode ->
+            SettingsRadio(strings[when (mode) {
+                ViewerReadingMode.AUTO -> R.string.ui_reader_auto
+                ViewerReadingMode.PAGE -> R.string.ui_reader_page
+                ViewerReadingMode.WEBTOON -> R.string.ui_reader_webtoon
+            }], preferences.readingMode == mode) { onChange(preferences.copy(readingMode = mode)) }
+        }
         SettingsHeading(strings[R.string.ui_page_scale])
         ViewerScale.entries.forEach { value ->
             SettingsRadio(

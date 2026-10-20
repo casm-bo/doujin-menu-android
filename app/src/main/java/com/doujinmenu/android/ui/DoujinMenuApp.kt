@@ -346,6 +346,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 val sessionKey = session?.key ?: entry.id
                 LocalReaderScreen(
                     sessionKey = sessionKey,
+                    initialOffset = session?.position?.offset ?: 0,
                     book = book,
                     initialPage = session?.position?.page ?: if (requestedPage >= 0) requestedPage
                         else book?.let { viewModel.uiState.libraryProgress[it.id] } ?: 0,
@@ -355,9 +356,9 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     preferences = viewModel.uiState.viewerPreferences,
                     onBack = galleryBack,
                     onToggleFavorite = { book?.let { viewModel.toggleLibraryFavorite(it.id) } },
-                    onProgress = { page ->
-                        viewModel.updateReaderSession(sessionKey, page)
-                        book?.let { viewModel.updateLibraryProgress(it.id, page) }
+                    onProgress = { position ->
+                        viewModel.updateReaderSession(sessionKey, position.page, position.offset)
+                        book?.let { viewModel.updateLibraryProgress(it.id, position.page) }
                     },
                     nextBookTitle = nextBook?.title,
                     onOpenNextBook = {
@@ -411,6 +412,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 val sessionKey = session?.key ?: entry.id
                 ReaderScreen(
                     sessionKey = sessionKey,
+                    initialOffset = session?.position?.offset ?: 0,
                     galleryId = galleryId,
                     initialPage = session?.position?.page ?: if (requestedPage >= 0) requestedPage
                         else viewModel.uiState.onlineReaderProgress[galleryId] ?: 0,
@@ -418,9 +420,9 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     preferences = viewModel.uiState.viewerPreferences,
                     onLoad = viewModel::loadReader,
                     onBack = searchBack,
-                    onProgress = { page ->
-                        viewModel.updateReaderSession(sessionKey, page)
-                        viewModel.updateOnlineReaderProgress(galleryId, page)
+                    onProgress = { position ->
+                        viewModel.updateReaderSession(sessionKey, position.page, position.offset)
+                        viewModel.updateOnlineReaderProgress(galleryId, position.page)
                     },
                     onPreferencesChange = viewModel::updateViewerPreferences,
                 )

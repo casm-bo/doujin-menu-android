@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.model.ReaderImageSource
+import com.doujinmenu.android.model.ReaderPosition
 import com.doujinmenu.android.R
 
 import androidx.compose.foundation.background
@@ -25,13 +27,14 @@ fun LocalReaderScreen(
     sessionKey: String,
     book: LibraryBook?,
     initialPage: Int,
+    initialOffset: Int,
     isLoading: Boolean,
     error: String?,
     favorite: Boolean,
     preferences: ViewerPreferences,
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onProgress: (Int) -> Unit,
+    onProgress: (ReaderPosition) -> Unit,
     nextBookTitle: String?,
     onOpenNextBook: () -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
@@ -62,12 +65,15 @@ fun LocalReaderScreen(
         readableBook.pages.mapIndexed { index, page ->
             ReaderPageModel(
                 key = "$index:${page.name}",
+                source = ReaderImageSource(page.uri, readableBook.cloudToken?.let { mapOf("Authorization" to "Bearer $it") }.orEmpty()),
                 model = libraryImageRequest(context, page.uri, readableBook.cloudToken),
             )
         }
     }
     UnifiedReader(
         readerKey = sessionKey,
+        workKey = readableBook.metadata.hitomiId?.let { "gallery:$it" } ?: readableBook.syncId?.let { "sync:$it" } ?: "book:${readableBook.id}",
+        initialOffset = initialOffset,
         title = readableBook.title,
         pages = pages,
         initialPage = initialPage,

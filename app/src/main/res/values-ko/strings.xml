@@ -490,4 +490,10 @@
     <string name="ui_biometric_unavailable">생체인증을 사용할 수 없습니다. 설정한 앱 잠금으로 해제해 주세요.</string>
     <string name="ui_biometric_temporary_lockout">생체인증 시도가 너무 많습니다. 잠시 후 재시도하거나 앱 잠금으로 해제해 주세요.</string>
     <string name="ui_biometric_permanent_lockout">기기 PIN·비밀번호·패턴으로 기기를 해제해야 생체인증 제한이 풀립니다. 앱 잠금으로는 계속 앱을 해제할 수 있습니다.</string>
+    <string name="ui_reading_mode">읽기 모드</string>
+    <string name="ui_reader_auto">자동 인식</string>
+    <string name="ui_reader_page">일반 페이지</string>
+    <string name="ui_reader_webtoon">웹툰 · 세로 연속 읽기</string>
+    <string name="ui_use_app_reader_mode">앱 기본 읽기 모드 사용</string>
+    <string name="ui_webtoon_image_error">웹툰 모드로 이미지를 표시할 수 없습니다. 재시도하거나 일반 페이지를 사용해 주세요.</string>
 </resources>

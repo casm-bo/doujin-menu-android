@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.model.ReaderImageSource
+import com.doujinmenu.android.model.ReaderPosition
 import com.doujinmenu.android.R
 
 import android.app.Activity
@@ -35,11 +37,12 @@ fun ReaderScreen(
     sessionKey: String,
     galleryId: Long,
     initialPage: Int,
+    initialOffset: Int,
     state: MainUiState,
     preferences: ViewerPreferences,
     onLoad: (Long) -> Unit,
     onBack: () -> Unit,
-    onProgress: (Int) -> Unit,
+    onProgress: (ReaderPosition) -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
@@ -74,6 +77,7 @@ fun ReaderScreen(
                     pageUrls.map { url ->
                         ReaderPageModel(
                             key = url,
+                            source = ReaderImageSource(url, mapOf("Referer" to "https://hitomi.la/reader/$galleryId.html")),
                             model = hitomiImageRequest(context, url, galleryId),
                         )
                     }
@@ -82,6 +86,8 @@ fun ReaderScreen(
                     ?: strings[R.string.ui_gallery_d16837, (galleryId)]
                 UnifiedReader(
                     readerKey = sessionKey,
+                    workKey = "gallery:$galleryId",
+                    initialOffset = initialOffset,
                     title = title,
                     pages = pages,
                     initialPage = initialPage,

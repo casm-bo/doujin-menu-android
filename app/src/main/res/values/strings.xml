@@ -490,4 +490,10 @@
     <string name="ui_biometric_unavailable">Biometrics are unavailable. Use your configured app credential.</string>
     <string name="ui_biometric_temporary_lockout">Too many biometric attempts. Try later or use your app credential.</string>
     <string name="ui_biometric_permanent_lockout">Unlock the device with its PIN, password or pattern to restore biometrics. Your app credential can still unlock this app.</string>
+    <string name="ui_reading_mode">Reading mode</string>
+    <string name="ui_reader_auto">Auto detect</string>
+    <string name="ui_reader_page">Page mode</string>
+    <string name="ui_reader_webtoon">Webtoon · vertical scrolling</string>
+    <string name="ui_use_app_reader_mode">Use app reading mode</string>
+    <string name="ui_webtoon_image_error">Cannot display this image in webtoon mode. Retry or use page mode.</string>
 </resources>

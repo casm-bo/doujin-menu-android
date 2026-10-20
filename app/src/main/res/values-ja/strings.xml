@@ -490,4 +490,10 @@
     <string name="ui_biometric_unavailable">生体認証を利用できません。設定したアプリの認証方法を使用してください。</string>
     <string name="ui_biometric_temporary_lockout">生体認証の試行回数が多すぎます。後で再試行するかアプリの認証方法を使用してください。</string>
     <string name="ui_biometric_permanent_lockout">端末のPIN・パスワード・パターンで端末を解除すると生体認証を再開できます。アプリの認証方法は引き続き利用できます。</string>
+    <string name="ui_reading_mode">読書モード</string>
+    <string name="ui_reader_auto">自動判定</string>
+    <string name="ui_reader_page">ページ表示</string>
+    <string name="ui_reader_webtoon">ウェブトゥーン・縦スクロール</string>
+    <string name="ui_use_app_reader_mode">アプリの既定モードを使う</string>
+    <string name="ui_webtoon_image_error">ウェブトゥーン表示ができません。再試行するかページ表示を使用してください。</string>
 </resources>

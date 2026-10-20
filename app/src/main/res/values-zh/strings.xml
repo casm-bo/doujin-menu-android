@@ -490,4 +490,10 @@
     <string name="ui_biometric_unavailable">生物识别不可用，请使用设置的应用凭据。</string>
     <string name="ui_biometric_temporary_lockout">生物识别尝试次数过多，请稍后重试或使用应用凭据。</string>
     <string name="ui_biometric_permanent_lockout">请使用设备PIN、密码或图案解锁设备以恢复生物识别。仍可使用应用凭据解锁本应用。</string>
+    <string name="ui_reading_mode">阅读模式</string>
+    <string name="ui_reader_auto">自动识别</string>
+    <string name="ui_reader_page">分页模式</string>
+    <string name="ui_reader_webtoon">条漫·垂直滚动</string>
+    <string name="ui_use_app_reader_mode">使用应用默认阅读模式</string>
+    <string name="ui_webtoon_image_error">无法以条漫模式显示此图片。请重试或使用分页模式。</string>
 </resources>

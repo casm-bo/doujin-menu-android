@@ -3,6 +3,7 @@ package com.doujinmenu.android.security
 import android.content.Context
 import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.LibrarySort
+import com.doujinmenu.android.model.ViewerReadingMode
 import com.doujinmenu.android.model.ViewerPreferences
 import com.doujinmenu.android.model.ViewerPageTurnMode
 import com.doujinmenu.android.model.ViewerReadingDirection
@@ -165,7 +166,14 @@ class LibraryPreferenceStore(context: Context) {
         preferences.edit().putString(KEY_CUSTOM_TITLES, json.toString()).apply()
     }
 
+    fun loadReaderMode(workKey: String): ViewerReadingMode? = runCatching { ViewerReadingMode.valueOf(preferences.getString("reading_mode:$workKey", null).orEmpty()) }.getOrNull()
+    fun saveReaderMode(workKey: String, mode: ViewerReadingMode?) {
+        val editor = preferences.edit()
+        if (mode == null) editor.remove("reading_mode:$workKey") else editor.putString("reading_mode:$workKey", mode.name)
+        editor.apply()
+    }
     fun loadViewerPreferences() = ViewerPreferences(
+        readingMode = enumPreference("reading_mode", ViewerReadingMode.AUTO),
         scale = runCatching {
             ViewerScale.valueOf(preferences.getString(KEY_SCALE, null).orEmpty())
         }.getOrDefault(ViewerScale.FIT_SCREEN),
@@ -186,6 +194,7 @@ class LibraryPreferenceStore(context: Context) {
 
     fun saveViewerPreferences(value: ViewerPreferences) {
         preferences.edit()
+            .putString("reading_mode", value.readingMode.name)
             .putString(KEY_SCALE, value.scale.name)
             .putBoolean(KEY_PAGE_NUMBER, value.showPageNumber)
             .putBoolean(KEY_HIDE_THUMBNAILS, value.hideThumbnails)
