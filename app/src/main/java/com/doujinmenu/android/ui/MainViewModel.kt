@@ -22,6 +22,7 @@ import com.doujinmenu.android.model.recordHistory
 import com.doujinmenu.android.model.findBook
 import com.doujinmenu.android.security.RecentHistoryStore
 import com.doujinmenu.android.model.SearchResult
+import com.doujinmenu.android.model.GalleryBorderKind
 import com.doujinmenu.android.model.GalleryBorders
 import com.doujinmenu.android.model.GalleryBorderStyle
 import com.doujinmenu.android.security.AppearancePreferenceStore
@@ -333,10 +334,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(themeMode = value)
     }
 
-    fun setGalleryBorder(series: Boolean, style: GalleryBorderStyle) {
-        appearancePreferenceStore.saveBorder(series, style)
+    fun setGalleryBorder(kind: GalleryBorderKind, style: GalleryBorderStyle) {
+        appearancePreferenceStore.saveBorder(kind, style)
         val borders = uiState.galleryBorders
-        uiState = uiState.copy(galleryBorders = if (series) borders.copy(series = style) else borders.copy(normal = style))
+        uiState = uiState.copy(galleryBorders = when (kind) {
+            GalleryBorderKind.NORMAL -> borders.copy(normal = style)
+            GalleryBorderKind.SERIES -> borders.copy(series = style)
+            GalleryBorderKind.FAVORITE -> borders.copy(favorite = style)
+        })
     }
     fun setSearchQuery(value: String) {
         update { copy(searchQuery = value) }

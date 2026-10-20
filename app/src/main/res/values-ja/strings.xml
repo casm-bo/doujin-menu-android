@@ -467,4 +467,5 @@
     <string name="download_folder_unset">"フォルダー未選択"</string>
     <string name="next_sync_pc">"次に同期するPC"</string>
     <string name="removed_pc">"削除済みPC"</string>
+    <string name="ui_favorite_borders">お気に入りの枠線</string>
 </resources>

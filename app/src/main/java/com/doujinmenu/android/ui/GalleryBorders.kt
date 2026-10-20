@@ -10,8 +10,8 @@ import com.doujinmenu.android.model.GalleryBorders
 val LocalGalleryBorders = staticCompositionLocalOf { GalleryBorders() }
 
 @Composable
-internal fun galleryCardBorder(series: Boolean = false): BorderStroke? {
+internal fun galleryCardBorder(series: Boolean = false, favorite: Boolean = false): BorderStroke? {
     val borders = LocalGalleryBorders.current
-    val style = if (series) borders.series else borders.normal
+    val style = borders.styleFor(series, favorite)
     return if (style.widthDp == 0f) null else BorderStroke(style.widthDp.dp, Color(style.colorArgb))
 }

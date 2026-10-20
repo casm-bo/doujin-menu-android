@@ -467,4 +467,5 @@
     <string name="download_folder_unset">"未选择文件夹"</string>
     <string name="next_sync_pc">"下次同步的PC"</string>
     <string name="removed_pc">"已删除的PC"</string>
+    <string name="ui_favorite_borders">收藏边框</string>
 </resources>

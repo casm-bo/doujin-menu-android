@@ -19,6 +19,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Slider
 import androidx.compose.ui.graphics.Color
+import com.doujinmenu.android.model.GalleryBorderKind
 import com.doujinmenu.android.model.GalleryBorders
 import com.doujinmenu.android.model.GalleryBorderStyle
 import com.doujinmenu.android.model.parseBorderColor
@@ -88,7 +89,7 @@ fun SettingsScreen(
     onClearDownloadLocation: () -> Unit,
     onViewerPreferencesChange: (ViewerPreferences) -> Unit,
     onThemeModeChange: (AppThemeMode) -> Unit,
-    onGalleryBorderChange: (Boolean, GalleryBorderStyle) -> Unit,
+    onGalleryBorderChange: (GalleryBorderKind, GalleryBorderStyle) -> Unit,
     onCheckForUpdates: () -> Unit,
     openConnectionRequested: Boolean,
     onConnectionRequestHandled: () -> Unit,
@@ -110,8 +111,8 @@ fun SettingsScreen(
     }
 
     when (section) {
-        SettingsSection.LANGUAGE -> SettingsDetailLayout(strings[R.string.app_language], contentPadding, { openSection(SettingsSection.HOME) }) { LanguageSettings() }
-        SettingsSection.LOCK -> SettingsDetailLayout(strings[R.string.ui_app_lock], contentPadding, { openSection(SettingsSection.HOME) }) { AppLockSettings() }
+        SettingsSection.LANGUAGE -> SettingsDetailLayout(strings[R.string.app_language], contentPadding, { openSection(SettingsSection.HOME) }) { SectionCard(strings[R.string.app_language]) { LanguageSettings() } }
+        SettingsSection.LOCK -> SettingsDetailLayout(strings[R.string.ui_app_lock], contentPadding, { openSection(SettingsSection.HOME) }) { SectionCard(strings[R.string.ui_app_lock]) { AppLockSettings() } }
         SettingsSection.HOME -> SettingsHomeScreen(
             state = state,
             contentPadding = contentPadding,
@@ -235,7 +236,7 @@ private fun AppearanceSettingsScreen(
     onBack: () -> Unit,
     onChange: (AppThemeMode) -> Unit,
     borders: GalleryBorders,
-    onBorderChange: (Boolean, GalleryBorderStyle) -> Unit,
+    onBorderChange: (GalleryBorderKind, GalleryBorderStyle) -> Unit,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     SettingsDetailLayout(strings[R.string.ui_appearance], contentPadding, onBack) {
@@ -246,8 +247,9 @@ private fun AppearanceSettingsScreen(
             HorizontalDivider()
             ThemeModeOption(strings[R.string.ui_dark], strings[R.string.ui_always_use_dark_theme], AppThemeMode.DARK, themeMode, onChange)
         }
-        BorderSettingsCard(strings[R.string.ui_gallery_borders], borders.normal) { onBorderChange(false, it) }
-        BorderSettingsCard(strings[R.string.ui_series_borders], borders.series) { onBorderChange(true, it) }
+        BorderSettingsCard(strings[R.string.ui_gallery_borders], borders.normal) { onBorderChange(GalleryBorderKind.NORMAL, it) }
+        BorderSettingsCard(strings[R.string.ui_series_borders], borders.series) { onBorderChange(GalleryBorderKind.SERIES, it) }
+        BorderSettingsCard(strings[R.string.ui_favorite_borders], borders.favorite) { onBorderChange(GalleryBorderKind.FAVORITE, it) }
     }
 }
 

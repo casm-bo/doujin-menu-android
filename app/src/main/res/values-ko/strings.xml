@@ -467,4 +467,5 @@
     <string name="download_folder_unset">"폴더 미선택"</string>
     <string name="next_sync_pc">"다음 동기화 PC"</string>
     <string name="removed_pc">"삭제된 PC"</string>
+    <string name="ui_favorite_borders">즐겨찾기 테두리</string>
 </resources>

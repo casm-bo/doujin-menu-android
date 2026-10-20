@@ -467,4 +467,5 @@
     <string name="download_folder_unset">"No folder selected"</string>
     <string name="next_sync_pc">"Next synced PC"</string>
     <string name="removed_pc">"Removed PC"</string>
+    <string name="ui_favorite_borders">Favorite borders</string>
 </resources>
