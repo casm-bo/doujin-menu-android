@@ -1162,30 +1162,9 @@ private fun LibraryBookCard(
     onToggleFavorite: () -> Unit,
     onToggleRead: () -> Unit,
 ) {
-    val strings = androidx.compose.ui.platform.LocalResources.current
-    val context = LocalContext.current
-    Card(border = galleryCardBorder(favorite = favorite), modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onLongPress)) {
-        Box {
-            AsyncImage(
-                model = libraryImageRequest(context, book.coverUri, book.cloudToken),
-                contentDescription = strings[R.string.ui_cover, (book.title)],
-                modifier = Modifier.fillMaxWidth().aspectRatio(0.72f).clip(RoundedCornerShape(12.dp)),
-                contentScale = ContentScale.Crop,
-                colorFilter = selectionColorFilter(selectionMode),
-            )
-            if (!selectionMode) {
-                LibraryThumbnailBadges(
-                    read = read,
-                    isCloud = book.isCloud,
-                    favorite = favorite,
-                    onToggleFavorite = onToggleFavorite,
-                    scale = badgeScale,
-                )
-            }
-            if (selectionMode) SelectionIndicator(selected, Modifier.align(Alignment.Center), badgeScale)
-        }
-        LibraryBookText(book, progress, Modifier.padding(10.dp))
-    }
+    LibraryWorkCard(book, progress, grid = true, favorite = favorite, read = read,
+        selected = selected, selectionMode = selectionMode, onOpen = onOpen, onLongPress = onLongPress,
+        onToggleFavorite = onToggleFavorite, badgeScale = badgeScale)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1202,38 +1181,9 @@ private fun LibraryBookListItem(
     onToggleFavorite: () -> Unit,
     onToggleRead: () -> Unit,
 ) {
-    val strings = androidx.compose.ui.platform.LocalResources.current
-    val context = LocalContext.current
-    Card(
-        modifier = Modifier.fillMaxWidth().height(132.dp)
-            .combinedClickable(onClick = onOpen, onLongClick = onLongPress),
-        border = galleryCardBorder(favorite = favorite),
-    ) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.width(94.dp).fillMaxHeight()) {
-                AsyncImage(
-                    model = libraryImageRequest(context, book.coverUri, book.cloudToken),
-                    contentDescription = strings[R.string.ui_cover, (book.title)],
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    colorFilter = selectionColorFilter(selectionMode),
-                )
-                if (!selectionMode) {
-                    LibraryThumbnailBadges(
-                        read = read,
-                        isCloud = book.isCloud,
-                        favorite = favorite,
-                        onToggleFavorite = onToggleFavorite,
-                        scale = LIST_THUMBNAIL_BADGE_SCALE,
-                    )
-                }
-                if (selectionMode) {
-                    SelectionIndicator(selected, Modifier.align(Alignment.Center), LIST_THUMBNAIL_BADGE_SCALE)
-                }
-            }
-            LibraryBookText(book, progress, Modifier.padding(12.dp))
-        }
-    }
+    LibraryWorkCard(book, progress, grid = false, favorite = favorite, read = read,
+        selected = selected, selectionMode = selectionMode, onOpen = onOpen, onLongPress = onLongPress,
+        onToggleFavorite = onToggleFavorite, badgeScale = LIST_THUMBNAIL_BADGE_SCALE)
 }
 
 @Composable
@@ -1389,31 +1339,23 @@ private fun ThumbnailBadge(text: String, modifier: Modifier, scale: Float) {
 }
 
 @Composable
-private fun LibraryBookText(book: LibraryBook, progress: Int, modifier: Modifier = Modifier) {
+private fun LibraryWorkCard(
+    book: LibraryBook, progress: Int, grid: Boolean, favorite: Boolean, read: Boolean,
+    selected: Boolean, selectionMode: Boolean, onOpen: () -> Unit, onLongPress: () -> Unit,
+    onToggleFavorite: () -> Unit, badgeScale: Float,
+) {
     val strings = androidx.compose.ui.platform.LocalResources.current
-    Column(modifier = modifier) {
-        Text(book.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (book.metadata.artists.isNotEmpty()) {
-            Text(
-                book.metadata.artists.joinToString(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (book.metadata.tags.isNotEmpty()) {
-            CompactTagRow(book.metadata.tags.take(4))
-        }
-        Text(
-            (if (book.isCloud) strings[R.string.ui_pages, book.pages.size]
-                else strings[R.string.ui_pages_1f4c39, book.pages.size, book.locationName]) +
-                if (progress > 0) strings[R.string.ui_from_page, (progress + 1)] else "",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+    val context = LocalContext.current
+    val model = remember(book.coverUri, book.cloudToken, context) { libraryImageRequest(context, book.coverUri, book.cloudToken) }
+    WorkCard(title = book.title, artist = book.metadata.artists.joinToString(),
+        metadata = listOfNotNull(book.metadata.language, strings[R.string.ui_pages, book.pages.size]).joinToString(" · "),
+        tags = book.metadata.tags.map { CardTag(tagDisplayInfo(it)) },
+        footer = if (progress > 0) strings[R.string.ui_from_page, progress + 1] else "",
+        grid = grid, onClick = onOpen, onLongClick = onLongPress, border = galleryCardBorder(favorite = favorite)) {
+        AsyncImage(model, strings[R.string.ui_cover, book.title], Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+            colorFilter = selectionColorFilter(selectionMode))
+        if (!selectionMode) LibraryThumbnailBadges(read, book.isCloud, favorite, onToggleFavorite = onToggleFavorite, scale = badgeScale)
+        else SelectionIndicator(selected, Modifier.align(Alignment.Center), badgeScale)
     }
 }
 
@@ -1536,47 +1478,16 @@ private fun SeriesCard(
     onLongPress: () -> Unit,
     onToggleFavorite: () -> Unit,
 ) {
-    val cover = books.firstOrNull()
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
-    Card(
-        modifier = Modifier.fillMaxWidth()
-            .then(if (listMode) Modifier.height(142.dp) else Modifier)
-            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
-        border = galleryCardBorder(series = true, favorite = favorite),
-    ) {
-        if (listMode) {
-            Row(modifier = Modifier.fillMaxSize()) {
-                SeriesCover(
-                    book = cover,
-                    books = books,
-                    context = context,
-                    favorite = favorite,
-                    read = read,
-                    onToggleFavorite = onToggleFavorite,
-                    selectionMode = selectionMode,
-                    selected = selected,
-                    badgeScale = badgeScale,
-                    modifier = Modifier.width(100.dp).fillMaxHeight(),
-                )
-                SeriesText(name, books, Modifier.padding(14.dp))
-            }
-        } else {
-            Column {
-                SeriesCover(
-                    book = cover,
-                    books = books,
-                    context = context,
-                    favorite = favorite,
-                    read = read,
-                    onToggleFavorite = onToggleFavorite,
-                    selectionMode = selectionMode,
-                    selected = selected,
-                    badgeScale = badgeScale,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(0.72f),
-                )
-                SeriesText(name, books, Modifier.padding(10.dp))
-            }
-        }
+    WorkCard(title = name, artist = books.flatMap { it.metadata.artists }.distinct().joinToString(),
+        metadata = strings[R.string.ui_chapters, books.size, ""],
+        tags = books.flatMap { it.metadata.tags }.distinct().map { CardTag(tagDisplayInfo(it)) },
+        footer = strings[R.string.ui_series], grid = !listMode, onClick = onClick, onLongClick = onLongPress,
+        border = galleryCardBorder(series = true, favorite = favorite)) {
+        SeriesCover(book = books.firstOrNull(), books = books, context = context, favorite = favorite, read = read,
+            onToggleFavorite = onToggleFavorite, selectionMode = selectionMode, selected = selected,
+            badgeScale = badgeScale, modifier = Modifier.fillMaxSize())
     }
 }
 
@@ -1678,46 +1589,6 @@ private fun SeriesStackIcon(modifier: Modifier = Modifier) {
             topLeft = Offset(size.width * 0.26f, size.height * 0.18f),
             size = Size(size.width * 0.7f, size.height * 0.82f),
             cornerRadius = CornerRadius(size.width * 0.13f),
-        )
-    }
-}
-
-@Composable
-private fun SeriesText(name: String, books: List<LibraryBook>, modifier: Modifier) {
-    val strings = androidx.compose.ui.platform.LocalResources.current
-    val artists = books.flatMap { it.metadata.artists }.distinctBy { it.lowercase() }
-    val tags = books.flatMap { it.metadata.tags }.distinctBy { it.lowercase() }
-    val source = when {
-        books.all(LibraryBook::isCloud) -> strings[R.string.ui_cloud]
-        books.none(LibraryBook::isCloud) -> strings[R.string.ui_local]
-        else -> strings[R.string.ui_cloud_local]
-    }
-    Column(modifier = modifier) {
-        Text(
-            name,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (artists.isNotEmpty()) {
-            Text(
-                artists.joinToString(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (tags.isNotEmpty()) {
-            CompactTagRow(tags.take(4))
-        }
-        Text(
-            strings[R.string.ui_chapters, (books.size), (source)],
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }

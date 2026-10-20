@@ -485,10 +485,9 @@ fun BrowserScreen(
                 val id = resultIds[index]
                 val gallery = galleriesById[id]
                 if (gallery == null) {
-                    Card(Modifier.fillMaxWidth().height(if (gridView) 280.dp else 168.dp)) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(strings[R.string.ui_loading_9ca3f0, (id)], color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                    WorkCard(title = "#$id", artist = "", metadata = strings[R.string.ui_loading],
+                        tags = emptyList(), footer = "", grid = gridView, onClick = {}) {
+                        CircularProgressIndicator(Modifier.align(Alignment.Center))
                     }
                 } else {
                     val libraryBook = libraryBookByGalleryId[gallery.id]
@@ -574,123 +573,20 @@ private fun GalleryCard(
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val request = remember(context, gallery.thumbnailUrl, gallery.id) {
-        gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id) }
+        gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id, crossfade = false, preview = true) }
     }
-
-    if (gridView) {
-        val tagAreaHeight = (110 * LocalDensity.current.fontScale).dp
-        Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = strings[R.string.ui_open_in_new_tab])) {
-            Box(Modifier.fillMaxWidth().aspectRatio(0.72f).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-                Text("#${gallery.id}", style = MaterialTheme.typography.labelSmall)
-                if (request != null) AsyncImage(model = request, contentDescription = strings[R.string.ui_thumbnail, (preferredLocalizedTitle(gallery.title))], modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                LibraryThumbnailBadges(read, libraryBook?.isCloud, favorite, showFavorite = libraryBook != null, onToggleFavorite = onToggleFavorite, scale = 0.75f)
-            }
-            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(preferredLocalizedTitle(gallery.title), maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                Text(gallery.artists.joinToString().ifBlank { strings[R.string.ui_no_artist_information] }, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                Text(listOfNotNull(gallery.language, gallery.pageCount.takeIf { it > 0 }?.let { strings[R.string.ui_pages, (it)] }).joinToString(" · "), style = MaterialTheme.typography.labelSmall, minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Column(Modifier.fillMaxWidth().height(tagAreaHeight).clipToBounds(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp), maxLines = 3) {
-                        gallery.tags.take(3).forEach { tag ->
-                            TagPill(info = tagDisplayInfo(tag.name, tag.type), large = true, modifier = Modifier.clickable {
-                                onSearchFacet(tagSearchFacet(tag.name, tag.type))
-                            })
-                        }
-                    }
-                        if (gallery.tags.size > 3) Text("+${gallery.tags.size - 3}", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(gallery.loadError.orEmpty(), minLines = 1, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
-            }
-        }
-        return
-    }
-    Card(modifier = Modifier.fillMaxWidth().combinedClickable(
-        onClick = onClick,
-        onLongClick = onLongClick,
-        onLongClickLabel = strings[R.string.ui_open_in_new_tab],
-    )) {
-        Row(modifier = Modifier.padding(12.dp)) {
-            Box(
-                modifier = Modifier
-                    .width(104.dp)
-                    .height(144.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("#${gallery.id}", style = MaterialTheme.typography.labelMedium)
-                if (request != null) {
-                    AsyncImage(
-                        model = request,
-                        contentDescription = strings[R.string.ui_thumbnail, (preferredLocalizedTitle(gallery.title))],
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                }
-                LibraryThumbnailBadges(
-                    read = read,
-                    isCloud = libraryBook?.isCloud,
-                    favorite = favorite,
-                    showFavorite = libraryBook != null,
-                    onToggleFavorite = onToggleFavorite,
-                    scale = 0.82f,
-                )
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(
-                modifier = Modifier.weight(1f).heightIn(min = 144.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Text(
-                    preferredLocalizedTitle(gallery.title),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    gallery.artists.takeIf { it.isNotEmpty() }?.joinToString() ?: strings[R.string.ui_no_artist_information],
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    listOfNotNull(
-                        gallery.language,
-                        gallery.pageCount.takeIf { it > 0 }?.let { strings[R.string.ui_pages, (it)] },
-                        formatGalleryPublishedDate(gallery.publishedDate)?.let { strings[R.string.ui_uploaded, (it)] },
-                    ).joinToString(" · ").ifEmpty { "ID ${gallery.id}" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                gallery.tags.take(3).takeIf { it.isNotEmpty() }?.let { tags ->
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
-                    ) {
-                        tags.forEach { tag ->
-                            TagPill(
-                                info = tagDisplayInfo(tag.name, tag.type),
-                                large = true,
-                                modifier = Modifier.clickable {
-                                    onSearchFacet(tagSearchFacet(tag.name, tag.type))
-                                },
-                            )
-                        }
-                    }
-                }
-                gallery.loadError?.let { error ->
-                    Text(
-                        error,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 2,
-                    )
-                }
-            }
-        }
+    WorkCard(
+        title = preferredLocalizedTitle(gallery.title),
+        artist = gallery.artists.joinToString().ifBlank { strings[R.string.ui_no_artist_information] },
+        metadata = listOfNotNull(gallery.language, gallery.pageCount.takeIf { it > 0 }?.let { strings[R.string.ui_pages, it] }).joinToString(" · "),
+        tags = gallery.tags.map { tag -> CardTag(tagDisplayInfo(tag.name, tag.type)) { onSearchFacet(tagSearchFacet(tag.name, tag.type)) } },
+        footer = gallery.loadError.orEmpty(), grid = gridView, onClick = onClick, onLongClick = onLongClick,
+        border = galleryCardBorder(favorite = favorite),
+    ) {
+        Text("#${gallery.id}", style = MaterialTheme.typography.labelSmall)
+        if (request != null) AsyncImage(request, strings[R.string.ui_thumbnail, preferredLocalizedTitle(gallery.title)], Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        LibraryThumbnailBadges(read, libraryBook?.isCloud, favorite, showFavorite = libraryBook != null,
+            onToggleFavorite = onToggleFavorite, scale = if (gridView) .75f else .82f)
     }
 }
 
