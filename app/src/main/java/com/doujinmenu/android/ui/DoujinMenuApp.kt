@@ -494,6 +494,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
+    DownloadPrompts(viewModel) { section ->
+        viewModel.requestSettingsSection(section)
+        navController.navigate("main") { popUpTo("main"); launchSingleTop = true }
+    }
+
     viewModel.uiState.availableUpdate?.let { release ->
         AlertDialog(
             onDismissRequest = { viewModel.dismissAvailableUpdate(skipVersion = false) },
@@ -603,6 +608,9 @@ private fun MainShell(
         },
     )
 
+    LaunchedEffect(viewModel.uiState.settingsSectionRequest) {
+        if (viewModel.uiState.settingsSectionRequest != null) selectedRoute = MainDestination.Settings.route
+    }
     val content: @Composable (PaddingValues) -> Unit = { padding ->
         MainTabContent(
             destination = selected,
@@ -933,6 +941,9 @@ private fun MainTabContent(
                 onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
                 openConnectionRequested = connectionSettingsRequested,
                 onConnectionRequestHandled = { connectionSettingsRequested = false },
+                onDownloadDestinationChange = viewModel::setDownloadDestination,
+                requestedSection = viewModel.uiState.settingsSectionRequest,
+                onSectionRequestHandled = viewModel::consumeSettingsSectionRequest,
             )
         }
         }

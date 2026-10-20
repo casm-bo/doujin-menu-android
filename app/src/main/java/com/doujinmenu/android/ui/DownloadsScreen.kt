@@ -2,6 +2,7 @@ package com.doujinmenu.android.ui
 
 import androidx.compose.foundation.background
 import com.doujinmenu.android.R
+import com.doujinmenu.android.model.readableStoragePath
 
 import android.content.Intent
 import android.provider.DocumentsContract
@@ -132,9 +133,11 @@ fun DownloadsScreen(
             }
         }
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(strings[R.string.ui_device_storage, (state.downloadLocation?.displayName ?: strings[R.string.download_folder_unset])], Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Text(strings[R.string.ui_device_storage, (state.downloadLocation?.let { readableStoragePath(it.uri, it.displayName) } ?: strings[R.string.download_folder_unset])], Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { folderPicker.launch(null) }) { Text(strings[R.string.ui_choose_folder]) }
         }
+        Text(strings[R.string.ui_desktop_download_folder] + ": " + (state.desktopDownloadPath?.let { readableStoragePath(it) }
+            ?: strings[R.string.ui_not_configured_on_desktop]), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
         if (!hasProfile || state.isDownloadConnectionUnavailable) {
             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(strings[R.string.ui_pc_disconnected_pending_requests_are_stored_on_this_device], Modifier.weight(1f))

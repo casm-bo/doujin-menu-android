@@ -520,4 +520,10 @@
     <string name="ui_empty_series_keeps_files">Saving an empty series removes the group. Gallery files are kept.</string>
     <string name="ui_series_edit_conflict">This series changed while editing. Cancel and reopen it to review the latest version.</string>
     <string name="ui_series_details">Series details</string>
+    <string name="ui_download_destination">"Download destination"</string>
+    <string name="ui_always_ask">"Always ask"</string>
+    <string name="ui_choose_download_destination">"Download to"</string>
+    <string name="ui_dont_show_again">"Don’t show again"</string>
+    <string name="ui_desktop_download_offline">"PC is offline. Desktop requests stay in the pending queue and are sent after connecting."</string>
+    <string name="ui_download_settings">"Download settings"</string>
 </resources>

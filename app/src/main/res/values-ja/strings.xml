@@ -520,4 +520,10 @@
     <string name="ui_empty_series_keeps_files">空のシリーズを保存するとグループのみ解除します。作品のファイルは保持します。</string>
     <string name="ui_series_edit_conflict">編集中にシリーズが変更されました。キャンセルして開き直してください。</string>
     <string name="ui_series_details">シリーズ詳細</string>
+    <string name="ui_download_destination">"ダウンロード先"</string>
+    <string name="ui_always_ask">"毎回確認"</string>
+    <string name="ui_choose_download_destination">"ダウンロード先を選択"</string>
+    <string name="ui_dont_show_again">"今後表示しない"</string>
+    <string name="ui_desktop_download_offline">"PCに接続されていません。PCへのリクエストは保留一覧に保存され、接続後に送信されます。"</string>
+    <string name="ui_download_settings">"ダウンロード設定"</string>
 </resources>

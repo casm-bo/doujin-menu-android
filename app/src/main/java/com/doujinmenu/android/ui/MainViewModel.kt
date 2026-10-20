@@ -65,6 +65,7 @@ import com.doujinmenu.android.model.moveTab
 import com.doujinmenu.android.model.normalizeSearchSeparators
 import com.doujinmenu.android.model.searchTokenStart
 import com.doujinmenu.android.model.applySearchSuggestion
+import com.doujinmenu.android.model.DownloadDestination
 import com.doujinmenu.android.model.openTab
 import com.doujinmenu.android.model.openGalleryInBackground
 import com.doujinmenu.android.model.BackgroundGalleryTab
@@ -197,6 +198,11 @@ data class MainUiState(
     val seriesPreviewErrors: Map<String, String> = emptyMap(),
     val viewerPreferences: ViewerPreferences = ViewerPreferences(),
     val downloadLocation: StorageLocation? = null,
+    val downloadDestination: DownloadDestination = DownloadDestination.ASK,
+    val pendingDownloadGallery: GallerySummary? = null,
+    val downloadFolderRequired: Boolean = false,
+    val desktopDownloadConnectionPrompt: Boolean = false,
+    val settingsSectionRequest: String? = null,
     val desktopDownloadPath: String? = null,
     val submittedSearchQuery: String = "",
     val submittedSearchQueries: List<String> = emptyList(),
@@ -260,6 +266,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
     private var suggestionJob: Job? = null
     private var libraryQueryJob: Job? = null
+    private var downloadAfterFolder: GallerySummary? = null
     private var browserSearchJob: Job? = null
     private var searchWindowJob: Job? = null
     private var requestedSearchPages: IntRange = IntRange.EMPTY
@@ -337,6 +344,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             librarySyncPendingCount = pendingLibrarySyncCount(),
             viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
+            downloadDestination = browserPreferenceStore.loadDownloadDestination(),
         )
         reloadPresentations()
         viewModelScope.launch {
@@ -1179,32 +1187,85 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setDownloadDestination(value: DownloadDestination) {
+        browserPreferenceStore.saveDownloadDestination(value)
+        uiState = uiState.copy(downloadDestination = value)
+        if (value == DownloadDestination.DESKTOP) showDesktopDownloadConnectionPrompt()
+    }
+    private fun showDesktopDownloadConnectionPrompt() {
+        if (uiState.desktopConnectionState != DesktopConnectionState.CONNECTED && !browserPreferenceStore.isDesktopDownloadAlertSuppressed())
+            uiState = uiState.copy(desktopDownloadConnectionPrompt = true)
+    }
+    fun dismissDesktopDownloadConnectionPrompt(suppress: Boolean) {
+        if (suppress) browserPreferenceStore.suppressDesktopDownloadAlert(true)
+        uiState = uiState.copy(desktopDownloadConnectionPrompt = false)
+    }
+    fun requestSettingsSection(section: String) {
+        uiState = uiState.copy(settingsSectionRequest = section, pendingDownloadGallery = null, downloadFolderRequired = false,
+            desktopDownloadConnectionPrompt = false)
+    }
+    fun consumeSettingsSectionRequest() { uiState = uiState.copy(settingsSectionRequest = null) }
+    fun cancelDownloadPrompt() {
+        downloadAfterFolder = null
+        uiState = uiState.copy(pendingDownloadGallery = null, downloadFolderRequired = false)
+    }
+    fun chooseDownloadDestination(value: DownloadDestination) {
+        val gallery = uiState.pendingDownloadGallery ?: return
+        uiState = uiState.copy(pendingDownloadGallery = null, downloadFolderRequired = false)
+        enqueueGalleryDownload(gallery, value)
+    }
     fun downloadGallery(gallery: GallerySummary) {
         if (gallery.id in uiState.downloadingGalleryIds) return
         if (requestStore.requests.value.any { it.galleryId == gallery.id && !it.isFinished }) {
             uiState = uiState.copy(message = strings[R.string.msg_already_in_the_download_list])
             return
         }
-        val profile = selectedProfile()
-        val sendImmediately = profile != null && uiState.desktopConnectionState == DesktopConnectionState.CONNECTED
-        val request = DownloadRequest(galleryId = gallery.id, title = gallery.title,
-            thumbnailUrl = gallery.thumbnailUrl, profileId = profile?.id)
+        if (uiState.downloadDestination == DownloadDestination.ASK) {
+            uiState = uiState.copy(pendingDownloadGallery = gallery, downloadFolderRequired = false)
+        } else enqueueGalleryDownload(gallery, uiState.downloadDestination)
+    }
+    private fun enqueueGalleryDownload(gallery: GallerySummary, destination: DownloadDestination) {
+        if (destination == DownloadDestination.ASK || gallery.id in uiState.downloadingGalleryIds) return
+        if (requestStore.requests.value.any { it.galleryId == gallery.id && !it.isFinished }) return
+        val local = destination == DownloadDestination.DEVICE
+        val location = uiState.downloadLocation
+        if (local && location == null) {
+            downloadAfterFolder = gallery
+            uiState = uiState.copy(pendingDownloadGallery = gallery, downloadFolderRequired = true)
+            return
+        }
+        if (local && uiState.libraryBooks.any { !it.isCloud && it.metadata.hitomiId?.toLongOrNull() == gallery.id }) {
+            uiState = uiState.copy(message = strings[R.string.msg_this_gallery_is_already_in_the_device_library], isError = true)
+            return
+        }
+        val profile = if (local) null else selectedProfile()
+        val request = DownloadRequest(galleryId = gallery.id, title = gallery.title, thumbnailUrl = gallery.thumbnailUrl,
+            target = if (local) DownloadTarget.LOCAL else DownloadTarget.DESKTOP, profileId = profile?.id,
+            locationUri = if (local) location?.uri else null)
+        uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds + gallery.id)
         viewModelScope.launch {
-            uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds + gallery.id)
             try {
                 withContext(Dispatchers.IO) { requestStore.update { addDownloadRequest(it, request) } }
-                if (profile != null && sendImmediately) {
+                if (local) {
+                    if (location != null && uiState.libraryLocations.none { it.uri == location.uri }) addLibraryLocation(location.uri, location.displayName)
+                    startLocalDownloadService()
+                    uiState = uiState.copy(message = strings[R.string.msg_added_to_device_downloads], isError = false)
+                } else if (profile != null && uiState.desktopConnectionState == DesktopConnectionState.CONNECTED) {
                     sendPendingDownloadRequests(profile, onlyRequestId = request.id, requireRequestIds = false)
                 } else {
                     uiState = uiState.copy(message = strings[R.string.msg_added_to_pc_sync_queue_no_automatic_device_download], isError = false)
+                    showDesktopDownloadConnectionPrompt()
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                uiState = uiState.copy(message = strings[R.string.msg_download_request_failed, (error.message)], isError = true)
-            } finally {
-                uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds - gallery.id)
-            }
+                if (local) withContext(Dispatchers.IO) { runCatching { requestStore.change(request.id) { it.copy(status = RequestStatus.PAUSED, error = error.message) } } }
+                uiState = uiState.copy(message = strings[R.string.msg_download_request_failed, error.message], isError = true)
+            } finally { uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds - gallery.id) }
         }
+    }
+    private fun startLocalDownloadService() {
+        val context = getApplication<Application>()
+        context.startForegroundService(android.content.Intent(context, com.doujinmenu.android.data.LocalDownloadService::class.java))
     }
 
     fun startLocalDownload(id: String) {
@@ -1233,8 +1294,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 if (!claimed) return@launch
-                val context = getApplication<Application>()
-                context.startForegroundService(android.content.Intent(context, com.doujinmenu.android.data.LocalDownloadService::class.java))
+                startLocalDownloadService()
                 uiState = uiState.copy(downloadQueueError = null, message = strings[R.string.msg_added_to_device_downloads], isError = false)
             } catch (error: Exception) {
                 runCatching { requestStore.change(id) { it.copy(status = RequestStatus.PAUSED, error = error.message) } }
@@ -2299,6 +2359,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val location = StorageLocation(uri, displayName)
         browserPreferenceStore.saveDownloadLocation(location)
         uiState = uiState.copy(downloadLocation = location)
+        downloadAfterFolder?.let { gallery ->
+            downloadAfterFolder = null
+            uiState = uiState.copy(pendingDownloadGallery = null, downloadFolderRequired = false)
+            enqueueGalleryDownload(gallery, DownloadDestination.DEVICE)
+        }
     }
 
     fun clearDownloadLocation() {

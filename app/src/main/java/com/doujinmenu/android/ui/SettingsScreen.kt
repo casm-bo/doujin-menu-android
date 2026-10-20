@@ -56,6 +56,8 @@ import com.doujinmenu.android.BuildConfig
 import com.doujinmenu.android.model.AppThemeMode
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.StorageLocation
+import com.doujinmenu.android.model.DownloadDestination
+import com.doujinmenu.android.model.readableStoragePath
 import com.doujinmenu.android.model.ViewerPreferences
 
 private enum class SettingsSection {
@@ -94,6 +96,9 @@ fun SettingsScreen(
     onCheckForUpdates: () -> Unit,
     openConnectionRequested: Boolean,
     onConnectionRequestHandled: () -> Unit,
+    onDownloadDestinationChange: (DownloadDestination) -> Unit = {},
+    requestedSection: String? = null,
+    onSectionRequestHandled: () -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.HOME.name) }
@@ -108,6 +113,13 @@ fun SettingsScreen(
         if (openConnectionRequested) {
             openSection(SettingsSection.CONNECTION)
             onConnectionRequestHandled()
+        }
+    }
+
+    LaunchedEffect(requestedSection) {
+        when (requestedSection) {
+            "downloads" -> { openSection(SettingsSection.LIBRARY); onSectionRequestHandled() }
+            "connection" -> { openSection(SettingsSection.CONNECTION); onSectionRequestHandled() }
         }
     }
 
@@ -139,6 +151,7 @@ fun SettingsScreen(
         )
         SettingsSection.LIBRARY -> LibrarySettingsScreen(
             state = state,
+            onDownloadDestinationChange = onDownloadDestinationChange,
             contentPadding = contentPadding,
             onBack = { openSection(SettingsSection.HOME) },
             onAddLibraryLocation = onAddLibraryLocation,
@@ -441,6 +454,7 @@ private fun LibrarySettingsScreen(
     onRemoveLibraryLocation: (String) -> Unit,
     onSetDownloadLocation: (String, String) -> Unit,
     onClearDownloadLocation: () -> Unit,
+    onDownloadDestinationChange: (DownloadDestination) -> Unit,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -480,31 +494,20 @@ private fun LibrarySettingsScreen(
             ) { Text(strings[R.string.ui_add_library_folder]) }
         }
 
-        SectionCard(strings[R.string.ui_download_folder]) {
-            Text(
-                if (state.selectedProfileId != null) {
-                    strings[R.string.ui_while_connected_pc_downloads_use_the_desktop_download_folder] +
-                        strings[R.string.ui_desktop_paths_can_only_be_changed_on_pc_mobile_storage_is_conf]
-                } else {
-                    strings[R.string.ui_without_a_pc_connection_only_the_mobile_local_download_folder]
-                },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (state.selectedProfileId != null) {
-                Spacer(Modifier.height(10.dp))
-                ReadOnlyPathRow(
-                    title = strings[R.string.ui_desktop_download_folder],
-                    path = state.desktopDownloadPath ?: strings[R.string.ui_not_configured_on_desktop],
-                )
+        SectionCard(strings[R.string.ui_download_destination]) {
+            listOf(DownloadDestination.DEVICE to R.string.ui_device, DownloadDestination.DESKTOP to R.string.ui_desktop, DownloadDestination.ASK to R.string.ui_always_ask).forEach { (value, label) ->
+                ChoiceMenuItem(strings[label], state.downloadDestination == value, onClick = { onDownloadDestinationChange(value) })
             }
-            state.downloadLocation?.let { location ->
-                Spacer(Modifier.height(10.dp))
-                StorageLocationRow(
-                    location = location,
-                    actionLabel = strings[R.string.ui_delete],
-                    title = strings[R.string.ui_local_download_folder],
-                    onAction = onClearDownloadLocation,
-                )
+        }
+        SectionCard(strings[R.string.ui_download_folder]) {
+            ReadOnlyPathRow(title = strings[R.string.ui_desktop_download_folder],
+                path = state.desktopDownloadPath?.let { readableStoragePath(it) } ?: strings[R.string.ui_not_configured_on_desktop])
+            HorizontalDivider()
+            val location = state.downloadLocation
+            if (location != null) StorageLocationRow(location, strings[R.string.ui_delete], strings[R.string.ui_local_download_folder], onClearDownloadLocation)
+            else {
+                Text(strings[R.string.ui_local_download_folder], style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text(strings[R.string.download_folder_unset], Modifier.padding(vertical = 8.dp))
             }
             Row(
                 modifier = Modifier.padding(top = 10.dp),
@@ -535,7 +538,7 @@ private fun StorageLocationRow(
             }
             Text(location.displayName, fontWeight = FontWeight.Medium)
             Text(
-                location.uri,
+                readableStoragePath(location.uri, location.displayName),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

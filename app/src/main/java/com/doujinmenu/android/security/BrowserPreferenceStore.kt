@@ -18,6 +18,13 @@ import org.json.JSONObject
 class BrowserPreferenceStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
+    fun loadDownloadDestination(): com.doujinmenu.android.model.DownloadDestination = runCatching {
+        com.doujinmenu.android.model.DownloadDestination.valueOf(preferences.getString("download_destination", null).orEmpty())
+    }.getOrDefault(com.doujinmenu.android.model.DownloadDestination.ASK)
+    fun saveDownloadDestination(value: com.doujinmenu.android.model.DownloadDestination) = preferences.edit().putString("download_destination", value.name).apply()
+    fun isDesktopDownloadAlertSuppressed(): Boolean = preferences.getBoolean("hide_desktop_download_alert", false)
+    fun suppressDesktopDownloadAlert(value: Boolean) = preferences.edit().putBoolean("hide_desktop_download_alert", value).apply()
+
     fun loadFavorites(): List<SearchFavorite> {
         val raw = preferences.getString(KEY_FAVORITES, null) ?: return emptyList()
         return runCatching {

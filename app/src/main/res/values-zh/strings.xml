@@ -520,4 +520,10 @@
     <string name="ui_empty_series_keeps_files">保存空系列将仅取消分组，作品文件保留。</string>
     <string name="ui_series_edit_conflict">编辑期间系列已更改。请取消并重新打开以查看最新内容。</string>
     <string name="ui_series_details">系列详情</string>
+    <string name="ui_download_destination">"下载目标"</string>
+    <string name="ui_always_ask">"每次询问"</string>
+    <string name="ui_choose_download_destination">"选择下载位置"</string>
+    <string name="ui_dont_show_again">"不再显示"</string>
+    <string name="ui_desktop_download_offline">"PC未连接。桌面下载请求将保存在待处理列表中，连接后发送。"</string>
+    <string name="ui_download_settings">"下载设置"</string>
 </resources>
