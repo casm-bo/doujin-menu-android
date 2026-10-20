@@ -513,4 +513,10 @@
     <string name="ui_remove_favorite">取消收藏</string>
     <string name="ui_mark_read">标记已读</string>
     <string name="ui_mark_unread">标记未读</string>
+    <string name="ui_series_options_edit">编辑系列选项</string>
+    <string name="ui_series_episode_count">%1$d集</string>
+    <string name="ui_add_episodes">添加剧集</string>
+    <string name="ui_exclude_episodes">移出剧集</string>
+    <string name="ui_empty_series_keeps_files">保存空系列将仅取消分组，作品文件保留。</string>
+    <string name="ui_series_edit_conflict">编辑期间系列已更改。请取消并重新打开以查看最新内容。</string>
 </resources>

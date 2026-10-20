@@ -513,4 +513,10 @@
     <string name="ui_remove_favorite">Remove favorite</string>
     <string name="ui_mark_read">Mark read</string>
     <string name="ui_mark_unread">Mark unread</string>
+    <string name="ui_series_options_edit">Edit series options</string>
+    <string name="ui_series_episode_count">%1$d episodes</string>
+    <string name="ui_add_episodes">Add episodes</string>
+    <string name="ui_exclude_episodes">Exclude episodes</string>
+    <string name="ui_empty_series_keeps_files">Saving an empty series removes the group. Gallery files are kept.</string>
+    <string name="ui_series_edit_conflict">This series changed while editing. Cancel and reopen it to review the latest version.</string>
 </resources>

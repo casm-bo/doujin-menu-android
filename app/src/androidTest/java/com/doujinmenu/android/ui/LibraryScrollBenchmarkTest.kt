@@ -52,7 +52,7 @@ class LibraryScrollBenchmarkTest {
                     contentPadding = PaddingValues(0.dp), onSync = {}, onQueryChange = {}, onToggleFavoritesFilter = {}, onExcludeSeriesChange = {},
                     onReadFilterChange = {}, onVisibilityFilterChange = {}, onSortChange = {}, onLocationChange = {}, onRefresh = {}, onOpenBook = {},
                     onToggleFavorite = {}, onToggleSeriesFavorite = {}, onToggleRead = {}, onAddFavorites = {}, onMarkRead = {}, onMarkUnread = {},
-                    onAssignSeries = { _, _ -> }, onAppendSeries = { _, _ -> true }, onReorderSeriesBooks = {}, onSetBooksHidden = { _, _ -> },
+                    onAssignSeries = { _, _ -> }, onAppendSeries = { _, _ -> true }, onSetBooksHidden = { _, _ -> },
                     onDeleteBooks = {}, onRenameBook = { _, _ -> }, onRemoveBooksFromSeries = {}, onRenameSeries = { _, _ -> }, onMergeSeries = { _, _ -> },
                     onDeleteSeries = {}, onAutoCreateSeries = {}, onSeriesModeChange = {}, onSelectedSeriesChange = {}, onBackToSearch = {},
                     pageKey = "fixture", initialScrollAnchorKey = null, initialScrollIndex = 0, initialScrollOffset = 0,

@@ -179,6 +179,7 @@ data class MainUiState(
     val librarySeriesMode: Boolean = false,
     val libraryExcludeSeries: Boolean = false,
     val selectedLibrarySeries: String? = null,
+    val librarySeriesEpisodeList: Boolean = false,
     val isAutoCreatingSeries: Boolean = false,
     val isLibraryScanning: Boolean = false,
     val isLibraryPullRefreshing: Boolean = false,
@@ -1603,12 +1604,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
     fun setLibrarySeriesMode(enabled: Boolean) = update {
-        copy(librarySeriesMode = enabled, libraryExcludeSeries = false, selectedLibrarySeries = null)
+        copy(librarySeriesMode = enabled, libraryExcludeSeries = false, selectedLibrarySeries = null, librarySeriesEpisodeList = false)
     }
     fun setLibraryExcludeSeries(enabled: Boolean) = update {
-        copy(libraryExcludeSeries = enabled, librarySeriesMode = false, selectedLibrarySeries = null)
+        copy(libraryExcludeSeries = enabled, librarySeriesMode = false, selectedLibrarySeries = null, librarySeriesEpisodeList = false)
     }
-    fun selectLibrarySeries(name: String?) = update { copy(selectedLibrarySeries = name) }
+    fun selectLibrarySeries(name: String?) = update { copy(selectedLibrarySeries = name, librarySeriesEpisodeList = false) }
+    fun setLibrarySeriesEpisodeList(show: Boolean) = update { copy(librarySeriesEpisodeList = show) }
+    fun openLibrarySeriesList(name: String) = update { copy(librarySeriesMode = true, libraryExcludeSeries = false, selectedLibrarySeries = name, librarySeriesEpisodeList = true) }
+
+    fun commitLibrarySeriesEdit(name: String, baseline: Map<String, CustomSeriesAssignment>, orderedIds: List<String>): Boolean {
+        if (uiState.isLibraryScanning || orderedIds.distinct().size != orderedIds.size || orderedIds.any { id -> uiState.libraryBooks.none { it.id == id } }) return false
+        val current = uiState.customSeriesByBookId
+        fun membership(values: Map<String, CustomSeriesAssignment>) = values.filterValues { it.name == name }.mapValues { it.value.order }
+        if (membership(current) != membership(baseline)) return false
+        if (orderedIds.any { id -> current[id]?.let { it.name to it.order } != baseline[id]?.let { it.name to it.order } }) return false
+        val assignments = com.doujinmenu.android.model.replaceSeriesMembers(current, name, orderedIds, System.currentTimeMillis())
+        persistCustomSeries(assignments)
+        val favorites = if (orderedIds.isEmpty()) uiState.libraryFavoriteSeriesNames - name else uiState.libraryFavoriteSeriesNames
+        libraryPreferenceStore.saveFavoriteSeriesNames(favorites)
+        uiState = uiState.copy(customSeriesByBookId = assignments, libraryFavoriteSeriesNames = favorites,
+            selectedLibrarySeries = uiState.selectedLibrarySeries.takeUnless { it == name && orderedIds.isEmpty() },
+            librarySeriesEpisodeList = uiState.librarySeriesEpisodeList && orderedIds.isNotEmpty())
+        return true
+    }
 
     fun openLibraryBook(bookId: String) {
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
@@ -1866,39 +1885,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun reorderLibrarySeriesBooks(orderedBookIds: List<String>) {
-        val requestedIds = orderedBookIds.distinct()
-        val seriesName = requestedIds.firstNotNullOfOrNull { id ->
-            uiState.customSeriesByBookId[id]?.name
-        } ?: return
-        val knownIds = uiState.libraryBooks.mapTo(hashSetOf(), LibraryBook::id)
-        val currentIds = uiState.customSeriesByBookId.entries.asSequence()
-            .filter { (id, assignment) -> id in knownIds && assignment.name == seriesName }
-            .sortedWith(compareBy({ it.value.order }, { it.key }))
-            .map { it.key }
-            .toList()
-        val movableIds = requestedIds.filter { id ->
-            id in currentIds && uiState.customSeriesByBookId[id]?.name == seriesName
-        }
-        if (movableIds.size < 2) return
-        val movableSet = movableIds.toHashSet()
-        val replacements = movableIds.iterator()
-        val reorderedIds = currentIds.map { id ->
-            if (id in movableSet) replacements.next() else id
-        }
-        if (reorderedIds == currentIds) return
-        val assignments = uiState.customSeriesByBookId.toMutableMap()
-        val modifiedAt = System.currentTimeMillis()
-        reorderedIds.forEachIndexed { order, id ->
-            assignments[id] = assignments.getValue(id).copy(
-                order = order,
-                modifiedAt = modifiedAt,
-            )
-        }
-        persistCustomSeries(assignments)
-        uiState = uiState.copy(customSeriesByBookId = assignments)
-    }
-
     fun setLibraryBooksHidden(bookIds: Set<String>, hidden: Boolean) {
         val updated = if (hidden) uiState.libraryHiddenIds + bookIds else uiState.libraryHiddenIds - bookIds
         libraryPreferenceStore.saveHiddenIds(updated)
@@ -2042,6 +2028,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(
             customSeriesByBookId = assignments,
             libraryFavoriteSeriesNames = favorites,
+            selectedLibrarySeries = if (uiState.selectedLibrarySeries == oldName) normalized else uiState.selectedLibrarySeries,
         )
     }
 

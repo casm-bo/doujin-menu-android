@@ -513,4 +513,10 @@
     <string name="ui_remove_favorite">お気に入りを解除</string>
     <string name="ui_mark_read">既読にする</string>
     <string name="ui_mark_unread">未読にする</string>
+    <string name="ui_series_options_edit">シリーズのオプションを編集</string>
+    <string name="ui_series_episode_count">%1$dエピソード</string>
+    <string name="ui_add_episodes">エピソードを追加</string>
+    <string name="ui_exclude_episodes">エピソードを除外</string>
+    <string name="ui_empty_series_keeps_files">空のシリーズを保存するとグループのみ解除します。作品のファイルは保持します。</string>
+    <string name="ui_series_edit_conflict">編集中にシリーズが変更されました。キャンセルして開き直してください。</string>
 </resources>

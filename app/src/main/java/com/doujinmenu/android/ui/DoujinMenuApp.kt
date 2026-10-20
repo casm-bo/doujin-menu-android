@@ -317,8 +317,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     onOpenSeriesList = {
                         currentBook?.id?.let { id ->
                             viewModel.uiState.customSeriesByBookId[id]?.name?.let { series ->
-                                viewModel.setLibrarySeriesMode(true)
-                                viewModel.selectLibrarySeries(series)
+                                viewModel.openLibrarySeriesList(series)
                                 lastMainDestination = MainDestination.Library.route
                                 navController.popBackStack("main", inclusive = false)
                             }
@@ -852,7 +851,11 @@ private fun MainTabContent(
                 onMarkUnread = viewModel::markLibraryBooksUnread,
                 onAssignSeries = viewModel::assignLibrarySeries,
                 onAppendSeries = viewModel::appendLibrarySeries,
-                onReorderSeriesBooks = viewModel::reorderLibrarySeriesBooks,
+                onCommitSeriesEdit = viewModel::commitLibrarySeriesEdit,
+                onReadBook = viewModel::openLibraryReaderTab,
+                onSearchFacet = { viewModel.searchFromFacet(it); onNavigate(MainDestination.Browser) },
+                onSearchLanguage = { viewModel.searchFromLanguage(it); onNavigate(MainDestination.Browser) },
+                onSeriesListChange = viewModel::setLibrarySeriesEpisodeList,
                 onSetBooksHidden = viewModel::setLibraryBooksHidden,
                 onDeleteBooks = viewModel::deleteLibraryBooks,
                 onRenameBook = viewModel::renameLibraryBook,

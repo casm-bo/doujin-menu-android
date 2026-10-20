@@ -241,7 +241,6 @@ fun LibraryScreen(
     onMarkUnread: (Set<String>) -> Unit,
     onAssignSeries: (Set<String>, String) -> Unit,
     onAppendSeries: (Set<String>, String) -> Boolean,
-    onReorderSeriesBooks: (List<String>) -> Unit,
     onSetBooksHidden: (Set<String>, Boolean) -> Unit,
     onDeleteBooks: (Set<String>) -> Unit,
     onRenameBook: (String, String) -> Unit,
@@ -261,6 +260,11 @@ fun LibraryScreen(
     onSubmitSearch: () -> Unit = {},
     onRecentSearch: (String) -> Unit = {},
     onClearSearchHistory: () -> Unit = {},
+    onCommitSeriesEdit: (String, Map<String, CustomSeriesAssignment>, List<String>) -> Boolean = { _, _, _ -> false },
+    onReadBook: (String, Int) -> Unit = { id, _ -> onOpenBook(id) },
+    onSearchFacet: (String) -> Unit = {},
+    onSearchLanguage: (String) -> Unit = {},
+    onSeriesListChange: (Boolean) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -282,8 +286,8 @@ fun LibraryScreen(
     var existingSeriesDialog by rememberSaveable { mutableStateOf(false) }
     var seriesDialog by rememberSaveable { mutableStateOf(false) }
     var seriesName by rememberSaveable { mutableStateOf("") }
-    var editingSeriesOrder by rememberSaveable { mutableStateOf(false) }
-    var addingToSeries by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingSeriesName by rememberSaveable { mutableStateOf<String?>(null) }
+    val showSeriesList = state.librarySeriesEpisodeList
     var pendingSeriesSelection by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteDialog by rememberSaveable { mutableStateOf(false) }
     var renameBookDialog by rememberSaveable { mutableStateOf(false) }
@@ -395,11 +399,6 @@ fun LibraryScreen(
     BackHandler {
         when {
             selectionMode -> {
-                addingToSeries?.let { series ->
-                    onSeriesModeChange(true)
-                    onSelectedSeriesChange(series)
-                }
-                addingToSeries = null
                 selectionMode = false
                 selectedIds = emptySet()
             }
@@ -408,7 +407,7 @@ fun LibraryScreen(
                 selectedSeriesNames = emptySet()
                 firstSelectedSeriesName = null
             }
-            editingSeriesOrder -> editingSeriesOrder = false
+            showSeriesList -> onSeriesListChange(false)
             selectedSeries != null -> onSelectedSeriesChange(null)
             seriesMode -> onSeriesModeChange(false)
             else -> onBackToSearch()
@@ -422,14 +421,12 @@ fun LibraryScreen(
     var filterMenuOpen by remember { mutableStateOf(false) }
     var sortMenuOpen by remember { mutableStateOf(false) }
     val canCollapse = books.isNotEmpty() && !queryExpanded && options == null && !filterMenuOpen && !sortMenuOpen &&
-        !selectionMode && !seriesSelectionMode && !editingSeriesOrder && !seriesDialog && !existingSeriesDialog
+        !selectionMode && !seriesSelectionMode && editingSeriesName == null && !seriesDialog && !existingSeriesDialog
     val collapseEnabled by rememberUpdatedState(canCollapse)
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { collapseEnabled })
     LaunchedEffect(pageKey, canCollapse) { if (!canCollapse) scrollBehavior.state.heightOffset = 0f }
     val changeSeriesMode: (Boolean) -> Unit = {
-        addingToSeries = null
         onSeriesModeChange(it)
-        editingSeriesOrder = false
         selectionMode = false
         seriesSelectionMode = false
         selectedIds = emptySet()
@@ -442,18 +439,23 @@ fun LibraryScreen(
             onCancel = { existingSeriesDialog = false })
         return
     }
+    editingSeriesName?.let { name ->
+        SeriesOptionsEditor(name, state.libraryBooks, state.customSeriesByBookId, contentPadding,
+            onSave = { baseline, ids -> onCommitSeriesEdit(name, baseline, ids) },
+            onDone = { editingSeriesName = null; selectionMode = false; seriesSelectionMode = false; selectedIds = emptySet(); selectedSeriesNames = emptySet() },
+            onCancel = { editingSeriesName = null })
+        return
+    }
     PullToRefreshBox(
         isRefreshing = state.isLibraryPullRefreshing,
-        onRefresh = { if (!editingSeriesOrder) onRefresh() },
+        onRefresh = onRefresh,
         state = pullToRefreshState,
         indicator = {
-            if (!editingSeriesOrder) {
-                PullToRefreshDefaults.Indicator(
-                    isRefreshing = state.isLibraryPullRefreshing,
-                    state = pullToRefreshState,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                )
-            }
+            PullToRefreshDefaults.Indicator(
+                isRefreshing = state.isLibraryPullRefreshing,
+                state = pullToRefreshState,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
         },
         modifier = Modifier.fillMaxSize().padding(contentPadding),
     ) {
@@ -503,14 +505,6 @@ fun LibraryScreen(
                                     DropdownMenuItem(text = { Text("$category  ›") }, leadingIcon = { ActionIcon(symbol) }, onClick = { options = category })
                                 }
                                 DropdownMenuItem(text = { Text(if (state.isAutoCreatingSeries) strings[R.string.ui_analyzing] else strings[R.string.ui_auto_generate_series]) }, leadingIcon = { ActionIcon(ActionSymbol.SERIES) }, enabled = !state.isAutoCreatingSeries, onClick = { onAutoCreateSeries(); options = null })
-                                if (selectedSeries != null) {
-                                    DropdownMenuItem(text = { Text(if (editingSeriesOrder) strings[R.string.ui_finish_reordering] else strings[R.string.ui_edit_order]) }, leadingIcon = { ActionIcon(ActionSymbol.SORT) }, onClick = { editingSeriesOrder = !editingSeriesOrder; options = null })
-                                    DropdownMenuItem(text = { Text(strings[R.string.ui_edit_series_members]) }, leadingIcon = { ActionIcon(ActionSymbol.EDIT) }, enabled = !editingSeriesOrder, onClick = {
-                                        selectedIds = state.customSeriesByBookId.filterValues { it.name == selectedSeries }.keys
-                                        addingToSeries = selectedSeries; selectionMode = true
-                                        onSelectedSeriesChange(null); onSeriesModeChange(false); options = null
-                                    })
-                                }
                                 HorizontalDivider()
                                 DropdownMenuItem(text = { Text(strings[R.string.ui_refresh]) }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { options = null; onRefresh() })
                                 DropdownMenuItem(text = { Text(if (state.isLibrarySyncing) strings[R.string.ui_syncing_with_pc] else strings[R.string.ui_pc_sync_pending, (state.librarySyncPendingCount)]) }, leadingIcon = { ActionIcon(ActionSymbol.PC) },
@@ -560,6 +554,7 @@ fun LibraryScreen(
                             renameSeriesDialog = true
                         }
                     },
+                    onEditSeries = selectedSeriesNames.singleOrNull()?.let { name -> { editingSeriesName = name } },
                     onDelete = { deleteDialog = true },
                     onClose = {
                         seriesSelectionMode = false
@@ -577,48 +572,31 @@ fun LibraryScreen(
                         selectedIds = if (selectedIds.containsAll(shownBooks.map { it.id })) emptySet()
                         else shownBooks.mapTo(linkedSetOf(), LibraryBook::id)
                     },
-                    onFavorite = if (addingToSeries == null) ({ onAddFavorites(selectedIds) }) else null,
-                    onRead = if (addingToSeries == null) ({
-                        if (allSelectedRead) onMarkUnread(selectedIds) else onMarkRead(selectedIds)
-                    }) else null,
+                    onFavorite = { onAddFavorites(selectedIds) },
+                    onRead = { if (allSelectedRead) onMarkUnread(selectedIds) else onMarkRead(selectedIds) },
                     readLabel = if (allSelectedRead) strings[R.string.ui_unread] else strings[R.string.ui_read],
-                    onSeries = if (addingToSeries == null && selectedSeries == null) {
+                    onSeries = if (selectedSeries == null) {
                         ({ seriesDialog = true })
                     } else null,
                     seriesLabel = strings[R.string.ui_add_series],
-                    onExistingSeries = if (addingToSeries == null) ({ existingSeriesDialog = true }) else null,
-                    onSave = addingToSeries?.let { target ->
-                        {
-                            val previousIds = state.customSeriesByBookId
-                                .filterValues { it.name == target }.keys
-                            onRemoveBooksFromSeries(previousIds - selectedIds)
-                            onAssignSeries(selectedIds, target)
-                            addingToSeries = null
-                            selectionMode = false
-                            selectedIds = emptySet()
-                            onSeriesModeChange(true)
-                            onSelectedSeriesChange(target)
-                        }
-                    },
-                    onRename = if (addingToSeries == null) selectedIds.singleOrNull()?.let { id ->
+                    onExistingSeries = { existingSeriesDialog = true },
+                    onEditSeries = selectedIds.mapNotNull { state.customSeriesByBookId[it]?.name }.distinct().singleOrNull()
+                        ?.takeIf { name -> state.customSeriesByBookId.filterValues { it.name == name }.keys == selectedIds }
+                        ?.let { name -> { editingSeriesName = name } },
+                    onRename = selectedIds.singleOrNull()?.let { id ->
                         {
                             renameInput = state.libraryBooks.firstOrNull { it.id == id }?.title.orEmpty()
                             renameBookDialog = true
                         }
-                    } else null,
-                    onHide = if (addingToSeries == null) ({
+                    },
+                    onHide = {
                         onSetBooksHidden(selectedIds, !allSelectedHidden)
                         selectionMode = false
                         selectedIds = emptySet()
-                    }) else null,
+                    },
                     hideLabel = if (allSelectedHidden) strings[R.string.ui_unhide] else strings[R.string.ui_hide],
-                    onDelete = if (addingToSeries == null) ({ deleteDialog = true }) else null,
+                    onDelete = { deleteDialog = true },
                     onClose = {
-                        addingToSeries?.let { series ->
-                            onSeriesModeChange(true)
-                            onSelectedSeriesChange(series)
-                        }
-                        addingToSeries = null
                         selectionMode = false
                         selectedIds = emptySet()
                     },
@@ -650,15 +628,22 @@ fun LibraryScreen(
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     TextButton(onClick = {
                         onSelectedSeriesChange(null)
-                        editingSeriesOrder = false
                     }) { Text("<") }
                     Text(selectedSeries, Modifier.weight(1f).padding(12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (showSeriesList) TextButton(onClick = { onSeriesListChange(false) }) { Text(strings[R.string.ui_gallery_details]) }
 
                 }
             }
 
             }
             when {
+                selectedSeries != null && !selectionMode && !showSeriesList -> SeriesDetailContent(
+                    selectedSeries, state.libraryBooks.filter { state.customSeriesByBookId[it.id]?.name == selectedSeries }, state,
+                    onList = { onSeriesListChange(true) }, onEdit = { editingSeriesName = selectedSeries }, onOpenBook = onOpenBook, onReadBook = onReadBook,
+                    onRename = { selectedSeriesNames = setOf(selectedSeries); renameInput = selectedSeries; renameSeriesDialog = true },
+                    onFavorite = { onToggleSeriesFavorite(selectedSeries) }, onRead = onMarkRead, onUnread = onMarkUnread, onHidden = onSetBooksHidden,
+                    onDelete = { onDeleteSeries(setOf(selectedSeries)); onSelectedSeriesChange(null) }, onSearchFacet = onSearchFacet, onSearchLanguage = onSearchLanguage,
+                )
                 state.isLibraryScanning && state.libraryBooks.isEmpty() -> Box(
                     modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center,
                 ) { CircularProgressIndicator() }
@@ -696,11 +681,6 @@ fun LibraryScreen(
                         seriesSelectionMode = true
                         selectedSeriesNames = selectedSeriesNames + name
                     },
-                )
-                editingSeriesOrder && selectedSeries != null -> LibrarySeriesOrderEditor(
-                    books = shownBooks,
-                    customSeries = state.customSeriesByBookId,
-                    onReorder = onReorderSeriesBooks,
                 )
                 viewMode == LibraryViewMode.GRID -> LibraryGrid(
                     entries = if (seriesMode) shownEntries else mainEntries,
@@ -916,8 +896,8 @@ private fun LibrarySelectionToolbar(
     onRead: (() -> Unit)?,
     onSeries: (() -> Unit)?,
     onExistingSeries: (() -> Unit)? = null,
+    onEditSeries: (() -> Unit)? = null,
     onMerge: (() -> Unit)? = null,
-    onSave: (() -> Unit)? = null,
     readLabel: String? = null,
     seriesLabel: String? = null,
     onRename: (() -> Unit)?,
@@ -946,10 +926,11 @@ private fun LibrarySelectionToolbar(
                     Triple(strings[R.string.ui_add_favorite], onFavorite, ActionSymbol.HEART), Triple(readLabel ?: strings[R.string.ui_read], onRead, ActionSymbol.READ),
                     Triple(seriesLabel ?: strings[R.string.ui_series], onSeries, ActionSymbol.SERIES),
                     Triple(strings[R.string.ui_add_to_series], onExistingSeries, ActionSymbol.SERIES), Triple(strings[R.string.ui_merge], onMerge, ActionSymbol.MERGE),
-                    Triple(strings[R.string.ui_save], onSave, ActionSymbol.SAVE), Triple(strings[R.string.ui_rename], onRename, ActionSymbol.EDIT),
+                    Triple(strings[R.string.ui_series_options_edit], onEditSeries, ActionSymbol.EDIT),
+                    Triple(strings[R.string.ui_rename], onRename, ActionSymbol.EDIT),
                     Triple(hideLabel ?: strings[R.string.ui_hide], onHide, ActionSymbol.HIDE),
                 ).forEach { (label, action, symbol) ->
-                    if (action != null) DropdownMenuItem(text = { Text(label) }, leadingIcon = { ActionIcon(symbol) }, enabled = selectedCount > 0 || label == strings[R.string.ui_save],
+                    if (action != null) DropdownMenuItem(text = { Text(label) }, leadingIcon = { ActionIcon(symbol) }, enabled = selectedCount > 0,
                         onClick = { menuExpanded = false; action() })
                 }
             }
@@ -1533,6 +1514,7 @@ internal fun SeriesCard(
         metadata = strings[R.string.ui_chapters, books.size, ""],
         tags = books.flatMap { it.metadata.tags }.distinct().map { CardTag(tagDisplayInfo(it)) },
         footer = strings[R.string.ui_series], grid = !listMode, onClick = onClick, onLongClick = onLongPress, selected = selected,
+        webtoon = books.any { it.webtoon == true },
         border = galleryCardBorder(series = true, favorite = favorite)) {
         SeriesCover(book = books.firstOrNull(), books = books, context = context, favorite = favorite, read = read,
             onToggleFavorite = onToggleFavorite, selectionMode = selectionMode, selected = selected,
@@ -1643,10 +1625,12 @@ private fun SeriesStackIcon(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun LibrarySeriesOrderEditor(
+internal fun LibrarySeriesOrderEditor(
     books: List<LibraryBook>,
     customSeries: Map<String, CustomSeriesAssignment>,
     onReorder: (List<String>) -> Unit,
+    selectedIds: Set<String> = emptySet(),
+    onSelect: ((String) -> Unit)? = null,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -1684,7 +1668,7 @@ private fun LibrarySeriesOrderEditor(
                 animationSpec = tween(160, easing = LinearOutSlowInEasing),
                 label = "seriesReorderOffset",
             )
-            Card(colors = appCardColors(),
+            Card(colors = appCardColors(book.id in selectedIds),
                 modifier = Modifier
                     .fillMaxWidth()
                     .onSizeChanged { itemHeights[book.id] = it.height }
@@ -1770,6 +1754,7 @@ private fun LibrarySeriesOrderEditor(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    if (onSelect != null) androidx.compose.material3.Checkbox(book.id in selectedIds, onCheckedChange = { onSelect(book.id) })
                     Text(
                         "${index + 1}",
                         style = MaterialTheme.typography.titleMedium,
