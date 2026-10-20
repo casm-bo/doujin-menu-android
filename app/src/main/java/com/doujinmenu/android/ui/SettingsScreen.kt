@@ -294,7 +294,7 @@ private fun BorderSettingsCard(title: String, style: GalleryBorderStyle, onChang
         Text(strings[R.string.ui_width_dp_0_disables_border, (style.widthDp.toInt())])
         Slider(value = style.widthDp, onValueChange = { onChange(style.copy(widthDp = it)) }, valueRange = 0f..6f, steps = 5)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(0xFF6750A4, 0xFFB0A6BC, 0xFF1565C0, 0xFF008577, 0xFFC62828, 0xFF202020).forEach { color ->
+            listOf(0xFF6750A4, 0xFFB0A6BC, 0xFF1565C0, 0xFF008577, 0xFFC62828, 0xFFE6A000, 0xFF202020).forEach { color ->
                 FilterChip(selected = style.colorArgb == color, onClick = { onChange(style.copy(colorArgb = color)) },
                     label = { Text("●", color = Color(color)) })
             }
