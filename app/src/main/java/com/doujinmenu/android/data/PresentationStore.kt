@@ -10,14 +10,18 @@ data class PresentationRecord(val value: GalleryPresentation, val dirty: Boolean
     val mutationId: String = UUID.randomUUID().toString(), val conflict: GalleryPresentation? = null)
 
 /** User edits are separate from scan metadata, including explicit empty lists. */
-class PresentationStore(private val identity: LibraryIdentityStore) {
+class PresentationStore(private val identity: LibraryIdentityStore, private val profileId: String? = null) {
+    private val prefix get() = profileId?.let { "profile/$it/" }.orEmpty()
+    private fun storageKey(key: String) = prefix + key
+    private val selection get() = if (profileId == null) "resource_key NOT LIKE 'profile/%'" else "substr(resource_key, 1, ${prefix.length}) = ?"
+    private val selectionArgs get() = if (profileId == null) null else arrayOf(prefix)
     fun all(): List<PresentationRecord> = identity.readableDatabase.query("gallery_presentations", arrayOf("payload", "dirty", "mutation_id", "conflict"),
-        null, null, null, null, null).use { cursor -> buildList {
+        selection, selectionArgs, null, null, null).use { cursor -> buildList {
         while (cursor.moveToNext()) add(PresentationRecord(presentationFromJson(JSONObject(cursor.getString(0))), cursor.getInt(1) != 0,
             cursor.getString(2), cursor.getString(3)?.let { presentationFromJson(JSONObject(it)) }))
     } }
     fun get(key: String): PresentationRecord? = identity.readableDatabase.query("gallery_presentations", arrayOf("payload", "dirty", "mutation_id", "conflict"),
-        "resource_key = ?", arrayOf(key), null, null, null).use { cursor ->
+        "resource_key = ?", arrayOf(storageKey(key)), null, null, null).use { cursor ->
         if (!cursor.moveToFirst()) null else PresentationRecord(presentationFromJson(JSONObject(cursor.getString(0))), cursor.getInt(1) != 0,
             cursor.getString(2), cursor.getString(3)?.let { presentationFromJson(JSONObject(it)) })
     }
@@ -28,6 +32,16 @@ class PresentationStore(private val identity: LibraryIdentityStore) {
             dirty = true, conflict = if (resolveConflict) null else previous?.conflict).also(::put)
     }
     fun pending(): List<PresentationRecord> = all().filter { it.dirty && it.conflict == null }
+
+    fun adoptDeviceEdits() = transaction {
+        if (profileId == null) return@transaction
+        PresentationStore(identity).all().forEach { record ->
+            if (get(record.value.key) == null) {
+                put(record.copy(value = record.value.copy(version = 0, revision = 0), dirty = true, conflict = null))
+                identity.writableDatabase.delete("gallery_presentations", "resource_key = ?", arrayOf(record.value.key))
+            }
+        }
+    }
 
     fun receive(value: GalleryPresentation) = transaction {
         val previous = get(value.key)
@@ -63,7 +77,7 @@ class PresentationStore(private val identity: LibraryIdentityStore) {
     }
     private fun put(record: PresentationRecord) {
         check(identity.writableDatabase.insertWithOnConflict("gallery_presentations", null, ContentValues().apply {
-            put("resource_key", record.value.key); put("payload", record.value.toJson().toString())
+            put("resource_key", storageKey(record.value.key)); put("payload", record.value.toJson().toString())
             put("dirty", if (record.dirty) 1 else 0); put("mutation_id", record.mutationId)
             put("conflict", record.conflict?.toJson()?.toString())
         }, SQLiteDatabase.CONFLICT_REPLACE) != -1L)

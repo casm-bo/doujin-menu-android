@@ -7,6 +7,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PresentationStoreTest {
+    @Test fun desktopProfilesHaveIndependentVersionsAndDeviceEditsMoveOnlyOnce() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val name = "profile-presentation-${System.nanoTime()}.db"
+        LibraryIdentityStore(context, name).use { identity ->
+            val local = PresentationStore(identity)
+            val first = PresentationStore(identity, "first-pc")
+            val second = PresentationStore(identity, "second-pc")
+            val value = GalleryPresentation("hitomi:42", "Offline", LibraryMetadata())
+            local.saveLocal(value)
+            first.adoptDeviceEdits(); second.adoptDeviceEdits()
+            assertEquals("Offline", first.get(value.key)!!.value.title)
+            assertTrue(local.all().isEmpty()); assertTrue(second.all().isEmpty())
+            first.receive(value.copy(title = "First PC", version = 12, revision = 50))
+            second.receive(value.copy(title = "Second PC", version = 1, revision = 1))
+            assertEquals(12, first.get(value.key)!!.conflict!!.version)
+            assertEquals(1, second.get(value.key)!!.value.version)
+            assertNull(second.get(value.key)!!.conflict)
+        }
+        context.deleteDatabase(name)
+    }
     @Test fun externalJpegOrientationIsAppliedToTheSavedCover() = kotlinx.coroutines.runBlocking<Unit> {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val source = java.io.File(context.cacheDir, "rotated-cover-test.jpg")
