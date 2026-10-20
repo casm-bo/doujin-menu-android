@@ -495,7 +495,7 @@ private fun LibrarySettingsScreen(
         }
 
         SectionCard(strings[R.string.ui_download_destination]) {
-            listOf(DownloadDestination.DEVICE to R.string.ui_device, DownloadDestination.DESKTOP to R.string.ui_desktop, DownloadDestination.ASK to R.string.ui_always_ask).forEach { (value, label) ->
+            listOf(DownloadDestination.DEVICE to R.string.ui_device_d79c45, DownloadDestination.DESKTOP to R.string.ui_desktop, DownloadDestination.ASK to R.string.ui_always_ask).forEach { (value, label) ->
                 ChoiceMenuItem(strings[label], state.downloadDestination == value, onClick = { onDownloadDestinationChange(value) })
             }
         }
