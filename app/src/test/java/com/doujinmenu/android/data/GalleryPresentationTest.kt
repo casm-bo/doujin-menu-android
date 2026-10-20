@@ -6,6 +6,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GalleryPresentationTest {
+    @Test fun sourceUploadDateSurvivesAnOlderMetadataSnapshot() {
+        val gallery = GallerySummary(123, "Source", emptyList(), emptyList(), null, emptyList(), null, 1, null, publishedDate = "2020-01-02")
+        val old = gallery.presentation().copy(title = "Edited", metadata = LibraryMetadata(hitomiId = "123"))
+        val display = gallery.withPresentation(old)
+        assertEquals("Edited", display.title)
+        assertEquals("2020-01-02", display.publishedDate)
+        assertEquals("2021-02-03", gallery.withPresentation(old.copy(metadata = old.metadata.copy(publishedDate = "2021-02-03"))).publishedDate)
+    }
     @Test fun metadataOverridesDoNotTouchPageSourcesAndPreserveClearedTags() {
         val book = LibraryBook("id", "Raw", locationUri = "device", locationName = "Device", folderUri = "folder",
             pages = listOf(LibraryPage("file:/original.png", "1")), modifiedAt = 1, syncId = "uuid", metadata = LibraryMetadata(tags = listOf("raw"), publishedDate = "2020-01-02"))

@@ -35,7 +35,7 @@ fun LibraryBook.withPresentation(value: GalleryPresentation?, coverUri: String? 
 
 fun GallerySummary.withPresentation(value: GalleryPresentation?, coverUri: String? = null): GallerySummary = if (value == null) this else
     copy(title = value.title, webtoon = value.webtoon, artists = value.metadata.artists, groups = value.metadata.groups, characters = value.metadata.characters, series = value.metadata.series,
-        galleryType = value.metadata.galleryType, language = value.metadata.language, publishedDate = value.metadata.publishedDate,
+        galleryType = value.metadata.galleryType, language = value.metadata.language, publishedDate = value.metadata.publishedDate ?: publishedDate,
         tags = value.metadata.tags.map { tag ->
             val namespace = tag.substringBefore(':', "")
             if (namespace in listOf("female", "male")) GalleryTag(namespace, tag.substringAfter(':')) else GalleryTag("tag", tag)
