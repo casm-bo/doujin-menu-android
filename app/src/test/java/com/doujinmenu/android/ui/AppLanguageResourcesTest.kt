@@ -19,7 +19,7 @@ class AppLanguageResourcesTest {
 
     @Test fun `every supported language has all messages with compatible format arguments`() {
         val baseline = strings("values")
-        val placeholder = Regex("%\\d+\\\$s")
+        val placeholder = Regex("%\\d+\\\$[sd]")
         listOf("values-ko", "values-ja", "values-zh").forEach { folder ->
             val translated = strings(folder)
             assertEquals(folder, baseline.keys, translated.keys)
@@ -28,7 +28,7 @@ class AppLanguageResourcesTest {
                 assertEquals("$folder/$key arguments", placeholder.findAll(value).map { it.value }.sorted().toList(),
                     placeholder.findAll(translated.getValue(key)).map { it.value }.sorted().toList())
                 // Exercises format syntax, including escaped percent signs and reordered arguments.
-                String.format(Locale.ROOT, translated.getValue(key), "one", "two", "three")
+                String.format(Locale.ROOT, translated.getValue(key), 1, 2, 3)
             }
         }
         assertEquals("Search", baseline.getValue("ui_search").trim('"'))

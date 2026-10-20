@@ -72,3 +72,34 @@ An initial Gradle device-test run removed the installed debug target and its app
 settings. The debug app was reinstalled, but its private data was not recovered.
 Subsequent device tests use dedicated `.uitest` / `.perfbaseline` application IDs.
 See [testing.md](testing.md) for commands that avoid targeting installed user apps.
+
+## Additional implementation verification — 2026-10-20
+
+- Android: 207 unit tests, zero failures (two opt-in live-service tests skipped).
+  Debug Lint reports zero errors; debug and release APK assembly passed.
+- Isolated SM-N986N device suite: 43 tests passed, including real biometric prompt
+  cancellation/rotation, reader/preview restoration, scalable History labels,
+  shared search editor/caret/history, debounced gallery queries, common view sizes,
+  transactional series editing/aggregate previews, failed-image recovery,
+  offline download destinations/settings shortcut and delayed-PC profile switching.
+- Desktop: 674 tests passed during implementation; final tsc/vue-tsc and actual
+  main/renderer compilation passed. No installed desktop database was used.
+- The separate 600-book cached-image scroll run recorded 551 frames, median
+  10.81ms, p95 30.80ms, 69 frames above 16.67ms (12.5%) and 10 state writes.
+  The full device suite recorded 571 frames, median 10.77ms, p95 27.72ms,
+  65 frames above 16.67ms (11.4%) and 11 writes. These are diagnostic debug-build
+  measurements, not a guarantee for every real library or network connection.
+- Track swipes now remain content gestures; track jumping requires a long press.
+  Thumb dragging is immediate. Fixed haptic uses 12ms and amplitude 26/255 when
+  amplitude control is supported, with a weak system fallback and touch-feedback
+  disable respected. Hardware amplitude is not perceived-strength calibration.
+- A synthetic HTTP fixture failed four times, exposed manual retry after three
+  automatic retries, then returned a valid image. The original user's individual
+  network-image failure was not captured, so no specific CDN status is claimed.
+- APK labels were inspected in English/Korean/Japanese/Chinese: Doujin Menu debug,
+  package com.doujinmenu.android.debug, version 1.0.0-debug (12).
+- v0.10.0 notes are preserved verbatim; new notes are under v1.0.0.
+
+Metadata/cover protocol and storage are documented in [metadata-sync.md](metadata-sync.md).
+Real successful biometric scans and transfer against the user's installed PC build
+were not automated. The PC requires the updated Companion API build.
