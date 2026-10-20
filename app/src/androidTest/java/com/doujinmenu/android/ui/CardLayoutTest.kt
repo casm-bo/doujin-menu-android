@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
+import androidx.test.platform.app.InstrumentationRegistry
 import com.doujinmenu.android.model.*
 import com.doujinmenu.android.ui.theme.DoujinMenuTheme
 import org.junit.Assert.*
@@ -21,6 +22,8 @@ class CardLayoutTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun cardsKeepEqualHeightsAcrossColumnsFontsAndListAndOnlyLayOutFittingTags() {
+        // Equal-weight columns can differ by one physical pixel; aspect-ratio rounding adds at most two height pixels.
+        val gridTolerance = 2f / InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density + .01f
         var font by mutableFloatStateOf(16f)
         var columns by mutableIntStateOf(2)
         var grid by mutableStateOf(true)
@@ -43,7 +46,7 @@ class CardLayoutTest {
             compose.waitForIdle()
             val first = compose.onNodeWithTag("card-0").getUnclippedBoundsInRoot()
             val second = compose.onNodeWithTag("card-1").getUnclippedBoundsInRoot()
-            assertEquals((first.bottom - first.top).value, (second.bottom - second.top).value, .5f)
+            assertEquals((first.bottom - first.top).value, (second.bottom - second.top).value, gridTolerance)
             compose.onNodeWithText("tail-59", useUnmergedTree = true).assertDoesNotExist()
         }
         compose.runOnIdle { grid = false }
