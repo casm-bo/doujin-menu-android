@@ -16,7 +16,6 @@ internal fun previewGridState(
     val state = remember(pageKey) { LazyGridState() }
     val saved = remember(pageKey) { initial }
     var restored by remember(pageKey) { mutableStateOf(false) }
-    val save by rememberUpdatedState(onSave)
     LaunchedEffect(pageKey, pageCount) {
         if (!restored && (saved.page == 0 || pageCount >= saved.page)) {
             // Item zero is the full-span header; thumbnail indices remain stable as its height changes.
@@ -26,10 +25,10 @@ internal fun previewGridState(
     }
     LaunchedEffect(pageKey, restored) {
         if (restored) snapshotFlow { Triple(state.isScrollInProgress, state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset) }
-            .filter { !it.first }.distinctUntilChanged().collect { (_, index, offset) -> save(ReaderPosition(index, offset)) }
+            .filter { !it.first }.distinctUntilChanged().collect { (_, index, offset) -> onSave(ReaderPosition(index, offset)) }
     }
     DisposableEffect(pageKey, restored) {
-        onDispose { if (restored) save(ReaderPosition(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)) }
+        onDispose { if (restored) onSave(ReaderPosition(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)) }
     }
     return state
 }

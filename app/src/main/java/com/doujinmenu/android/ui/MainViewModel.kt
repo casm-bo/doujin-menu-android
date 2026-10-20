@@ -320,7 +320,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         requestStore.readError?.let { uiState = uiState.copy(downloadQueueError = it) }
-        navigationPage = browserWorkspace.activeTab.currentPage
+        navigationPage = if (browserPreferenceStore.loadActiveGalleryWorkspace()) galleryWorkspace.activeTab.currentPage else browserWorkspace.activeTab.currentPage
         if (activeSearch?.resultIds.isNullOrEmpty() && (activeSearch?.currentPage ?: 0) > 0) {
             restoreBrowserSearch()
         }
@@ -644,6 +644,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .pushPage(BrowserPage.LibraryBook(bookId, book.title))
             .pushPage(BrowserPage.LibraryReader(bookId, book.title, 0))
         applyGalleryWorkspace(workspace)
+    }
+
+    fun initialMainDestination(): String = browserPreferenceStore.loadMainDestination()
+    fun rememberMainDestination(route: String) = browserPreferenceStore.saveMainDestination(route)
+    fun activateMainWorkspace(route: String) {
+        if (route == "browser" || route == "library") {
+            val gallery = route == "library"
+            navigationPage = (if (gallery) uiState.galleryWorkspace else uiState.browserWorkspace).activeTab.currentPage
+            browserPreferenceStore.saveActiveGalleryWorkspace(gallery)
+        }
     }
 
     fun activeBrowserPage(): BrowserPage =
@@ -2361,6 +2371,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         suggestionJob?.cancel()
         val page = workspace.activeTab.currentPage
         navigationPage = page
+        browserPreferenceStore.saveActiveGalleryWorkspace(false)
         val revision = uiState.browserNavigationRevision + 1
         uiState = when (page) {
             is BrowserPage.Search -> uiState.copy(
@@ -2411,6 +2422,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         cancelSearchWindow()
         suggestionJob?.cancel()
         navigationPage = workspace.activeTab.currentPage
+        browserPreferenceStore.saveActiveGalleryWorkspace(true)
         uiState = uiState.copy(
             galleryWorkspace = workspace,
             galleries = emptyList(),

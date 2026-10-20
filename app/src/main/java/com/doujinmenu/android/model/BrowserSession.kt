@@ -64,27 +64,28 @@ data class ReaderPosition(val page: Int, val offset: Int = 0) {
     init { require(page >= 0 && offset >= 0) }
 }
 
-fun BrowserWorkspace.updateReaderPosition(pageKey: String, position: ReaderPosition): BrowserWorkspace = copy(
-    tabs = tabs.map { tab -> tab.copy(history = tab.history.map { page ->
-        when {
-            page.key != pageKey -> page
-            page is BrowserPage.OnlineReader -> page.copy(position = position)
-            page is BrowserPage.LibraryReader -> page.copy(position = position)
-            else -> page
-        }
-    }) },
-)
+private fun BrowserWorkspace.mapPages(transform: (BrowserPage) -> BrowserPage): BrowserWorkspace {
+    fun BrowserTab.update() = copy(history = history.map(transform))
+    return copy(tabs = tabs.map { it.update() }, groups = groups.map { group -> group.copy(archivedTabs = group.archivedTabs.map { it.update() }) })
+}
 
-fun BrowserWorkspace.updatePreviewPosition(pageKey: String, position: ReaderPosition): BrowserWorkspace = copy(
-    tabs = tabs.map { tab -> tab.copy(history = tab.history.map { page ->
-        when {
-            page.key != pageKey -> page
-            page is BrowserPage.OnlineGallery -> page.copy(previewPosition = position)
-            page is BrowserPage.LibraryBook -> page.copy(previewPosition = position)
-            else -> page
-        }
-    }) },
-)
+fun BrowserWorkspace.updateReaderPosition(pageKey: String, position: ReaderPosition): BrowserWorkspace = mapPages { page ->
+    when {
+        page.key != pageKey -> page
+        page is BrowserPage.OnlineReader -> page.copy(position = position)
+        page is BrowserPage.LibraryReader -> page.copy(position = position)
+        else -> page
+    }
+}
+
+fun BrowserWorkspace.updatePreviewPosition(pageKey: String, position: ReaderPosition): BrowserWorkspace = mapPages { page ->
+    when {
+        page.key != pageKey -> page
+        page is BrowserPage.OnlineGallery -> page.copy(previewPosition = position)
+        page is BrowserPage.LibraryBook -> page.copy(previewPosition = position)
+        else -> page
+    }
+}
 
 data class BrowserTab(
     val id: String = UUID.randomUUID().toString(),
@@ -137,12 +138,10 @@ fun BrowserWorkspace.updateSearchScroll(
     })
 }
 
-fun BrowserWorkspace.updateLibraryScroll(pageKey: String, anchor: String?, index: Int, offset: Int): BrowserWorkspace = copy(
-    tabs = tabs.map { tab -> tab.copy(history = tab.history.map { page ->
-        if (page is BrowserPage.LibraryHome && page.key == pageKey) page.copy(scrollAnchorKey = anchor,
-            scrollIndex = index.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0)) else page
-    }) },
-)
+fun BrowserWorkspace.updateLibraryScroll(pageKey: String, anchor: String?, index: Int, offset: Int): BrowserWorkspace = mapPages { page ->
+    if (page is BrowserPage.LibraryHome && page.key == pageKey) page.copy(scrollAnchorKey = anchor,
+        scrollIndex = index.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0)) else page
+}
 
 fun BrowserWorkspace.selectSearchTab(
     query: String,

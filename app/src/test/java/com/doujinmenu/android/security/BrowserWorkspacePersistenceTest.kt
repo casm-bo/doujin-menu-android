@@ -18,6 +18,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
+    @Test fun finalReaderAndPreviewPositionsFollowArchivedTabs() {
+        val detail = BrowserPage.LibraryBook("pc:1", "Book")
+        val reader = BrowserPage.LibraryReader("pc:1", "Book", 3)
+        val workspace = BrowserWorkspace.initial(detail).pushPage(reader)
+            .let { it.createGroup(setOf(it.activeTabId), "Archive") }
+            .let { it.archiveGroup(it.groups.single().id, BrowserPage.LibraryHome()) }
+            .updateReaderPosition(reader.key, ReaderPosition(49, 5000))
+            .updatePreviewPosition(detail.key, ReaderPosition(40, 20))
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(workspace))
+        val history = restored.groups.single().archivedTabs.single().history
+        assertEquals(ReaderPosition(49, 5000), (history.last() as BrowserPage.LibraryReader).position)
+        assertEquals(ReaderPosition(40, 20), (history.first() as BrowserPage.LibraryBook).previewPosition)
+    }
     @Test fun previewAnchorSurvivesReaderNavigationAndProcessRestore() {
         listOf(BrowserPage.OnlineGallery(1, "Book"), BrowserPage.LibraryBook("pc:1", "Book")).forEach { detail ->
             val original = BrowserWorkspace.initial(detail)

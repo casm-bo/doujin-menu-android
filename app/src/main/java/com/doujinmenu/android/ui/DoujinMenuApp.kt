@@ -127,7 +127,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
         }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
-    var lastMainDestination by rememberSaveable { mutableStateOf(MainDestination.Browser.route) }
+    var lastMainDestination by rememberSaveable { mutableStateOf(viewModel.initialMainDestination()) }
     var searchOpenedFromGallery by rememberSaveable { mutableStateOf(false) }
     var lastShownNewTabNotice by rememberSaveable { mutableStateOf(0) }
     val newTabNotice = viewModel.uiState.newTabNotice
@@ -166,8 +166,13 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     }
 
     val browserNavigationRevision = viewModel.uiState.browserNavigationRevision
+    var appliedNavigationRevision by rememberSaveable { mutableStateOf(-1L) }
     LaunchedEffect(browserNavigationRevision) {
         val page = viewModel.activeBrowserPage()
+        val restoringMain = navController.currentDestination?.route == "main" &&
+            (appliedNavigationRevision == browserNavigationRevision || (browserNavigationRevision == 0L && lastMainDestination !in setOf("browser", "library")))
+        appliedNavigationRevision = browserNavigationRevision
+        if (restoringMain && (page is BrowserPage.Search || page is BrowserPage.LibraryHome)) return@LaunchedEffect
         if (page is BrowserPage.LibraryHome || page is BrowserPage.LibraryBook || page is BrowserPage.LibraryReader) searchOpenedFromGallery = false
         when (page) {
             is BrowserPage.LibraryHome -> {
@@ -245,7 +250,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 MainShell(
                     viewModel = viewModel,
                     initialDestinationRoute = lastMainDestination,
-                    onDestinationChanged = { lastMainDestination = it },
+                    onDestinationChanged = { lastMainDestination = it; viewModel.rememberMainDestination(it) },
                     onGalleryClick = {
                         val libraryBookId = viewModel.libraryBookIdForGallery(it)
                         if (libraryBookId != null) {
@@ -553,6 +558,7 @@ private fun MainShell(
     }
     val navigate: (MainDestination) -> Unit = { destination ->
         if (destination != selected) {
+            viewModel.activateMainWorkspace(destination.route)
             selectedRoute = destination.route
         }
     }

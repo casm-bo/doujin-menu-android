@@ -122,6 +122,12 @@ class BrowserPreferenceStore(context: Context) {
         preferences.edit().putString(KEY_SEARCH_WORKSPACE, browserWorkspaceToJson(workspace)).apply()
     }
 
+    fun loadActiveGalleryWorkspace(): Boolean = preferences.getBoolean("active_gallery_workspace", false)
+    fun saveActiveGalleryWorkspace(gallery: Boolean) { preferences.edit().putBoolean("active_gallery_workspace", gallery).apply() }
+    fun loadMainDestination(): String = preferences.getString("main_destination", "browser")
+        ?.takeIf { it in setOf("browser", "library", "history", "downloads", "settings") } ?: "browser"
+    fun saveMainDestination(route: String) { preferences.edit().putString("main_destination", route).apply() }
+
     fun loadGalleryWorkspace(): BrowserWorkspace {
         val raw = preferences.getString(KEY_GALLERY_WORKSPACE, null)
             ?: preferences.getString(KEY_BROWSER_WORKSPACE, null)
