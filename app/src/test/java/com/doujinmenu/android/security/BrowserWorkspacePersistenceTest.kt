@@ -11,11 +11,28 @@ import com.doujinmenu.android.model.overviewItems
 import com.doujinmenu.android.model.pushPage
 import com.doujinmenu.android.model.ReaderPosition
 import com.doujinmenu.android.model.updateReaderPosition
+import com.doujinmenu.android.model.updatePreviewPosition
+import com.doujinmenu.android.model.goBack
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
+    @Test fun previewAnchorSurvivesReaderNavigationAndProcessRestore() {
+        listOf(BrowserPage.OnlineGallery(1, "Book"), BrowserPage.LibraryBook("pc:1", "Book")).forEach { detail ->
+            val original = BrowserWorkspace.initial(detail)
+            val saved = original.pushPage(BrowserPage.OnlineReader(1, "Book", 49))
+                .updatePreviewPosition(detail.key, ReaderPosition(43, 80))
+            val restored = browserWorkspaceFromJson(browserWorkspaceToJson(saved)).goBack().activeTab.currentPage
+            val position = when (restored) {
+                is BrowserPage.OnlineGallery -> restored.previewPosition
+                is BrowserPage.LibraryBook -> restored.previewPosition
+                else -> error("Detail lost")
+            }
+            assertEquals(ReaderPosition(43, 80), position)
+            assertEquals(original, original.updatePreviewPosition("another-tab", ReaderPosition(1)))
+        }
+    }
     @Test fun readerSessionRestoresLatestPositionWithoutChangingExplicitEntryPage() {
         val reader = BrowserPage.OnlineReader(42, "Book", 3)
         val original = BrowserWorkspace.initial(reader)

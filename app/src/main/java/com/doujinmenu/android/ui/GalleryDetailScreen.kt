@@ -1,5 +1,6 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.model.ReaderPosition
 import com.doujinmenu.android.R
 
 import android.content.ClipData
@@ -53,6 +54,9 @@ import com.doujinmenu.android.model.GallerySummary
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GalleryDetailScreen(
+    pageKey: String,
+    initialPreviewPosition: ReaderPosition,
+    onPreviewPositionChange: (ReaderPosition) -> Unit,
     gallery: GallerySummary?,
     state: MainUiState,
     onLoadPreview: (Long) -> Unit,
@@ -87,7 +91,9 @@ fun GalleryDetailScreen(
         val context = LocalContext.current
         val previewPages = state.readerPagesByGalleryId[gallery.id].orEmpty()
 
+        val gridState = previewGridState(pageKey, initialPreviewPosition, previewPages.size, onPreviewPositionChange)
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Fixed(3),
             modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
             contentPadding = PaddingValues(16.dp),
@@ -235,7 +241,7 @@ fun GalleryDetailScreen(
                         .fillMaxWidth()
                         .height(160.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .clickable { onOpenReader(index) }
+                        .clickable { onPreviewPositionChange(ReaderPosition(gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset)); onOpenReader(index) }
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {

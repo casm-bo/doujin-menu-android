@@ -33,12 +33,14 @@ sealed interface BrowserPage {
         val galleryId: Long,
         val title: String,
         override val key: String = UUID.randomUUID().toString(),
+        val previewPosition: ReaderPosition = ReaderPosition(0),
     ) : BrowserPage
 
     data class LibraryBook(
         val bookId: String,
         val title: String,
         override val key: String = UUID.randomUUID().toString(),
+        val previewPosition: ReaderPosition = ReaderPosition(0),
     ) : BrowserPage
 
     data class OnlineReader(
@@ -68,6 +70,17 @@ fun BrowserWorkspace.updateReaderPosition(pageKey: String, position: ReaderPosit
             page.key != pageKey -> page
             page is BrowserPage.OnlineReader -> page.copy(position = position)
             page is BrowserPage.LibraryReader -> page.copy(position = position)
+            else -> page
+        }
+    }) },
+)
+
+fun BrowserWorkspace.updatePreviewPosition(pageKey: String, position: ReaderPosition): BrowserWorkspace = copy(
+    tabs = tabs.map { tab -> tab.copy(history = tab.history.map { page ->
+        when {
+            page.key != pageKey -> page
+            page is BrowserPage.OnlineGallery -> page.copy(previewPosition = position)
+            page is BrowserPage.LibraryBook -> page.copy(previewPosition = position)
             else -> page
         }
     }) },

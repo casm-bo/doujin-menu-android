@@ -1,5 +1,6 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.model.ReaderPosition
 import com.doujinmenu.android.R
 
 import androidx.compose.foundation.background
@@ -47,6 +48,9 @@ import com.doujinmenu.android.model.LibraryBook
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryDetailScreen(
+    pageKey: String,
+    initialPreviewPosition: ReaderPosition,
+    onPreviewPositionChange: (ReaderPosition) -> Unit,
     book: LibraryBook?,
     previousBook: LibraryBook?,
     nextBook: LibraryBook?,
@@ -82,7 +86,9 @@ fun LibraryDetailScreen(
         }
         val metadata = book.metadata
         val context = LocalContext.current
+        val gridState = previewGridState(pageKey, initialPreviewPosition, book.pages.size, onPreviewPositionChange)
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Fixed(3),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
@@ -184,7 +190,7 @@ fun LibraryDetailScreen(
             itemsIndexed(book.pages, key = { index, page -> "$index-${page.name}" }) { index, page ->
                 Box(
                     modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(6.dp))
-                        .clickable(enabled = page.uri.isNotBlank()) { onOpenReader(index) }
+                        .clickable(enabled = page.uri.isNotBlank()) { onPreviewPositionChange(ReaderPosition(gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset)); onOpenReader(index) }
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {

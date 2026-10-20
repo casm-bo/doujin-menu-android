@@ -292,11 +292,13 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
         .put("scrollOffset", scrollOffset)
     is BrowserPage.OnlineGallery -> JSONObject()
         .put("type", "online")
+        .put("previewIndex", previewPosition.page).put("previewOffset", previewPosition.offset)
         .put("key", key)
         .put("galleryId", galleryId)
         .put("title", title)
     is BrowserPage.LibraryBook -> JSONObject()
         .put("type", "library")
+        .put("previewIndex", previewPosition.page).put("previewOffset", previewPosition.offset)
         .put("key", key)
         .put("bookId", bookId)
         .put("title", title)
@@ -341,10 +343,10 @@ private fun JSONObject.toBrowserPage(): BrowserPage? {
             scrollOffset = optInt("scrollOffset", 0).coerceAtLeast(0),
         )
         "online" -> optLong("galleryId").takeIf { it > 0 }?.let { galleryId ->
-            BrowserPage.OnlineGallery(galleryId, optString("title"), key)
+            BrowserPage.OnlineGallery(galleryId, optString("title"), key, ReaderPosition(optInt("previewIndex").coerceAtLeast(0), optInt("previewOffset").coerceAtLeast(0)))
         }
         "library" -> optString("bookId").takeIf(String::isNotBlank)?.let { bookId ->
-            BrowserPage.LibraryBook(bookId, optString("title"), key)
+            BrowserPage.LibraryBook(bookId, optString("title"), key, ReaderPosition(optInt("previewIndex").coerceAtLeast(0), optInt("previewOffset").coerceAtLeast(0)))
         }
         "onlineReader" -> optLong("galleryId").takeIf { it > 0 }?.let { galleryId ->
             BrowserPage.OnlineReader(

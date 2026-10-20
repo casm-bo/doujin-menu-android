@@ -286,7 +286,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 val nextBook = currentBook?.let { viewModel.nextLibrarySeriesBook(it.id) }
                 val previousBook = currentBook?.let { viewModel.previousLibrarySeriesBook(it.id) }
                 val isSeriesBook = currentBook?.id in viewModel.uiState.customSeriesByBookId
+                val detail = remember(entry.id) { viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryBook }
                 LibraryDetailScreen(
+                    pageKey = detail?.key ?: entry.id,
+                    initialPreviewPosition = detail?.previewPosition ?: com.doujinmenu.android.model.ReaderPosition(0),
+                    onPreviewPositionChange = { viewModel.updatePreviewScroll(detail?.key ?: entry.id, it) },
                     book = currentBook,
                     previousBook = previousBook,
                     nextBook = nextBook,
@@ -369,7 +373,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     ?: return@composable
                 LaunchedEffect(galleryId) { viewModel.ensureGalleryLoaded(galleryId) }
                 BackHandler(onBack = searchBack)
+                val detail = remember(entry.id) { viewModel.uiState.browserWorkspace.activeTab.currentPage as? BrowserPage.OnlineGallery }
                 GalleryDetailScreen(
+                    pageKey = detail?.key ?: entry.id,
+                    initialPreviewPosition = detail?.previewPosition ?: com.doujinmenu.android.model.ReaderPosition(0),
+                    onPreviewPositionChange = { viewModel.updatePreviewScroll(detail?.key ?: entry.id, it) },
                     gallery = viewModel.uiState.galleryCache[galleryId]
                         ?: viewModel.uiState.galleries.firstOrNull { it.id == galleryId },
                     state = viewModel.uiState,
