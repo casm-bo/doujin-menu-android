@@ -710,6 +710,8 @@ internal fun parseHitomiGallery(data: JSONObject, fallbackId: Long): GallerySumm
         id = data.optLong("id", fallbackId),
         title = title,
         artists = data.optJSONArray("artists").metadataNames(),
+        groups = data.optJSONArray("groups").metadataNames(),
+        characters = data.optJSONArray("characters").metadataNames(),
         series = data.optJSONArray("series").metadataNames(),
         galleryType = data.nullableString("type"),
         tags = tags,

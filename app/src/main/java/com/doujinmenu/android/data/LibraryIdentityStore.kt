@@ -45,6 +45,24 @@ class LibraryIdentityStore(context: Context, databaseName: String = DATABASE_NAM
         if (oldVersion < 2) PresentationStore.createTables(database)
     }
 
+    fun cachePublishedDate(hitomiId: String, date: String) {
+        require(date.length <= 200)
+        writableDatabase.beginTransaction()
+        try {
+            val rows = readableDatabase.query(TABLE_IDENTITIES, arrayOf(COLUMN_SOURCE_KEY, COLUMN_METADATA_JSON),
+                "$COLUMN_HITOMI_ID = ?", arrayOf(hitomiId), null, null, null).use { cursor -> buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1))
+            } }
+            rows.forEach { (key, json) ->
+                val metadata = metadataFromJson(JSONObject(json))
+                writableDatabase.update(TABLE_IDENTITIES, ContentValues().apply {
+                    put(COLUMN_METADATA_JSON, metadata.copy(publishedDate = date).toJson().toString())
+                }, "$COLUMN_SOURCE_KEY = ?", arrayOf(key))
+            }
+            writableDatabase.setTransactionSuccessful()
+        } finally { writableDatabase.endTransaction() }
+    }
+
     fun resolve(
         sourceKey: String,
         sourceUri: String,

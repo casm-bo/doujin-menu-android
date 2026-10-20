@@ -65,6 +65,8 @@ fun LibraryDetailScreen(
     onOpenSeriesList: () -> Unit,
     onSearchFacet: (String) -> Unit,
     onSearchLanguage: (String) -> Unit,
+    options: (@Composable () -> Unit)? = null,
+    webtoon: Boolean = false,
     tabBar: (@Composable () -> Unit)? = null,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
@@ -97,35 +99,9 @@ fun LibraryDetailScreen(
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    if (book.coverUri.isNotBlank()) {
-                        AsyncImage(
-                            model = libraryImageRequest(context, book.coverUri, book.cloudToken),
-                            contentDescription = book.title,
-                            modifier = Modifier.fillMaxWidth().height(390.dp),
-                            contentScale = ContentScale.Fit,
-                        )
-                    }
-                    Text(book.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    FacetSection(strings[R.string.ui_artist], metadata.artists, "artist", onSearchFacet)
-                    FacetSection(strings[R.string.ui_group], metadata.groups, "group", onSearchFacet)
-                    FacetSection(strings[R.string.ui_series], metadata.series, "series", onSearchFacet)
-                    FacetSection(strings[R.string.ui_character], metadata.characters, "character", onSearchFacet)
-                    metadata.galleryType?.let { value ->
-                        FacetSection(strings[R.string.ui_type], listOf(value), "type", onSearchFacet)
-                    }
-                    metadata.language?.let { value ->
-                        FacetSection(strings[R.string.ui_language], listOf(value), "language", onSearchLanguage, rawValue = true)
-                    }
-                    FacetSection(strings[R.string.ui_tags], metadata.tags, "tag", onSearchFacet)
-                    Text(
-                        listOfNotNull(
-                            metadata.hitomiId?.let { "ID $it" },
-                            strings[R.string.ui_pages, (book.pages.size)],
-                            book.locationName,
-                            if (book.isCloud) strings[R.string.ui_desktop] else null,
-                        ).joinToString(" · "),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    DetailHeader(book.title, metadata,
+                        book.coverUri.takeIf { it.isNotBlank() }?.let { libraryImageRequest(context, it, book.cloudToken) },
+                        book.pages.size, onSearchFacet = onSearchFacet, onSearchLanguage = onSearchLanguage, options = options, webtoon = webtoon)
                     val readerEnabled = !isLoading && book.pages.all { it.uri.isNotBlank() }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -196,7 +172,7 @@ fun LibraryDetailScreen(
                 ) {
                     Text("${index + 1}", style = MaterialTheme.typography.labelSmall)
                     if (page.uri.isNotBlank()) {
-                        AsyncImage(
+                        DetailImage(
                             model = libraryImageRequest(context, page.uri, book.cloudToken),
                             contentDescription = strings[R.string.ui_page_preview, (index + 1)],
                             modifier = Modifier.fillMaxSize(),
@@ -237,7 +213,7 @@ private fun DetailListIcon(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun FacetSection(
+internal fun FacetSection(
     title: String,
     values: List<String>,
     prefix: String,

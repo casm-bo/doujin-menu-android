@@ -158,6 +158,7 @@ class SearchResultCache(
 private fun JSONArray.strings(): List<String> = List(length()) { getString(it) }
 private fun GallerySummary.json(): JSONObject = JSONObject().put("id", id).put("title", title)
     .put("artists", JSONArray(artists)).put("series", JSONArray(series)).put("galleryType", galleryType)
+    .put("groups", JSONArray(groups)).put("characters", JSONArray(characters))
     .put("tags", JSONArray(tags.map { JSONObject().put("type", it.type).put("name", it.name).put("negative", it.isNegative) }))
     .put("thumbnailUrl", thumbnailUrl).put("pageCount", pageCount).put("language", language)
     .put("publishedDate", publishedDate).put("loadError", loadError)
@@ -169,4 +170,6 @@ private fun JSONObject.gallery(): GallerySummary = GallerySummary(
         tags.getJSONObject(it).let { tag -> GalleryTag(tag.getString("type"), tag.getString("name"), tag.getBoolean("negative")) }
     } }, thumbnailUrl = optionalString("thumbnailUrl"), pageCount = getInt("pageCount"),
     language = optionalString("language"), publishedDate = optionalString("publishedDate"), loadError = optionalString("loadError"),
+    groups = optJSONArray("groups")?.let { list -> List(list.length()) { list.getString(it) } }.orEmpty(),
+    characters = optJSONArray("characters")?.let { list -> List(list.length()) { list.getString(it) } }.orEmpty(),
 )

@@ -499,4 +499,18 @@
     <string name="ui_reader_webtoon">条漫·垂直滚动</string>
     <string name="ui_use_app_reader_mode">使用应用默认阅读模式</string>
     <string name="ui_webtoon_image_error">无法以条漫模式显示此图片。请重试或使用分页模式。</string>
+    <string name="ui_detail_options">详情选项</string>
+    <string name="ui_edit_metadata">编辑元数据</string>
+    <string name="ui_cover_from_page">从作品页面选择封面</string>
+    <string name="ui_cover_from_image">从外部图片选择封面</string>
+    <string name="ui_source_series">原作 / 同人</string>
+    <string name="ui_metadata_conflict">PC上也有修改。请选择要保留的内容。</string>
+    <string name="ui_keep_phone_edit">检查手机修改</string>
+    <string name="ui_use_pc_edit">使用PC修改</string>
+    <string name="ui_metadata_pending">元数据等待PC同步</string>
+    <string name="ui_one_facet_per_line">作者、标签等每行输入一项。原始媒体文件保持不变。</string>
+    <string name="ui_webtoon_tag">条漫</string>
+    <string name="ui_remove_favorite">取消收藏</string>
+    <string name="ui_mark_read">标记已读</string>
+    <string name="ui_mark_unread">标记未读</string>
 </resources>

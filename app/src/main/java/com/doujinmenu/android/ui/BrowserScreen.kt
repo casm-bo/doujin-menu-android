@@ -147,6 +147,7 @@ fun BrowserScreen(
     onScrollChange: (String?, Int, Int, Int) -> Unit,
     onEnsureResults: () -> Unit,
     onVisibleResultsChange: (Int, Int) -> Unit,
+    onUnhideGallery: (Long) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -470,7 +471,9 @@ fun BrowserScreen(
             items(count = resultIds.size, key = { "gallery:${resultIds[it]}" }, contentType = { "gallery" }) { index ->
                 val id = resultIds[index]
                 val gallery = galleriesById[id]
-                if (gallery == null) {
+                if ("online:$id" in state.libraryHiddenIds) {
+                    TextButton(onClick = { onUnhideGallery(id) }) { Text("#$id · ${strings[R.string.ui_unhide]}") }
+                } else if (gallery == null) {
                     WorkCard(title = "#$id", artist = "", metadata = strings[R.string.ui_loading],
                         tags = emptyList(), footer = "", grid = gridView, onClick = {}) {
                         CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -480,10 +483,10 @@ fun BrowserScreen(
                     GalleryCard(
                         gallery = gallery,
                         gridView = gridView,
-                        read = gallery.id in state.viewedGalleryIds || libraryBook?.id in state.libraryReadIds,
+                        read = gallery.id in state.viewedGalleryIds || libraryBook?.id in state.libraryReadIds || "online:$id" in state.libraryReadIds,
                         libraryBook = libraryBook,
-                        favorite = libraryBook?.id?.let { it in state.libraryFavoriteIds } == true,
-                        onToggleFavorite = { libraryBook?.id?.let(onToggleLibraryFavorite) },
+                        favorite = libraryBook?.id?.let { it in state.libraryFavoriteIds } == true || "online:$id" in state.libraryFavoriteIds,
+                        onToggleFavorite = { onToggleLibraryFavorite("online:$id") },
                         onClick = { onGalleryClick(gallery.id) },
                         onLongClick = { onGalleryLongClick(gallery.id) },
                         onSearchFacet = onSearchFacet,
@@ -572,7 +575,7 @@ private fun GalleryCard(
     ) {
         Text("#${gallery.id}", style = MaterialTheme.typography.labelSmall)
         if (request != null) AsyncImage(request, strings[R.string.ui_thumbnail, preferredLocalizedTitle(gallery.title)], Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        LibraryThumbnailBadges(read, libraryBook?.isCloud, favorite, showFavorite = libraryBook != null,
+        LibraryThumbnailBadges(read, libraryBook?.isCloud, favorite, showFavorite = true,
             onToggleFavorite = onToggleFavorite, scale = if (gridView) .75f else .82f)
     }
 }

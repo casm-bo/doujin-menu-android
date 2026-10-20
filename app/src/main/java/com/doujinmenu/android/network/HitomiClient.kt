@@ -213,6 +213,7 @@ internal fun parseDirectGallery(raw: JSONObject, id: Long): GallerySummary {
     return GallerySummary(
         id = id, title = raw.optString("title", "Gallery #$id"),
         artists = names("artists", "artist"), series = names("parodys", "parody"),
+        groups = names("groups", "group"), characters = names("characters", "character"),
         galleryType = raw.optString("type").takeIf(String::isNotBlank),
         tags = List(tags?.length() ?: 0) { index ->
             val tag = tags!!.getJSONObject(index)

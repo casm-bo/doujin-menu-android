@@ -26,14 +26,14 @@ fun LibraryBook.presentationKey(): String = metadata.hitomiId?.toLongOrNull()?.t
 fun LibraryBook.presentation() = GalleryPresentation(presentationKey(), title, metadata)
 
 fun GallerySummary.presentation() = GalleryPresentation("hitomi:$id", title,
-    LibraryMetadata(hitomiId = id.toString(), artists = artists, series = series, galleryType = galleryType,
+    LibraryMetadata(hitomiId = id.toString(), artists = artists, groups = groups, characters = characters, series = series, galleryType = galleryType,
         tags = tags.map { if (it.type in listOf("female", "male")) "${it.type}:${it.name}" else it.name }, language = language, publishedDate = publishedDate))
 
 fun LibraryBook.withPresentation(value: GalleryPresentation?, coverUri: String? = null): LibraryBook = if (value == null) this else
-    copy(title = value.title, originalTitle = value.title, metadata = value.metadata, coverUriOverride = coverUri ?: coverUriOverride)
+    copy(title = value.title, originalTitle = value.title, metadata = value.metadata.copy(publishedDate = value.metadata.publishedDate ?: metadata.publishedDate), coverUriOverride = coverUri ?: coverUriOverride)
 
 fun GallerySummary.withPresentation(value: GalleryPresentation?, coverUri: String? = null): GallerySummary = if (value == null) this else
-    copy(title = value.title, artists = value.metadata.artists, series = value.metadata.series,
+    copy(title = value.title, artists = value.metadata.artists, groups = value.metadata.groups, characters = value.metadata.characters, series = value.metadata.series,
         galleryType = value.metadata.galleryType, language = value.metadata.language, publishedDate = value.metadata.publishedDate,
         tags = value.metadata.tags.map { tag ->
             val namespace = tag.substringBefore(':', "")

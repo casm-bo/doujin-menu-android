@@ -499,4 +499,18 @@
     <string name="ui_reader_webtoon">Webtoon · vertical scrolling</string>
     <string name="ui_use_app_reader_mode">Use app reading mode</string>
     <string name="ui_webtoon_image_error">Cannot display this image in webtoon mode. Retry or use page mode.</string>
+    <string name="ui_detail_options">Detail options</string>
+    <string name="ui_edit_metadata">Edit metadata</string>
+    <string name="ui_cover_from_page">Cover from gallery page</string>
+    <string name="ui_cover_from_image">Cover from external image</string>
+    <string name="ui_source_series">Original / parody</string>
+    <string name="ui_metadata_conflict">Metadata changed on PC. Choose which edit to keep.</string>
+    <string name="ui_keep_phone_edit">Review phone edit</string>
+    <string name="ui_use_pc_edit">Use PC edit</string>
+    <string name="ui_metadata_pending">Metadata waiting for PC sync</string>
+    <string name="ui_one_facet_per_line">One artist, tag or other value per line. Original media files stay unchanged.</string>
+    <string name="ui_webtoon_tag">Webtoon</string>
+    <string name="ui_remove_favorite">Remove favorite</string>
+    <string name="ui_mark_read">Mark read</string>
+    <string name="ui_mark_unread">Mark unread</string>
 </resources>

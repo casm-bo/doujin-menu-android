@@ -56,6 +56,8 @@ data class GallerySummary(
     val language: String?,
     val publishedDate: String? = null,
     val loadError: String? = null,
+    val groups: List<String> = emptyList(),
+    val characters: List<String> = emptyList(),
 )
 
 enum class DownloadStatus {

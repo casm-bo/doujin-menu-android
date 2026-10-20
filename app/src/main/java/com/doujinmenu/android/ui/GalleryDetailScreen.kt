@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.doujinmenu.android.model.GallerySummary
+import com.doujinmenu.android.model.presentation
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +66,8 @@ fun GalleryDetailScreen(
     onSearchFacet: (String) -> Unit,
     onSearchLanguage: (String) -> Unit,
     onDownload: (GallerySummary) -> Unit,
+    options: (@Composable () -> Unit)? = null,
+    webtoon: Boolean = false,
     tabBar: (@Composable () -> Unit)? = null,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
@@ -102,100 +105,9 @@ fun GalleryDetailScreen(
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    gallery.thumbnailUrl?.let { url ->
-                        AsyncImage(
-                            model = hitomiImageRequest(context, url, gallery.id, crossfade = false),
-                            contentDescription = preferredLocalizedTitle(gallery.title),
-                            modifier = Modifier.fillMaxWidth().height(390.dp),
-                            contentScale = ContentScale.Fit,
-                        )
-                    }
-                    Text(
-                        preferredLocalizedTitle(gallery.title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(strings[R.string.ui_artist], fontWeight = FontWeight.SemiBold)
-                        if (gallery.artists.isEmpty()) {
-                            Text(strings[R.string.ui_no_artist_information], color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                gallery.artists.forEach { artist ->
-                                    CopyableFacetChip(
-                                        text = artist,
-                                        onClick = { onSearchFacet("artist:$artist") },
-                                        enabled = artist.isGalleryFacetSearchable(),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Series", fontWeight = FontWeight.SemiBold)
-                        if (gallery.series.isEmpty()) {
-                            Text(strings[R.string.ui_no_series_information], color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                gallery.series.forEach { series ->
-                                    AssistChip(
-                                        onClick = { onSearchFacet("series:$series") },
-                                        enabled = series.isGalleryFacetSearchable(),
-                                        label = { Text(series) },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Type", fontWeight = FontWeight.SemiBold)
-                        gallery.galleryType?.let { type ->
-                            AssistChip(
-                                onClick = { onSearchFacet("type:$type") },
-                                enabled = type.isGalleryFacetSearchable(),
-                                label = { Text(type) },
-                            )
-                        } ?: Text(
-                            strings[R.string.ui_no_type_information],
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Text(
-                        listOfNotNull(
-                            "ID ${gallery.id}",
-                            gallery.pageCount.takeIf { it > 0 }?.let { strings[R.string.ui_pages, (it)] },
-                            formatGalleryPublishedDate(gallery.publishedDate)?.let { strings[R.string.ui_uploaded, (it)] },
-                        ).joinToString(" · "),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    gallery.language?.let { language ->
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(strings[R.string.ui_language], fontWeight = FontWeight.SemiBold)
-                            AssistChip(
-                                onClick = { onSearchLanguage(language) },
-                                enabled = language.isGalleryFacetSearchable(),
-                                label = { Text(language.replace('_', ' ')) },
-                            )
-                        }
-                    }
-                    if (gallery.tags.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(strings[R.string.ui_tags], fontWeight = FontWeight.SemiBold)
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                gallery.tags.forEach { tag ->
-                                    val facet = tagSearchFacet(tag.name, tag.type)
-                                    val display = tagDisplayInfo(tag.name, tag.type)
-                                    CopyableFacetChip(
-                                        text = display.text,
-                                        tagStyle = display.style,
-                                        clipboardText = facet,
-                                        onClick = { onSearchFacet(facet) },
-                                        enabled = tag.name.isGalleryFacetSearchable(),
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    DetailHeader(preferredLocalizedTitle(gallery.title), gallery.presentation().metadata,
+                        gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id, crossfade = false) },
+                        gallery.pageCount, onSearchFacet = onSearchFacet, onSearchLanguage = onSearchLanguage, options = options, webtoon = webtoon)
                     val pendingRequest = state.downloadRequests.any { it.galleryId == gallery.id && !it.isFinished }
                     val queuedDownload = state.downloadQueue.firstOrNull {
                         it.galleryId == gallery.id
@@ -246,7 +158,7 @@ fun GalleryDetailScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("${index + 1}", style = MaterialTheme.typography.labelSmall)
-                    AsyncImage(
+                    DetailImage(
                         model = hitomiImageRequest(
                             context = context,
                             url = url,

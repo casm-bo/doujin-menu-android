@@ -370,6 +370,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             galleries = uiState.galleries.map(::presentedGallery),
             activeGallery = uiState.activeGallery?.let(::presentedGallery),
             galleryCache = uiState.galleryCache.mapValues { presentedGallery(it.value) })
+        val titles = libraryPreferenceStore.loadCustomTitles().toMutableMap()
+        uiState.libraryBooks.forEach { book -> if (runCatching { book.presentationKey() }.getOrNull() in values) titles[book.id] = book.title }
+        libraryPreferenceStore.saveCustomTitles(titles)
         uiState = uiState.copy(librarySyncPendingCount = pendingLibrarySyncCount())
     }
 
@@ -1605,6 +1608,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         recordLibraryHistory(book)
         enqueueBookStateSync(setOf(bookId), addHistory = uiState.historyRecording)
         prepareActiveLibraryBook(book)
+        if (book.metadata.publishedDate == null) book.metadata.hitomiId?.toLongOrNull()?.let { id ->
+            viewModelScope.launch {
+                try {
+                    val gallery = hitomiClient.getGallery(id)
+                    gallery.publishedDate?.let { date ->
+                        withContext(Dispatchers.IO) { libraryIdentityStore.cachePublishedDate(id.toString(), date) }
+                        val updated = uiState.libraryBooks.map { current -> if (current.metadata.hitomiId == id.toString())
+                            current.copy(metadata = current.metadata.copy(publishedDate = date)) else current }
+                        uiState = uiState.copy(libraryBooks = updated, activeLibraryBook = updated.firstOrNull { it.id == uiState.activeLibraryBook?.id },
+                            galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)))
+                    }
+                } catch (error: CancellationException) { throw error } catch (_: Exception) { /* Upload date is optional offline. */ }
+            }
+        }
     }
 
     private fun prepareActiveLibraryBook(book: LibraryBook) {
@@ -1641,10 +1658,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { preparation() }
                 .onSuccess { prepared ->
                     val activeMatches = uiState.activeLibraryBook?.id == prepared.id
+                    val display = presentedBook(prepared).let { ready -> ready.copy(metadata = ready.metadata.copy(
+                        publishedDate = ready.metadata.publishedDate ?: uiState.libraryBooks.firstOrNull { it.id == ready.id }?.metadata?.publishedDate)) }
                     uiState = uiState.copy(
-                        activeLibraryBook = if (activeMatches) prepared else uiState.activeLibraryBook,
+                        activeLibraryBook = if (activeMatches) display else uiState.activeLibraryBook,
                         libraryBooks = uiState.libraryBooks.map {
-                            if (it.id == prepared.id) prepared else it
+                            if (it.id == prepared.id) display else it
                         },
                         isLibraryBookLoading = if (activeMatches) false else uiState.isLibraryBookLoading,
                         libraryScanError = if (activeMatches) null else uiState.libraryScanError,
@@ -1666,12 +1685,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleLibraryFavorite(bookId: String) {
-        val ids = uiState.libraryFavoriteIds.toMutableSet().apply {
-            if (!add(bookId)) remove(bookId)
-        }
+        val relatedIds = if (bookId.startsWith("online:")) uiState.libraryBooks.filter { it.metadata.hitomiId == bookId.removePrefix("online:") }
+            .mapTo(linkedSetOf()) { it.id } + bookId else setOf(bookId)
+        val favorite = relatedIds.any { it in uiState.libraryFavoriteIds }
+        val ids = if (favorite) uiState.libraryFavoriteIds - relatedIds else uiState.libraryFavoriteIds + relatedIds
         libraryPreferenceStore.saveFavoriteIds(ids)
         uiState = uiState.copy(libraryFavoriteIds = ids)
-        enqueueBookStateSync(setOf(bookId))
+        enqueueBookStateSync(relatedIds)
     }
 
     fun toggleLibrarySeriesFavorite(seriesName: String) {
@@ -1692,6 +1712,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         libraryPreferenceStore.saveReadIds(ids)
         uiState = uiState.copy(libraryReadIds = ids)
         enqueueBookStateSync(setOf(bookId))
+    }
+
+    fun markOnlineRead(id: Long, read: Boolean) {
+        val ids = if (read) uiState.viewedGalleryIds + id else uiState.viewedGalleryIds - id
+        browserPreferenceStore.saveViewedGalleryIds(ids)
+        uiState = uiState.copy(viewedGalleryIds = ids)
     }
 
     fun addLibraryFavorites(bookIds: Set<String>) {
@@ -1955,7 +1981,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun renameLibraryBook(bookId: String, title: String) {
         val normalized = title.trim()
-        if (normalized.isEmpty()) return
+        if (normalized.isEmpty() || normalized.length > 500) return
+        uiState.libraryBooks.firstOrNull { it.id == bookId }?.let { book ->
+            runCatching { book.presentation().copy(title = normalized) }.getOrNull()?.let(::saveGalleryPresentation)
+        }
         val titles = libraryPreferenceStore.loadCustomTitles() + (bookId to normalized)
         libraryPreferenceStore.saveCustomTitles(titles)
         uiState = uiState.copy(

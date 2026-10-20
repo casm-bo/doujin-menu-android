@@ -499,4 +499,18 @@
     <string name="ui_reader_webtoon">ウェブトゥーン・縦スクロール</string>
     <string name="ui_use_app_reader_mode">アプリの既定モードを使う</string>
     <string name="ui_webtoon_image_error">ウェブトゥーン表示ができません。再試行するかページ表示を使用してください。</string>
+    <string name="ui_detail_options">詳細オプション</string>
+    <string name="ui_edit_metadata">メタデータを編集</string>
+    <string name="ui_cover_from_page">作品のページから表紙を選択</string>
+    <string name="ui_cover_from_image">外部画像から表紙を選択</string>
+    <string name="ui_source_series">原作 / パロディ</string>
+    <string name="ui_metadata_conflict">PCでも変更されました。保存する内容を選択してください。</string>
+    <string name="ui_keep_phone_edit">スマートフォンの編集を確認</string>
+    <string name="ui_use_pc_edit">PCの編集を使用</string>
+    <string name="ui_metadata_pending">メタデータのPC同期を待機中</string>
+    <string name="ui_one_facet_per_line">作者やタグなどを一行ずつ入力してください。元のメディアは変更しません。</string>
+    <string name="ui_webtoon_tag">ウェブトゥーン</string>
+    <string name="ui_remove_favorite">お気に入りを解除</string>
+    <string name="ui_mark_read">既読にする</string>
+    <string name="ui_mark_unread">未読にする</string>
 </resources>

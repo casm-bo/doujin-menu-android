@@ -1,6 +1,8 @@
 package com.doujinmenu.android.ui
 
 import com.doujinmenu.android.R
+import com.doujinmenu.android.model.presentation
+import com.doujinmenu.android.model.presentationKey
 
 import android.content.Intent
 import android.net.Uri
@@ -330,6 +332,14 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         searchOpenedFromGallery = true
                         viewModel.searchFromLanguage(language)
                     },
+                    options = {
+                        currentBook?.let { book -> runCatching { book.presentation() }.getOrNull()?.let { value ->
+                            WorkPresentationActions(viewModel, value,
+                                book.pages.filter { it.uri.isNotBlank() }.map { page -> com.doujinmenu.android.model.ReaderImageSource(page.uri,
+                                    if (book.isCloud && book.cloudToken != null) mapOf("Authorization" to "Bearer ${book.cloudToken}") else emptyMap()) }, setOf(book.id))
+                        } }
+                    },
+                    webtoon = currentBook?.let { book -> runCatching { viewModel.uiState.presentations[book.presentationKey()]?.value?.webtoon == true }.getOrDefault(false) } == true,
                     tabBar = { AppGalleryTabStrip(viewModel, onBack = galleryBack) },
                 )
             }
@@ -398,6 +408,17 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         viewModel.searchFromLanguage(language)
                     },
                     onDownload = viewModel::downloadGallery,
+                    options = {
+                        val gallery = viewModel.uiState.galleryCache[galleryId] ?: viewModel.uiState.galleries.firstOrNull { it.id == galleryId }
+                        gallery?.let {
+                            val sources = viewModel.uiState.readerPagesByGalleryId[galleryId].orEmpty().map { url ->
+                                com.doujinmenu.android.model.ReaderImageSource(url, mapOf("Referer" to "https://hitomi.la/reader/$galleryId.html"))
+                            }
+                            val ids = viewModel.uiState.libraryBooks.filter { it.metadata.hitomiId == galleryId.toString() }.mapTo(linkedSetOf()) { it.id }
+                            WorkPresentationActions(viewModel, it.presentation(), sources, ids)
+                        }
+                    },
+                    webtoon = viewModel.uiState.presentations["hitomi:$galleryId"]?.value?.webtoon == true,
                     tabBar = { AppSearchTabStrip(viewModel, onBack = searchBack) },
                 )
             }
@@ -787,6 +808,7 @@ private fun MainTabContent(
                 onGalleryLongClick = onGalleryLongClick,
                 onSearchFacet = viewModel::searchFromFacet,
                 onToggleLibraryFavorite = viewModel::toggleLibraryFavorite,
+                onUnhideGallery = { viewModel.setLibraryBooksHidden(setOf("online:$it"), false) },
                 onConnect = openConnectionSettings,
                 pageKey = "${search?.key.orEmpty()}:${search?.resultSessionId.orEmpty()}:${viewModel.uiState.searchJumpRevision}",
                 initialScrollAnchorKey = search?.scrollAnchorKey,
