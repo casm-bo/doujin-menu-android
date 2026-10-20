@@ -11,7 +11,7 @@ enum class GalleryBorderKind { NORMAL, SERIES, FAVORITE }
 
 data class GalleryBorders(
     val normal: GalleryBorderStyle = GalleryBorderStyle(),
-    val series: GalleryBorderStyle = GalleryBorderStyle(colorArgb = 0xFF6750A4),
+    val series: GalleryBorderStyle = GalleryBorderStyle(colorArgb = 0xFFE53935),
     val favorite: GalleryBorderStyle = GalleryBorderStyle(colorArgb = 0xFFE6A000),
 ) {
     fun styleFor(series: Boolean, favorite: Boolean): GalleryBorderStyle =

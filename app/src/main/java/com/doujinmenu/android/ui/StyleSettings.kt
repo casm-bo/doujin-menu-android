@@ -30,11 +30,11 @@ internal fun StyleSettings(style: AppStyle, onChange: (AppStyle) -> Unit) {
                 }
             }
             HorizontalDivider()
+            Text(strings[R.string.ui_preview], style = MaterialTheme.typography.titleSmall)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = !dark, onClick = { dark = false }, label = { Text(strings[R.string.ui_light]) })
                 FilterChip(selected = dark, onClick = { dark = true }, label = { Text(strings[R.string.ui_dark]) })
             }
-            Text(strings[R.string.ui_contrast_adjusted], style = MaterialTheme.typography.bodySmall)
             Surface(color = Color(palette.background), contentColor = Color(readableForeground(palette.text, palette.background))) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Surface(color = Color(palette.toolbar), contentColor = Color(readableForeground(palette.text, palette.toolbar))) {
@@ -45,7 +45,6 @@ internal fun StyleSettings(style: AppStyle, onChange: (AppStyle) -> Unit) {
                     }
                 }
             }
-            TextButton(onClick = { onChange(AppStyle()) }) { Text(strings[R.string.ui_reset_style]) }
         }
     }
 }

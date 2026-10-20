@@ -791,8 +791,6 @@ private fun MainTabContent(
             BrowserScreen(
                 state = viewModel.uiState,
                 tabHeader = { query, actions -> AppSearchTabStrip(viewModel,
-                    onBack = if (viewModel.canReturnFromNewTab(false)) ({ viewModel.goBackInBrowserTab(); Unit })
-                        else onBackToOrigin ?: if (viewModel.canGoBackInBrowserTab()) ({ viewModel.goBackInBrowserTab(); Unit }) else null,
                     titleContent = query, actions = actions) },
                 contentPadding = contentPadding,
                 onQueryChange = viewModel::setSearchQuery,
@@ -834,7 +832,6 @@ private fun MainTabContent(
             LibraryScreen(
                 state = viewModel.uiState,
                 tabHeader = { query, actions -> AppGalleryTabStrip(viewModel,
-                    onBack = if (viewModel.canGoBackInGalleryTab()) ({ viewModel.goBackInGalleryTab(); Unit }) else null,
                     titleContent = query, actions = actions) },
                 onSync = viewModel::syncLibraryNow,
                 contentPadding = contentPadding,
