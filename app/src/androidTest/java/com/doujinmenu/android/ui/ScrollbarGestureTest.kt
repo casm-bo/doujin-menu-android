@@ -28,13 +28,7 @@ class ScrollbarGestureTest {
     @Test fun thumbDragsImmediatelyButTrackRequiresLongPress() {
         val state = LazyListState()
         var vibrations = 0
-        val haptic = object : HapticFeedback {
-            override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
-                assertEquals(HapticFeedbackType.KeyboardTap, hapticFeedbackType)
-                vibrations++
-            }
-        }
-        compose.setContent { CompositionLocalProvider(LocalHapticFeedback provides haptic) { MaterialTheme { Box(Modifier.fillMaxSize()) {
+        compose.setContent { CompositionLocalProvider(LocalScrollbarHaptic provides { vibrations++ }) { MaterialTheme { Box(Modifier.fillMaxSize()) {
             LazyColumn(state = state, modifier = Modifier.fillMaxSize().testTag("content")) {
                 items(200) { Text("Book $it", Modifier.fillMaxWidth().height(96.dp)) }
             }
@@ -69,5 +63,12 @@ class ScrollbarGestureTest {
             down(Offset(centerX, 12f)); advanceEventTime(16); moveTo(Offset(centerX, height * .7f)); advanceEventTime(16); up()
         }
         compose.runOnIdle { assertTrue(state.firstVisibleItemIndex > 30) }
+    }
+
+    @Test fun disabledFeedbackDoesNotVibrateOrFallBack() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        assertEquals(26, SCROLLBAR_HAPTIC_AMPLITUDE)
+        assertEquals(12L, SCROLLBAR_HAPTIC_DURATION_MS)
+        weakScrollbarHaptic(context, enabled = false) { fail("Disabled touch feedback must stay silent") }
     }
 }

@@ -35,6 +35,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -112,6 +114,12 @@ private fun BoxScope.DynamicVerticalScrollbar(
     if (metrics == null) return
     val strings = androidx.compose.ui.platform.LocalResources.current
     val hapticFeedback = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val view = LocalView.current
+    val injectedHaptic = LocalScrollbarHaptic.current
+    val currentHaptic by rememberUpdatedState(injectedHaptic ?: {
+        weakScrollbarHaptic(context, view.isHapticFeedbackEnabled) { hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+    })
     val currentMetrics by rememberUpdatedState(metrics)
     val currentVisible by rememberUpdatedState(visibleItemCount)
     val currentTotal by rememberUpdatedState(totalItemCount)
@@ -143,7 +151,7 @@ private fun BoxScope.DynamicVerticalScrollbar(
                 // Track swipes belong to the content until a deliberate long press claims them.
                 val start = if (onThumb) down else awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
                 start.consume()
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                currentHaptic()
                 val grabOffset = if (onThumb) down.position.y - (top + thumb / 2) else 0f
                 var previous: ScrollbarTarget? = null
                 fun move(y: Float) {
