@@ -277,6 +277,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var importantLibraryRefreshJob: Job? = null
     private var reconnectLibraryRefreshJob: Job? = null
     private var activeBookPreparationJob: Job? = null
+    private var libraryRefreshJob: Job? = null
+    private var libraryProfileGeneration = 0L
     private var hasEnteredForeground = false
     private var monitoredProfileId: String? = null
     private var wasDesktopConnected = false
@@ -386,9 +388,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             galleries = uiState.galleries.map(::presentedGallery),
             activeGallery = uiState.activeGallery?.let(::presentedGallery),
             galleryCache = uiState.galleryCache.mapValues { presentedGallery(it.value) })
-        val titles = libraryPreferenceStore.loadCustomTitles().toMutableMap()
-        uiState.libraryBooks.forEach { book -> if (runCatching { book.presentationKey() }.getOrNull() in values) titles[book.id] = book.title }
-        libraryPreferenceStore.saveCustomTitles(titles)
         uiState = uiState.copy(librarySyncPendingCount = pendingLibrarySyncCount())
     }
 
@@ -624,14 +623,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     message = strings[R.string.msg_paired_with_credential_saved_securely, (profile.name)],
                     isError = false,
                 )
-                reloadPresentations()
-                refreshLibrarySilently()
+                reloadProfileLibrary()
             }
         }
     }
 
     fun selectProfile(id: String) {
         val profile = uiState.profiles.firstOrNull { it.id == id } ?: return
+        if (uiState.selectedProfileId == id) return
         uiState = uiState.copy(
             selectedProfileId = id,
             message = strings[R.string.msg_selected, (profile.name)],
@@ -641,13 +640,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isDownloadConnectionUnavailable = false,
             desktopConnectionState = DesktopConnectionState.CONNECTING,
         )
-        uiState = uiState.copy(galleryCache = emptyMap(), galleries = emptyList(), activeGallery = null)
-        reloadPresentations()
-        refreshLibrarySilently()
+        reloadProfileLibrary()
         restoreBrowserSearch()
     }
 
     fun removeProfile(id: String) {
+        val changed = uiState.selectedProfileId == id
         val profiles = uiState.profiles.filterNot { it.id == id }
         profileStore.save(profiles)
         uiState = uiState.copy(
@@ -665,6 +663,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             message = strings[R.string.msg_removed_saved_desktop],
             isError = false,
         )
+        if (changed) reloadProfileLibrary()
+    }
+
+    private fun reloadProfileLibrary() {
+        libraryProfileGeneration++
+        libraryRefreshJob?.cancel()
+        activeBookPreparationJob?.cancel()
+        uiState = uiState.copy(libraryBooks = emptyList(), activeLibraryBook = null, isLibraryScanning = false,
+            isLibraryBookLoading = false, isLibraryPullRefreshing = false, desktopLibraryLocations = emptyList(),
+            desktopDownloadPath = null, galleryCache = emptyMap(), galleries = emptyList(), activeGallery = null,
+            seriesPreviewLoadingIds = emptySet(), seriesPreviewErrors = emptyMap(), presentationSyncError = null)
+        reloadPresentations()
+        refreshLibrarySilently()
     }
 
     fun search() {
@@ -1408,15 +1419,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (uiState.isLibraryScanning) return
         val scannedLocations = uiState.libraryLocations
         val profile = selectedProfile()
-        viewModelScope.launch {
+        val generation = libraryProfileGeneration
+        fun current() = generation == libraryProfileGeneration && profile?.id == uiState.selectedProfileId
+        libraryRefreshJob = viewModelScope.launch {
             uiState = uiState.copy(
                 isLibraryScanning = true,
                 isLibraryPullRefreshing = showPullFeedback,
                 libraryScanError = null,
             )
+            try {
             val result = libraryScanner.scan(scannedLocations)
+            if (!current()) return@launch
             if (profile != null) syncPresentations(profile)
             val cloudResult = profile?.let { runCatching { client.getLibraryBooks(it) } }
+            if (!current()) return@launch
             val cloudBooks = when {
                 profile == null -> emptyList()
                 cloudResult?.isSuccess == true -> cloudResult.getOrThrow()
@@ -1432,6 +1448,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val desktopDownloadPath = profile?.let {
                 runCatching { client.getDesktopDownloadPath(it) }.getOrNull()
             }
+            if (!current()) return@launch
             val legacyDesktopIdAliases = profile?.let { selected ->
                 cloudBooks.mapNotNull { book ->
                     val remoteId = book.remoteBookId ?: return@mapNotNull null
@@ -1641,6 +1658,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             if (uiState.libraryLocations != scannedLocations) refreshLibrarySilently()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (current()) uiState = uiState.copy(libraryScanError = error.message, isLibraryScanning = false, isLibraryPullRefreshing = false)
+            } finally {
+                if (current()) uiState = uiState.copy(isLibraryScanning = false, isLibraryPullRefreshing = false)
+            }
         }
     }
 
@@ -1745,6 +1768,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun prepareActiveLibraryBook(book: LibraryBook) {
+        val generation = libraryProfileGeneration
         if (book.hasResolvedReaderPages()) {
             if (uiState.activeLibraryBook?.id == book.id) {
                 uiState = uiState.copy(isLibraryBookLoading = false)
@@ -1777,6 +1801,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activeBookPreparationJob = viewModelScope.launch {
             runCatching { preparation() }
                 .onSuccess { prepared ->
+                    if (generation != libraryProfileGeneration) return@onSuccess
                     val activeMatches = uiState.activeLibraryBook?.id == prepared.id
                     val display = presentedBook(prepared).let { ready -> ready.copy(metadata = ready.metadata.copy(
                         publishedDate = ready.metadata.publishedDate ?: uiState.libraryBooks.firstOrNull { it.id == ready.id }?.metadata?.publishedDate)) }
@@ -1790,7 +1815,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 .onFailure { error ->
-                    if (uiState.activeLibraryBook?.id == book.id) {
+                    if (generation == libraryProfileGeneration && uiState.activeLibraryBook?.id == book.id) {
                         uiState = uiState.copy(
                             isLibraryBookLoading = false,
                             libraryScanError = error.message ?: if (book.isCloud) {
@@ -1808,6 +1833,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
         if (book.hasResolvedReaderPages() || bookId in uiState.seriesPreviewLoadingIds) return
         val profile = selectedProfile()
+        val generation = libraryProfileGeneration
         uiState = uiState.copy(seriesPreviewLoadingIds = uiState.seriesPreviewLoadingIds + bookId,
             seriesPreviewErrors = uiState.seriesPreviewErrors - bookId)
         viewModelScope.launch {
@@ -1817,14 +1843,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val pages = client.getLibraryBookPages(profile, book.remoteBookId)
                     book.copy(pages = pages.mapIndexed { index, url -> LibraryPage(url, "${index + 1}") }, coverUriOverride = book.coverUri)
                 } else libraryArchiveExtractor.materialize(book)
-                if (selectedProfile()?.id == profile?.id) uiState = uiState.copy(libraryBooks = uiState.libraryBooks.map {
+                if (generation == libraryProfileGeneration && selectedProfile()?.id == profile?.id) uiState = uiState.copy(libraryBooks = uiState.libraryBooks.map {
                     if (it.id == bookId && it.folderUri == book.folderUri) presentedBook(prepared) else it
                 })
             } catch (error: CancellationException) { throw error }
             catch (error: Exception) {
-                if (selectedProfile()?.id == profile?.id) uiState = uiState.copy(seriesPreviewErrors = uiState.seriesPreviewErrors +
+                if (generation == libraryProfileGeneration && selectedProfile()?.id == profile?.id) uiState = uiState.copy(seriesPreviewErrors = uiState.seriesPreviewErrors +
                     (bookId to (error.message ?: strings[R.string.msg_could_not_open_archive])))
-            } finally { uiState = uiState.copy(seriesPreviewLoadingIds = uiState.seriesPreviewLoadingIds - bookId) }
+            } finally { if (generation == libraryProfileGeneration) uiState = uiState.copy(seriesPreviewLoadingIds = uiState.seriesPreviewLoadingIds - bookId) }
         }
     }
 
@@ -3180,6 +3206,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) = bookStateSyncMutex.withLock {
         if (uploadLocalBooks) uploadMissingLocalBooks(profile, books, ids)
         val customTitles = libraryPreferenceStore.loadCustomTitles()
+        val presentations = presentationStore(profile.id).all().associateBy { it.value.key }
         val modifiedTimes = libraryPreferenceStore.loadBookStateModifiedTimes()
         val versionBySyncId = latestSyncStateVersions(books)
         val booksBySyncId = books
@@ -3187,6 +3214,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .groupBy { it.syncId!!.lowercase() }
         val attempts = books.asSequence()
             .filter { it.id in ids }
+            // Legacy title fields must not bypass an unresolved presentation conflict.
+            .filter { book -> runCatching { presentations[book.presentationKey()]?.dirty != true }.getOrDefault(true) }
             .mapNotNull { book ->
                 val syncId = book.syncId ?: return@mapNotNull null
                 val relatedBooks = booksBySyncId[syncId.lowercase()].orEmpty()
@@ -3207,7 +3236,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         isFavorite = book.id in uiState.libraryFavoriteIds,
                         isRead = book.id in uiState.libraryReadIds,
                         isHidden = book.id in uiState.libraryHiddenIds,
-                        customTitle = customTitles[book.id],
+                        customTitle = runCatching { presentations[book.presentationKey()]?.value?.title }.getOrNull() ?: customTitles[book.id],
                         seriesFavorite = seriesName in uiState.libraryFavoriteSeriesNames,
                         historyEventId = mutationId.takeIf { addHistory },
                         historyViewedAt = if (addHistory) {
@@ -3386,8 +3415,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         uiState = uiState.copy(
-            libraryBooks = uiState.libraryBooks.map(LibraryBook::withSyncedState),
-            activeLibraryBook = uiState.activeLibraryBook?.withSyncedState(),
+            libraryBooks = uiState.libraryBooks.map { presentedBook(it.withSyncedState()) },
+            activeLibraryBook = uiState.activeLibraryBook?.withSyncedState()?.let(::presentedBook),
             libraryFavoriteIds = favoriteIds,
             libraryReadIds = readIds,
             libraryHiddenIds = hiddenIds,
