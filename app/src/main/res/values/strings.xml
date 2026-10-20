@@ -468,4 +468,10 @@
     <string name="next_sync_pc">"Next synced PC"</string>
     <string name="removed_pc">"Removed PC"</string>
     <string name="ui_favorite_borders">Favorite borders</string>
+    <string name="ui_font_size">Font size</string>
+    <string name="ui_font_small">Small</string>
+    <string name="ui_font_normal">Normal</string>
+    <string name="ui_font_large">Large</string>
+    <string name="ui_custom_font_sp">Custom base size (sp)</string>
+    <string name="ui_font_preview">Titles, text, tags and menus follow this size.</string>
 </resources>

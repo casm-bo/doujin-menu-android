@@ -468,4 +468,10 @@
     <string name="next_sync_pc">"次に同期するPC"</string>
     <string name="removed_pc">"削除済みPC"</string>
     <string name="ui_favorite_borders">お気に入りの枠線</string>
+    <string name="ui_font_size">文字サイズ</string>
+    <string name="ui_font_small">小</string>
+    <string name="ui_font_normal">標準</string>
+    <string name="ui_font_large">大</string>
+    <string name="ui_custom_font_sp">基本サイズを指定 (sp)</string>
+    <string name="ui_font_preview">見出し、本文、タグ、メニューに適用します。</string>
 </resources>

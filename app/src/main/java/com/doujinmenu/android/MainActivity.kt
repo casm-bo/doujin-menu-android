@@ -44,7 +44,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 enableEdgeToEdge(systemBarStyle, systemBarStyle)
             }
-            DoujinMenuTheme(darkTheme = darkTheme) {
+            DoujinMenuTheme(darkTheme = darkTheme, fontSizeSp = viewModel.uiState.fontSizeSp) {
                 CompositionLocalProvider(LocalGalleryBorders provides viewModel.uiState.galleryBorders, LocalAppLock provides appLock) {
                     val holder = rememberSaveableStateHolder()
                     if (appLock.locked) AppLockScreen(appLock) { moveTaskToBack(true) }

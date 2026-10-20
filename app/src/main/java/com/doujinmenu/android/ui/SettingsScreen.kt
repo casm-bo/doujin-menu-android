@@ -89,6 +89,7 @@ fun SettingsScreen(
     onClearDownloadLocation: () -> Unit,
     onViewerPreferencesChange: (ViewerPreferences) -> Unit,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    onFontSizeChange: (Float) -> Unit,
     onGalleryBorderChange: (GalleryBorderKind, GalleryBorderStyle) -> Unit,
     onCheckForUpdates: () -> Unit,
     openConnectionRequested: Boolean,
@@ -123,6 +124,8 @@ fun SettingsScreen(
             contentPadding = contentPadding,
             onBack = { openSection(SettingsSection.HOME) },
             onChange = onThemeModeChange,
+            fontSizeSp = state.fontSizeSp,
+            onFontSizeChange = onFontSizeChange,
             borders = state.galleryBorders,
             onBorderChange = onGalleryBorderChange,
         )
@@ -235,6 +238,8 @@ private fun AppearanceSettingsScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
     onChange: (AppThemeMode) -> Unit,
+    fontSizeSp: Float,
+    onFontSizeChange: (Float) -> Unit,
     borders: GalleryBorders,
     onBorderChange: (GalleryBorderKind, GalleryBorderStyle) -> Unit,
 ) {
@@ -247,9 +252,33 @@ private fun AppearanceSettingsScreen(
             HorizontalDivider()
             ThemeModeOption(strings[R.string.ui_dark], strings[R.string.ui_always_use_dark_theme], AppThemeMode.DARK, themeMode, onChange)
         }
+        FontSizeSettings(fontSizeSp, onFontSizeChange)
         BorderSettingsCard(strings[R.string.ui_gallery_borders], borders.normal) { onBorderChange(GalleryBorderKind.NORMAL, it) }
         BorderSettingsCard(strings[R.string.ui_series_borders], borders.series) { onBorderChange(GalleryBorderKind.SERIES, it) }
         BorderSettingsCard(strings[R.string.ui_favorite_borders], borders.favorite) { onBorderChange(GalleryBorderKind.FAVORITE, it) }
+    }
+}
+
+@Composable
+private fun FontSizeSettings(size: Float, onChange: (Float) -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    var input by rememberSaveable { mutableStateOf(size.toInt().toString()) }
+    SectionCard(strings[R.string.ui_font_size]) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(16f to R.string.ui_font_small, 18f to R.string.ui_font_normal, 20f to R.string.ui_font_large).forEach { (value, label) ->
+                FilterChip(selected = size == value, onClick = { input = value.toInt().toString(); onChange(value) }, label = { Text(strings[label]) })
+            }
+        }
+        HorizontalDivider()
+        OutlinedTextField(value = input, onValueChange = { value ->
+            input = value.take(5)
+            com.doujinmenu.android.model.parseAppFontSize(input)?.let(onChange)
+        }, label = { Text(strings[R.string.ui_custom_font_sp]) },
+            supportingText = { Text("12–28 sp") }, singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            isError = com.doujinmenu.android.model.parseAppFontSize(input) == null)
+        Text(strings[R.string.ui_preview], style = MaterialTheme.typography.titleMedium)
+        Text(strings[R.string.ui_font_preview], style = MaterialTheme.typography.bodyMedium)
     }
 }
 

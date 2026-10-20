@@ -116,6 +116,7 @@ import kotlinx.coroutines.withContext
 
 data class MainUiState(
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    val fontSizeSp: Float = com.doujinmenu.android.model.DEFAULT_FONT_SIZE_SP,
     val galleryBorders: GalleryBorders = GalleryBorders(),
     val host: String = "",
     val port: String = EndpointNormalizer.DEFAULT_PORT.toString(),
@@ -276,6 +277,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(
             themeMode = browserPreferenceStore.loadThemeMode(),
             galleryBorders = appearancePreferenceStore.loadBorders(),
+            fontSizeSp = appearancePreferenceStore.loadFontSize(),
             profiles = profiles,
             selectedProfileId = profiles.firstOrNull()?.id,
             browserWorkspace = browserWorkspace,
@@ -332,6 +334,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setThemeMode(value: AppThemeMode) {
         browserPreferenceStore.saveThemeMode(value)
         uiState = uiState.copy(themeMode = value)
+    }
+
+    fun setFontSize(size: Float) {
+        if (com.doujinmenu.android.model.parseAppFontSize(size.toString()) == null) return
+        appearancePreferenceStore.saveFontSize(size)
+        uiState = uiState.copy(fontSizeSp = size)
     }
 
     fun setGalleryBorder(kind: GalleryBorderKind, style: GalleryBorderStyle) {

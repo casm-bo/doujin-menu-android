@@ -468,4 +468,10 @@
     <string name="next_sync_pc">"下次同步的PC"</string>
     <string name="removed_pc">"已删除的PC"</string>
     <string name="ui_favorite_borders">收藏边框</string>
+    <string name="ui_font_size">字体大小</string>
+    <string name="ui_font_small">小</string>
+    <string name="ui_font_normal">标准</string>
+    <string name="ui_font_large">大</string>
+    <string name="ui_custom_font_sp">自定义基础大小 (sp)</string>
+    <string name="ui_font_preview">应用于标题、正文、标签和菜单。</string>
 </resources>
