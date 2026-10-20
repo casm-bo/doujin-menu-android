@@ -8,6 +8,10 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
@@ -21,22 +25,34 @@ import org.junit.Test
 class ScrollbarGestureTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun thumbStartsImmediatelyAndTrackLongPressReachesListEnd() {
+    @Test fun touchVibratesOnceAndTrackStaysStillUntilDragged() {
         val state = LazyListState()
-        compose.setContent { MaterialTheme { Box(Modifier.fillMaxSize()) {
+        var vibrations = 0
+        val haptic = object : HapticFeedback {
+            override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+                assertEquals(HapticFeedbackType.TextHandleMove, hapticFeedbackType)
+                vibrations++
+            }
+        }
+        compose.setContent { CompositionLocalProvider(LocalHapticFeedback provides haptic) { MaterialTheme { Box(Modifier.fillMaxSize()) {
             LazyColumn(state = state, modifier = Modifier.fillMaxSize().testTag("content")) {
                 items(200) { Text("Book $it", Modifier.fillMaxWidth().height(96.dp)) }
             }
             DynamicVerticalScrollbar(state)
-        } } }
+        } } } }
         compose.onNodeWithTag("dynamic-scrollbar").performTouchInput {
             down(Offset(centerX, 12f)); advanceEventTime(16); moveTo(Offset(centerX, height * .6f)); advanceEventTime(16); up()
         }
-        compose.runOnIdle { assertTrue("Thumb must move without waiting for a long press", state.firstVisibleItemIndex > 20) }
+        compose.runOnIdle { assertTrue("Thumb must move without waiting for a long press", state.firstVisibleItemIndex > 20); assertEquals(1, vibrations) }
+        val before = state.firstVisibleItemIndex
         compose.onNodeWithTag("dynamic-scrollbar").performTouchInput {
-            down(Offset(centerX, height * .95f)); advanceEventTime(650); moveTo(Offset(centerX, height.toFloat())); up()
+            down(Offset(centerX, height * .95f)); advanceEventTime(650); up()
         }
-        compose.runOnIdle { assertFalse(state.canScrollForward) }
+        compose.runOnIdle { assertEquals(before, state.firstVisibleItemIndex); assertEquals(2, vibrations) }
+        compose.onNodeWithTag("dynamic-scrollbar").performTouchInput {
+            down(Offset(centerX, height * .95f)); advanceEventTime(16); moveTo(Offset(centerX, height.toFloat())); up()
+        }
+        compose.runOnIdle { assertFalse(state.canScrollForward); assertEquals(3, vibrations) }
         compose.onNodeWithTag("content").performTouchInput { swipeDown() }
         compose.runOnIdle { assertTrue(state.canScrollForward) }
     }

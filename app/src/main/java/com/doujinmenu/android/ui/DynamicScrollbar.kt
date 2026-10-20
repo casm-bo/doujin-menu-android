@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -131,21 +130,26 @@ private fun BoxScope.DynamicVerticalScrollbar(
         .pointerInput(Unit) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
+                down.consume()
+                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 val height = size.height.toFloat()
-                val thumb = height * currentMetrics.sizeFraction
-                val top = (height - thumb) * currentMetrics.positionFraction
+                val gestureMetrics = currentMetrics
+                val gestureVisible = currentVisible
+                val gestureTotal = currentTotal
+                val gestureExtent = currentExtent
+                val gestureColumns = currentColumns
+                val thumb = height * gestureMetrics.sizeFraction
+                val top = (height - thumb) * gestureMetrics.positionFraction
                 val onThumb = down.position.y in (top - 12.dp.toPx())..(top + thumb + 12.dp.toPx())
-                val start = if (onThumb) down else awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
-                val grabOffset = if (onThumb) start.position.y - (top + thumb / 2) else 0f
+                val grabOffset = if (onThumb) down.position.y - (top + thumb / 2) else 0f
                 var previous: ScrollbarTarget? = null
                 fun move(y: Float) {
-                    val target = scrollbarTarget(y - grabOffset, height, currentMetrics, currentVisible, currentTotal, currentExtent, currentColumns)
+                    val target = scrollbarTarget(y - grabOffset, height, gestureMetrics, gestureVisible, gestureTotal, gestureExtent, gestureColumns)
                     if (target != previous) { targets.trySend(target); previous = target }
                 }
                 dragging = true
-                if (!onThumb) { hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress); move(start.position.y) }
                 try {
-                    drag(start.id) { change -> change.consume(); move(change.position.y) }
+                    drag(down.id) { change -> change.consume(); move(change.position.y) }
                 } finally { dragging = false }
             }
         }) {
