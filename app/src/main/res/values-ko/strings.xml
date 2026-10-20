@@ -1,4 +1,5 @@
 <resources>
+    <string name="ui_confirm_add_to_series">선택한 %1$s개 갤러리를 %2$s에 추가할까요?</string>
     <string name="ui_history_navigation">최근 기록</string>
     <string name="ui_continue_short">계속 읽기</string>
     <string name="app_name">Doujin Menu</string>

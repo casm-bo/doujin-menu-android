@@ -1,4 +1,5 @@
 <resources>
+    <string name="ui_confirm_add_to_series">将选中的%1$s个画廊添加到%2$s？</string>
     <string name="ui_history_navigation">最近记录</string>
     <string name="ui_continue_short">继续阅读</string>
     <string name="app_name">Doujin Menu</string>

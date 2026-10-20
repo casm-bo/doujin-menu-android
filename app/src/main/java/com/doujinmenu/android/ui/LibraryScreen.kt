@@ -435,6 +435,13 @@ fun LibraryScreen(
         selectedIds = emptySet()
         selectedSeriesNames = emptySet()
     }
+    if (existingSeriesDialog) {
+        SeriesDestinationPicker(state, selectedIds.size, viewMode == LibraryViewMode.LIST, gridColumns, contentPadding,
+            onAppend = { onAppendSeries(selectedIds, it) },
+            onDone = { existingSeriesDialog = false; selectionMode = false; selectedIds = emptySet() },
+            onCancel = { existingSeriesDialog = false })
+        return
+    }
     PullToRefreshBox(
         isRefreshing = state.isLibraryPullRefreshing,
         onRefresh = { if (!editingSeriesOrder) onRefresh() },
@@ -748,23 +755,6 @@ fun LibraryScreen(
         }
     }
 
-    if (existingSeriesDialog) {
-        val names = state.customSeriesByBookId.values.map { it.name }.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
-        AlertDialog(onDismissRequest = { existingSeriesDialog = false },
-            title = { Text(strings[R.string.ui_add_to_series]) },
-            text = {
-                if (names.isEmpty()) Text(strings[R.string.ui_no_existing_series])
-                else LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    listItems(names, key = { it }) { name ->
-                        TextButton(onClick = {
-                            if (onAppendSeries(selectedIds, name)) {
-                                existingSeriesDialog = false; selectionMode = false; selectedIds = emptySet()
-                            }
-                        }, modifier = Modifier.fillMaxWidth()) { Text(name) }
-                    }
-                }
-            }, confirmButton = {}, dismissButton = { TextButton(onClick = { existingSeriesDialog = false }) { Text(strings[R.string.ui_cancel]) } })
-    }
     if (seriesDialog) {
         AlertDialog(
             onDismissRequest = { seriesDialog = false },
@@ -1524,7 +1514,7 @@ private fun LibrarySeriesOverview(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SeriesCard(
+internal fun SeriesCard(
     name: String,
     books: List<LibraryBook>,
     listMode: Boolean,
