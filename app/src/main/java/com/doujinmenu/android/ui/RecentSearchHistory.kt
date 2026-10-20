@@ -11,6 +11,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.doujinmenu.android.R
 import com.doujinmenu.android.model.SearchQueryEntry
+import com.doujinmenu.android.model.formatSearchQuery
 
 @Composable
 internal fun RecentSearchHistory(entries: List<SearchQueryEntry>, onSelect: (SearchQueryEntry) -> Unit, onClear: () -> Unit) {
@@ -24,7 +25,7 @@ internal fun RecentSearchHistory(entries: List<SearchQueryEntry>, onSelect: (Sea
         items(entries) { entry ->
             TextButton(onClick = { onSelect(entry) }, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth()) {
-                    Text(entry.query.ifBlank { strings[R.string.ui_all_galleries] }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(formatSearchQuery(entry.query).ifBlank { strings[R.string.ui_all_galleries] }, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (entry.languages.isNotEmpty()) Text(entry.languages.sorted().joinToString(), style = MaterialTheme.typography.labelSmall)
                 }
             }

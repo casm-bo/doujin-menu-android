@@ -8,10 +8,18 @@ import com.doujinmenu.android.model.LibraryVisibilityFilter
 import com.doujinmenu.android.model.LibraryMetadata
 import com.doujinmenu.android.model.CustomSeriesAssignment
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class LibraryFilterTest {
+    @Test fun commasAndSpacesShareTagFilteringAndUnderscoreMatching() {
+        val book = LibraryBook("fixture", "A, B", locationUri = "", locationName = "", folderUri = "", pages = emptyList(), modifiedAt = 0,
+            metadata = LibraryMetadata(artists = listOf("Sample Artist"), tags = listOf("full color", "female:long_hair")))
+        val state = MainUiState(libraryBooks = listOf(book), libraryQuery = "artist:sample_artist, tag:full_color female:long_hair title:\"A, B\"")
+        assertEquals(listOf(book), visibleLibraryBooks(state))
+        assertTrue(visibleLibraryBooks(state.copy(libraryQuery = "male:long_hair")).isEmpty())
+    }
     @Test fun `series exclusion uses assigned groups and combines with other filters`() {
         val state = MainUiState(libraryBooks = books, libraryExcludeSeries = true,
             customSeriesByBookId = mapOf("b" to CustomSeriesAssignment("series", 0)))

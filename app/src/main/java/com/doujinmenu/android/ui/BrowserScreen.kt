@@ -247,6 +247,11 @@ fun BrowserScreen(
         if (editing && expandedPanel == "languages") onLoadLanguages()
     }
     val focusManager = LocalFocusManager.current
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.filter { it }.collect {
+            focusManager.clearFocus(); editing = false; expandedPanel = null
+        }
+    }
     fun submitSearch() {
         focusManager.clearFocus()
         editing = false
@@ -277,7 +282,8 @@ fun BrowserScreen(
         CollapsingToolbar(scrollBehavior) {
         Column {
         tabHeader({
-            UnifiedSearchField(state.searchQuery, { expandedPanel = null; onQueryChange(it) }, strings[R.string.ui_search_conditions], { editing = true; expandedPanel = "history" }, { submitSearch() })
+            UnifiedSearchField(state.searchQuery, { expandedPanel = null; onQueryChange(it) }, strings[R.string.ui_search_conditions], { editing = false; expandedPanel = null }, { submitSearch() },
+                state.searchQueryHistory, state.filterSuggestions, state.isLoadingFilterSuggestions, onRecentSearch, onClearSearchHistory, onSelectSuggestion)
         }, {
             Box {
                 IconButton(onClick = { menu = "root" }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_search_options] }) { Text("⋯") }

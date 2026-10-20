@@ -267,6 +267,7 @@ fun LibraryScreen(
     onSearchLanguage: (String) -> Unit = {},
     onSeriesListChange: (Boolean) -> Unit = {},
     onLoadSeriesPreview: (String) -> Unit = {},
+    onSelectSuggestion: (com.doujinmenu.android.network.FilterSuggestion) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -416,13 +417,11 @@ fun LibraryScreen(
         }
     }
 
-    var queryExpanded by rememberSaveable { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
-    BackHandler(queryExpanded && !selectionMode && !seriesSelectionMode) { queryExpanded = false; focusManager.clearFocus() }
     var options by remember { mutableStateOf<String?>(null) }
     var filterMenuOpen by remember { mutableStateOf(false) }
     var sortMenuOpen by remember { mutableStateOf(false) }
-    val canCollapse = books.isNotEmpty() && !queryExpanded && options == null && !filterMenuOpen && !sortMenuOpen &&
+    val canCollapse = books.isNotEmpty() && options == null && !filterMenuOpen && !sortMenuOpen &&
         !selectionMode && !seriesSelectionMode && editingSeriesName == null && !seriesDialog && !existingSeriesDialog
     val collapseEnabled by rememberUpdatedState(canCollapse)
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { collapseEnabled })
@@ -465,7 +464,9 @@ fun LibraryScreen(
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             CollapsingToolbar(scrollBehavior) {
             tabHeader({
-                UnifiedSearchField(state.libraryQueryDraft, onQueryChange, strings[R.string.ui_search_gallery], { queryExpanded = true }, { onSubmitSearch(); queryExpanded = false })
+                UnifiedSearchField(state.libraryQueryDraft, onQueryChange, strings[R.string.ui_search_gallery], {}, onSubmitSearch,
+                    state.libraryQueryHistory, state.libraryFilterSuggestions, state.isLoadingLibrarySuggestions,
+                    { onRecentSearch(it.query) }, onClearSearchHistory, onSelectSuggestion)
             }, {
                 Box {
                     IconButton(onClick = { options = strings[R.string.ui_gallery_options] }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_gallery_options] }) { Text("⋯") }
@@ -508,17 +509,6 @@ fun LibraryScreen(
                     }
                 }
             })
-            AnimatedVisibility(queryExpanded, enter = expandVertically(expandFrom = Alignment.Top), exit = shrinkVertically(shrinkTowards = Alignment.Top)) {
-                androidx.compose.material3.OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                Column(Modifier.padding(12.dp)) {
-                    RecentSearchHistory(state.libraryQueryHistory, { entry ->
-                        onRecentSearch(entry.query); queryExpanded = false; focusManager.clearFocus()
-                    }, onClearSearchHistory)
-                    Text(strings[R.string.ui_title_title_artist_artist_tag_tag_series_series_exclude_phrase], style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { onQueryChange("") }) { Text(strings[R.string.ui_clear_search]) }
-                }
-                }
-            }
             if (seriesSelectionMode && seriesMode && selectedSeries == null) {
                 LibrarySelectionToolbar(
                     selectedCount = selectedSeriesNames.size,
@@ -1869,6 +1859,7 @@ private data class LibraryQueryTerm(val field: String?, val value: String, val e
             "title", "제목" -> listOf(book.title)
             "artist", "artists", "작가" -> book.metadata.artists
             "tag", "tags", "태그" -> book.metadata.tags
+            "male", "female" -> book.metadata.tags.filter { it.startsWith("$field:", ignoreCase = true) }.map { it.substringAfter(':') }
             "series", "시리즈" -> book.metadata.series + listOfNotNull(customSeriesName)
             "group", "groups", "그룹" -> book.metadata.groups
             "character", "characters", "캐릭터" -> book.metadata.characters
@@ -1880,14 +1871,14 @@ private data class LibraryQueryTerm(val field: String?, val value: String, val e
                 book.metadata.groups + book.metadata.characters +
                 listOfNotNull(book.metadata.language, book.metadata.galleryType)
         }
-        val found = candidates.any { it.contains(value, ignoreCase = true) }
+        val found = candidates.any { it.replace('_', ' ').contains(value.replace('_', ' '), ignoreCase = true) }
         return if (excluded) !found else found
     }
 }
 
 private fun parseLibraryQuery(query: String): List<LibraryQueryTerm> {
     val tokenRegex = Regex("""(-?)(?:(\w+|[가-힣]+):)?(?:\"([^\"]+)\"|(\S+))""")
-    return tokenRegex.findAll(query.trim()).mapNotNull { match ->
+    return tokenRegex.findAll(com.doujinmenu.android.model.normalizeSearchSeparators(query)).mapNotNull { match ->
         val value = match.groupValues[3].ifBlank { match.groupValues[4] }.trim()
         value.takeIf(String::isNotEmpty)?.let {
             LibraryQueryTerm(

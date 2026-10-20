@@ -280,10 +280,7 @@ internal fun searchTabKey(
     .sorted()
     .joinToString("\u0000")
 
-internal fun normalizeSearchSeparators(query: String): String = query
-    .replace(Regex("\\s*,+\\s*"), " ")
-    .trim()
-    .replace(Regex("\\s+"), " ")
+internal fun normalizeSearchSeparators(query: String): String = searchQueryTokens(query).joinToString(" ")
 
 internal fun queriesWithPreferredLanguages(query: String, preferredLanguages: Set<String>): List<String> {
     val normalized = normalizeSearchSeparators(query)

@@ -63,6 +63,8 @@ import com.doujinmenu.android.model.closeTab
 import com.doujinmenu.android.model.goBack
 import com.doujinmenu.android.model.moveTab
 import com.doujinmenu.android.model.normalizeSearchSeparators
+import com.doujinmenu.android.model.searchTokenStart
+import com.doujinmenu.android.model.applySearchSuggestion
 import com.doujinmenu.android.model.openTab
 import com.doujinmenu.android.model.openGalleryInBackground
 import com.doujinmenu.android.model.BackgroundGalleryTab
@@ -151,6 +153,8 @@ data class MainUiState(
     val languageLoadError: String? = null,
     val filterSuggestions: List<FilterSuggestion> = emptyList(),
     val isLoadingFilterSuggestions: Boolean = false,
+    val libraryFilterSuggestions: List<FilterSuggestion> = emptyList(),
+    val isLoadingLibrarySuggestions: Boolean = false,
     val knownFilterTokens: Set<String> = emptySet(),
     val viewedGalleryIds: Set<Long> = emptySet(),
     val recentHistory: List<RecentHistoryEntry> = emptyList(),
@@ -255,6 +259,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val libraryUploadPreparer = LibraryUploadPreparer(application)
     private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
     private var suggestionJob: Job? = null
+    private var libraryQueryJob: Job? = null
     private var browserSearchJob: Job? = null
     private var searchWindowJob: Job? = null
     private var requestedSearchPages: IntRange = IntRange.EMPTY
@@ -468,15 +473,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectFilterSuggestion(suggestion: FilterSuggestion) {
-        val query = uiState.searchQuery
-        val tokenStart = query.indexOfLast { it.isWhitespace() }.let { if (it < 0) 0 else it + 1 }
-        val negative = query.substring(tokenStart).startsWith("-")
-        val replacement = (if (negative) "-" else "") + suggestion.token
-        uiState = uiState.copy(
-            searchQuery = query.substring(0, tokenStart) + replacement + " ",
-            filterSuggestions = emptyList(),
-            isLoadingFilterSuggestions = false,
-        )
+        setSearchQuery(applySearchSuggestion(uiState.searchQuery, suggestion.token))
+    }
+    fun selectLibrarySuggestion(suggestion: FilterSuggestion) {
+        setLibraryQuery(applySearchSuggestion(uiState.libraryQueryDraft, suggestion.token))
     }
     fun setFavoriteName(value: String) = update { copy(favoriteName = value) }
 
@@ -1346,7 +1346,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun refreshLibrary(showPullFeedback: Boolean) {
         if (uiState.isLibraryScanning) return
-        if (showPullFeedback) uiState = uiState.copy(libraryQueryDraft = uiState.libraryQuery)
         val scannedLocations = uiState.libraryLocations
         val profile = selectedProfile()
         viewModelScope.launch {
@@ -1585,14 +1584,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setLibraryQuery(value: String) = update { copy(libraryQueryDraft = value) }
+    fun setLibraryQuery(value: String) {
+        uiState = uiState.copy(libraryQueryDraft = value)
+        refreshFilterSuggestions(value, library = true)
+        libraryQueryJob?.cancel()
+        libraryQueryJob = viewModelScope.launch {
+            delay(250)
+            if (uiState.libraryQueryDraft == value) applyLibrarySearch(value, record = false)
+        }
+    }
     fun submitLibrarySearch(query: String = uiState.libraryQueryDraft) {
-        val applied = query.trim()
-        val history = uiState.libraryQueryHistory.recordQuery(SearchQueryEntry(applied))
+        libraryQueryJob?.cancel()
+        applyLibrarySearch(query, record = true)
+    }
+    private fun applyLibrarySearch(query: String, record: Boolean) {
+        val applied = normalizeSearchSeparators(query)
+        val history = if (record) uiState.libraryQueryHistory.recordQuery(SearchQueryEntry(applied)) else uiState.libraryQueryHistory
         val workspace = uiState.galleryWorkspace.updateActiveLibraryHome { it.copy(query = applied, scrollAnchorKey = null, scrollIndex = 0, scrollOffset = 0) }
-        browserPreferenceStore.saveSearchQueryHistory(history, "library_query_history")
+        if (record) browserPreferenceStore.saveSearchQueryHistory(history, "library_query_history")
         browserPreferenceStore.saveGalleryWorkspace(workspace)
-        uiState = uiState.copy(libraryQuery = applied, libraryQueryDraft = applied, libraryQueryHistory = history, galleryWorkspace = workspace)
+        uiState = uiState.copy(libraryQuery = applied, libraryQueryDraft = if (record) applied else uiState.libraryQueryDraft,
+            libraryQueryHistory = history, galleryWorkspace = workspace)
     }
     fun clearLibrarySearchHistory() {
         browserPreferenceStore.saveSearchQueryHistory(emptyList(), "library_query_history")
@@ -2584,6 +2596,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun applyGalleryWorkspace(workspace: BrowserWorkspace) {
+        libraryQueryJob?.cancel()
         browserSearchJob?.cancel()
         cancelSearchWindow()
         suggestionJob?.cancel()
@@ -2790,90 +2803,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return "$prefix:$value"
     }
 
-    private fun refreshFilterSuggestions(query: String) {
+    private fun refreshFilterSuggestions(query: String, library: Boolean = false) {
         suggestionJob?.cancel()
-        val rawToken = query.substringAfterLast(' ').removePrefix("-").trim()
-        if (rawToken.isEmpty()) {
-            uiState = uiState.copy(filterSuggestions = emptyList(), isLoadingFilterSuggestions = false)
-            return
+        fun publish(values: List<FilterSuggestion>, loading: Boolean) {
+            uiState = if (library) uiState.copy(libraryFilterSuggestions = values, isLoadingLibrarySuggestions = loading)
+                else uiState.copy(filterSuggestions = values, isLoadingFilterSuggestions = loading)
         }
-        if (':' !in rawToken) {
-            val partial = rawToken.lowercase()
-            val typeHints = FILTER_TYPES
-                .filter { it.startsWith(partial) }
-                .map { FilterSuggestion("$it:", strings[R.string.msg_filter, (it)]) }
-            val local = localUntypedFilterSuggestions(partial)
-            val cacheKey = "untyped:$partial"
-            suggestionCache[cacheKey]?.let { cached ->
-                uiState = uiState.copy(
-                    filterSuggestions = mergeUntypedSuggestions(typeHints, local, cached, partial),
-                    isLoadingFilterSuggestions = false,
-                )
-                return
-            }
-
-            uiState = uiState.copy(
-                filterSuggestions = mergeUntypedSuggestions(typeHints, local, emptyList(), partial),
-                isLoadingFilterSuggestions = true,
-            )
-            suggestionJob = viewModelScope.launch {
-                delay(SUGGESTION_DEBOUNCE_MS)
-                val remote = coroutineScope {
-                    UNTYPED_SUGGESTION_TYPES.map { type ->
-                        async {
-                            runCatching { suggestionClient.getSuggestions(type, partial) }
-                                .getOrDefault(emptyList())
-                        }
-                    }.awaitAll().flatten()
-                }
-                suggestionCache[cacheKey] = remote
-                val knownFilters = rememberKnownFilterTokens(remote.mapTo(linkedSetOf()) { it.token })
-                if (uiState.searchQuery.substringAfterLast(' ').removePrefix("-") == rawToken) {
-                    uiState = uiState.copy(
-                        filterSuggestions = mergeUntypedSuggestions(typeHints, local, remote, partial),
-                        isLoadingFilterSuggestions = false,
-                        knownFilterTokens = knownFilters,
-                    )
-                } else if (knownFilters != uiState.knownFilterTokens) {
-                    uiState = uiState.copy(knownFilterTokens = knownFilters)
-                }
-            }
-            return
-        }
-        val type = rawToken.substringBefore(':').lowercase()
-        val partial = rawToken.substringAfter(':').lowercase()
-        if (type !in FILTER_TYPES || partial.isEmpty()) {
-            uiState = uiState.copy(filterSuggestions = emptyList(), isLoadingFilterSuggestions = false)
-            return
-        }
-
-        val local = localFilterSuggestions(type, partial)
-        val bucket = partial.first().let { if (it.isDigit()) "0-9" else it.toString() }
-        val cacheKey = "$type:$bucket"
-        suggestionCache[cacheKey]?.let { cached ->
-            uiState = uiState.copy(
-                filterSuggestions = mergeSuggestions(local, cached, partial),
-                isLoadingFilterSuggestions = false,
-            )
-            return
-        }
-
-        uiState = uiState.copy(filterSuggestions = local, isLoadingFilterSuggestions = true)
+        val rawToken = query.substring(searchTokenStart(query)).removePrefix("-").trim().lowercase()
+        if (rawToken.isEmpty()) { publish(emptyList(), false); return }
+        val type = rawToken.substringBefore(':', "")
+        val partial = rawToken.substringAfter(':', rawToken)
+        if ((':' in rawToken && type !in FILTER_TYPES) || partial.isEmpty()) { publish(emptyList(), false); return }
+        val untyped = ':' !in rawToken
+        val hints = if (untyped) FILTER_TYPES.filter { it.startsWith(partial) }.map { FilterSuggestion("$it:", strings[R.string.msg_filter, it]) } else emptyList()
+        val libraryTokens = uiState.libraryBooks.asSequence().flatMap { book -> sequence {
+            book.metadata.artists.forEach { yield("artist:${filterValue(it)}") }
+            book.metadata.groups.forEach { yield("group:${filterValue(it)}") }
+            book.metadata.series.forEach { yield("series:${filterValue(it)}") }
+            book.metadata.characters.forEach { yield("character:${filterValue(it)}") }
+            book.metadata.tags.forEach { yield(if (it.substringBefore(':') in listOf("male", "female", "tag")) filterValue(it) else "tag:${filterValue(it)}") }
+            book.metadata.language?.let { yield("language:${filterValue(it)}") }
+        } }.filter { if (untyped) it.substringAfter(':').startsWith(partial) else it.startsWith("$type:$partial") }
+            .distinct().take(MAX_FILTER_SUGGESTIONS).map { FilterSuggestion(it, it.substringAfter(':').replace('_', ' ')) }.toList()
+        val local = (if (untyped) localUntypedFilterSuggestions(partial) else localFilterSuggestions(type, partial)) + libraryTokens
+        fun merged(remote: List<FilterSuggestion>) = if (untyped) mergeUntypedSuggestions(hints, local, remote, partial) else mergeSuggestions(local, remote, partial)
+        val cacheKey = if (untyped) "untyped:$partial" else "$type:${partial.first().let { if (it.isDigit()) "0-9" else it.toString() }}"
+        suggestionCache[cacheKey]?.let { publish(merged(it), false); return }
+        publish(merged(emptyList()), true)
         suggestionJob = viewModelScope.launch {
             delay(SUGGESTION_DEBOUNCE_MS)
-            val remote = runCatching { suggestionClient.getSuggestions(type, partial) }
-                .getOrDefault(emptyList())
+            val remote = if (untyped) coroutineScope { UNTYPED_SUGGESTION_TYPES.map { facet -> async {
+                runCatching { suggestionClient.getSuggestions(facet, partial) }.getOrDefault(emptyList())
+            } }.awaitAll().flatten() } else runCatching { suggestionClient.getSuggestions(type, partial) }.getOrDefault(emptyList())
             suggestionCache[cacheKey] = remote
-            val knownFilters = rememberKnownFilterTokens(remote.mapTo(linkedSetOf()) { it.token })
-            if (uiState.searchQuery.substringAfterLast(' ').removePrefix("-") == rawToken) {
-                uiState = uiState.copy(
-                    filterSuggestions = mergeSuggestions(local, remote, partial),
-                    isLoadingFilterSuggestions = false,
-                    knownFilterTokens = knownFilters,
-                )
-            } else if (knownFilters != uiState.knownFilterTokens) {
-                uiState = uiState.copy(knownFilterTokens = knownFilters)
-            }
+            val known = rememberKnownFilterTokens(remote.mapTo(linkedSetOf()) { it.token })
+            if ((if (library) uiState.libraryQueryDraft else uiState.searchQuery) == query) publish(merged(remote), false)
+            if (known != uiState.knownFilterTokens) uiState = uiState.copy(knownFilterTokens = known)
         }
     }
 

@@ -858,6 +858,7 @@ private fun MainTabContent(
                 onAppendSeries = viewModel::appendLibrarySeries,
                 onCommitSeriesEdit = viewModel::commitLibrarySeriesEdit,
                 onLoadSeriesPreview = viewModel::loadSeriesBookPreview,
+                onSelectSuggestion = viewModel::selectLibrarySuggestion,
                 onReadBook = viewModel::openLibraryReaderTab,
                 onSearchFacet = { viewModel.searchFromFacet(it); onNavigate(MainDestination.Browser) },
                 onSearchLanguage = { viewModel.searchFromLanguage(it); onNavigate(MainDestination.Browser) },

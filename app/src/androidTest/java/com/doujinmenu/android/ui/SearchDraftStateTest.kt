@@ -10,6 +10,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SearchDraftStateTest {
+    @Test fun galleryDebouncesLatestQueryWithoutRecordingEveryKeystroke() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val store = ViewModelStore()
+        lateinit var model: MainViewModel
+        try {
+            instrumentation.runOnMainSync {
+                model = ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory(context.applicationContext as Application))[MainViewModel::class.java]
+                model.clearLibrarySearchHistory()
+                model.setLibraryQuery("tag:old")
+                model.setLibraryQuery("tag:full_color, artist:sample")
+            }
+            val deadline = android.os.SystemClock.uptimeMillis() + 5_000
+            while (android.os.SystemClock.uptimeMillis() < deadline) {
+                var ready = false
+                instrumentation.runOnMainSync { ready = model.uiState.libraryQuery == "tag:full_color artist:sample" }
+                if (ready) break
+                android.os.SystemClock.sleep(50)
+            }
+            instrumentation.runOnMainSync {
+                assertEquals("tag:full_color artist:sample", model.uiState.libraryQuery)
+                assertTrue(model.uiState.libraryQueryHistory.isEmpty())
+                model.submitLibrarySearch()
+                assertEquals(1, model.uiState.libraryQueryHistory.size)
+            }
+        } finally { instrumentation.runOnMainSync { store.clear() } }
+    }
     @Test fun editsNeverReplaceCommittedQueriesLanguagesOrCacheUntilSubmit() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
