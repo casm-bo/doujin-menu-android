@@ -1,10 +1,15 @@
 package com.doujinmenu.android.ui
 
 import androidx.compose.runtime.*
-import androidx.compose.ui.semantics.SemanticsProperties
+import android.os.SystemClock
+import android.view.MotionEvent
+import android.view.InputDevice
+import android.view.View
+import android.view.ViewGroup
+import android.view.inspector.WindowInspector
+import android.widget.EditText
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
-import androidx.compose.ui.text.TextRange
 import androidx.test.platform.app.InstrumentationRegistry
 import com.doujinmenu.android.R
 import com.doujinmenu.android.model.*
@@ -16,19 +21,121 @@ import org.junit.Test
 
 class SearchEditorTest {
     @get:Rule val compose = createComposeRule()
+    @org.junit.Before fun requiresWindowInspection() { org.junit.Assume.assumeTrue(android.os.Build.VERSION.SDK_INT >= 29) }
+    private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
+    @Composable private fun AppTheme(content: @Composable () -> Unit) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val themed = remember(context) { android.view.ContextThemeWrapper(context, R.style.Theme_DoujinMenu) }
+        CompositionLocalProvider(androidx.compose.ui.platform.LocalContext provides themed) { DoujinMenuTheme { content() } }
+    }
+    private fun descendants(view: View): Sequence<View> = sequence {
+        yield(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))
+    }
+    private fun views() = WindowInspector.getGlobalWindowViews().asSequence().flatMap(::descendants)
+    private fun field(action: (EditText) -> Unit) {
+        instrumentation.runOnMainSync { action(views().filterIsInstance<EditText>().single()) }
+    }
+    private fun waitForInput() {
+        compose.waitUntil(5_000) {
+            var ready = false
+            instrumentation.runOnMainSync { ready = views().filterIsInstance<EditText>().singleOrNull()?.hasFocus() == true }
+            ready
+        }
+    }
+    private fun send(downTime: Long, action: Int, x: Float, y: Float) {
+        val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0)
+        event.source = InputDevice.SOURCE_TOUCHSCREEN
+        try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+    }
+    @Test fun longQueryOpensAtEndAndDoesNotResetManualCursorSelection() {
+        val original = List(30) { "tag:sample_$it" }.joinToString(", ")
+        var query by mutableStateOf(original)
+        var submitted = false
+        compose.setContent { AppTheme { UnifiedSearchField(query, { query = it }, "Long query", {}, { submitted = true }) } }
+        compose.onNodeWithContentDescription("Long query").performClick()
+        waitForInput()
+        field { assertTrue(it.hasFocus()); assertEquals(query.length, it.selectionStart); assertTrue(it.scrollX > 0) }
+        field { it.setSelection(10); it.text.insert(10, "X") }
+        field { assertEquals(11, it.selectionStart) }
+        assertEquals(original.substring(0, 10) + "X" + original.substring(10), query)
+        field { it.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) }
+        assertTrue(submitted)
+    }
+
+    @Test fun cursorHandleKeepsScrollingWhileHeldAtEdge() {
+        var query by mutableStateOf(List(100) { "tag:sample_$it" }.joinToString(", "))
+        compose.setContent { AppTheme { UnifiedSearchField(query, { query = it }, "Drag query", {}, {}) } }
+        compose.onNodeWithContentDescription("Drag query").performClick()
+        waitForInput()
+        var x = 0f; var y = 0f; var edge = 0f
+        field { view -> val position = IntArray(2).also { view.getLocationOnScreen(it) }
+            val handle = (view as SearchQueryInput).caretHandlePosition()
+            x = position[0] + handle.x; y = position[1] + handle.y; edge = position[0].toFloat() + 1
+        }
+        val down = SystemClock.uptimeMillis()
+        send(down, MotionEvent.ACTION_DOWN, x, y)
+        try {
+            repeat(12) { step -> send(down, MotionEvent.ACTION_MOVE, x + (edge - x) * (step + 1) / 12, y); SystemClock.sleep(16) }
+            var before = 0
+            field { before = it.selectionStart }
+            SystemClock.sleep(1_000)
+            field { assertTrue("Held cursor should keep scrolling: $before then ${it.selectionStart}", it.selectionStart < before) }
+        } finally { send(down, MotionEvent.ACTION_UP, edge, y) }
+        var stopped = 0
+        field { stopped = it.selectionStart }
+        SystemClock.sleep(200)
+        field { assertEquals(stopped, it.selectionStart) }
+        field { view ->
+            val position = IntArray(2).also { view.getLocationOnScreen(it) }
+            val handle = (view as SearchQueryInput).caretHandlePosition()
+            x = position[0] + handle.x; y = position[1] + handle.y
+            edge = position[0] + view.width - 1f
+        }
+        val reverse = SystemClock.uptimeMillis()
+        send(reverse, MotionEvent.ACTION_DOWN, x, y)
+        try {
+            repeat(12) { step -> send(reverse, MotionEvent.ACTION_MOVE, x + (edge - x) * (step + 1) / 12, y); SystemClock.sleep(16) }
+            var before = 0
+            field { before = it.selectionStart }
+            SystemClock.sleep(500)
+            field { assertTrue("Right edge should continue moving forward", it.selectionStart > before) }
+            field { view -> val position = IntArray(2).also { view.getLocationOnScreen(it) }; edge = position[0] + view.width / 2f }
+            send(reverse, MotionEvent.ACTION_MOVE, edge, y)
+            field { stopped = it.selectionStart }
+            SystemClock.sleep(200)
+            field { assertEquals("Leaving the edge should stop auto-scroll", stopped, it.selectionStart) }
+        } finally { send(reverse, MotionEvent.ACTION_CANCEL, edge, y) }
+    }
+
+    @Test fun longPressStillSelectsTextWithoutChangingTheQuery() {
+        var query by mutableStateOf("tag:first, artist:sample")
+        compose.setContent { AppTheme { UnifiedSearchField(query, { query = it }, "Selection query", {}, {}) } }
+        compose.onNodeWithContentDescription("Selection query").performClick()
+        waitForInput()
+        var x = 0f; var y = 0f
+        field { view -> val position = IntArray(2).also { view.getLocationOnScreen(it) }; x = position[0] + view.width / 3f; y = position[1] + view.height / 2f }
+        val down = SystemClock.uptimeMillis()
+        send(down, MotionEvent.ACTION_DOWN, x, y)
+        SystemClock.sleep(700)
+        send(down, MotionEvent.ACTION_UP, x, y)
+        field { assertTrue("Platform text selection must remain available", it.selectionStart != it.selectionEnd) }
+        assertEquals("tag:first, artist:sample", query)
+    }
+
     @Test fun fullscreenEditorRestoresHistoryOnClearAndMovesAutofillCursorToEnd() {
         val strings = InstrumentationRegistry.getInstrumentation().targetContext.resources
         var query by mutableStateOf("tag:first, artist:sa")
         var history by mutableStateOf(listOf(SearchQueryEntry("tag:full_color tag:multi-work_series")))
         var submitted = false
-        compose.setContent { DoujinMenuTheme { UnifiedSearchField(query, { query = it }, "Fixture search", {}, { submitted = true },
+        compose.setContent { AppTheme { UnifiedSearchField(query, { query = it }, "Fixture search", {}, { submitted = true },
             history, if (query.endsWith("sa")) listOf(FilterSuggestion("artist:sample", "sample")) else emptyList(), false,
             {}, { history = emptyList() }, { query = applySearchSuggestion(query, it.token) }) } }
         compose.onNodeWithContentDescription("Fixture search").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
+        waitForInput()
         compose.onNodeWithText("artist:sample").performClick()
-        compose.onNode(hasSetTextAction()).assertTextEquals("tag:first, artist:sample, ")
-        compose.onNode(hasSetTextAction()).assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(query.length)))
+        compose.waitForIdle()
+        field { assertEquals("tag:first, artist:sample, ", it.text.toString()); assertEquals(query.length, it.selectionStart) }
         compose.onNodeWithText(strings.getString(R.string.ui_clear_search)).performClick()
         compose.onNodeWithText("tag:full_color, tag:multi-work_series").assertExists()
         compose.onNodeWithText(strings.getString(R.string.ui_clear_history)).performClick()
