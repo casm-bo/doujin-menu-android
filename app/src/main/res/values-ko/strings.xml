@@ -202,9 +202,9 @@
     <string name="ui_search_gallery">"갤러리 검색"</string>
     <string name="ui_gallery_options">"갤러리 옵션"</string>
     <string name="ui_view_58d697">"보기"</string>
-    <string name="ui_large_2_columns">"크게 · 2열"</string>
-    <string name="ui_medium_3_columns">"중간 · 3열"</string>
-    <string name="ui_small_4_columns">"작게 · 4열"</string>
+    <string name="ui_large_2_columns">"크게"</string>
+    <string name="ui_medium_3_columns">"중간"</string>
+    <string name="ui_small_4_columns">"작게"</string>
     <string name="ui_storage_locations">"저장 위치"</string>
     <string name="ui_no_storage_locations">"등록된 저장 위치 없음"</string>
     <string name="ui_device">"기기 · "</string>

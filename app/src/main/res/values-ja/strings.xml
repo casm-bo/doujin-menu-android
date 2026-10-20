@@ -202,9 +202,9 @@
     <string name="ui_search_gallery">"ギャラリーを検索"</string>
     <string name="ui_gallery_options">"ギャラリーオプション"</string>
     <string name="ui_view_58d697">"表示"</string>
-    <string name="ui_large_2_columns">"大 · 2列"</string>
-    <string name="ui_medium_3_columns">"中 · 3列"</string>
-    <string name="ui_small_4_columns">"小 · 4列"</string>
+    <string name="ui_large_2_columns">"大"</string>
+    <string name="ui_medium_3_columns">"中"</string>
+    <string name="ui_small_4_columns">"小"</string>
     <string name="ui_storage_locations">"保存先"</string>
     <string name="ui_no_storage_locations">"保存先の登録なし"</string>
     <string name="ui_device">"端末 · "</string>

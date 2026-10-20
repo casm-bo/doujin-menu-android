@@ -71,6 +71,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
+import com.doujinmenu.android.security.LibraryPreferenceStore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
@@ -258,7 +261,9 @@ fun BrowserScreen(
     }
     BackHandler(editing) { editing = false; focusManager.clearFocus() }
     var menu by remember { mutableStateOf<String?>(null) }
-    var gridView by rememberSaveable { mutableStateOf(false) }
+    val viewPreferences = remember(context) { LibraryPreferenceStore(context) }
+    var gridView by rememberSaveable { mutableStateOf(viewPreferences.loadSearchGridView()) }
+    var gridColumns by rememberSaveable { mutableIntStateOf(viewPreferences.loadSearchGridColumns()) }
     var pageDialog by rememberSaveable { mutableStateOf(false) }
     var pageInput by rememberSaveable { mutableStateOf("") }
     val canCollapse = resultIds.isNotEmpty() && !editing && menu == null && !pageDialog
@@ -267,6 +272,7 @@ fun BrowserScreen(
     LaunchedEffect(pageKey, canCollapse) {
         if (!canCollapse) scrollBehavior.state.heightOffset = 0f
     }
+    CompositionLocalProvider(LocalWorkCardSize provides WorkCardSize.fromColumns(gridColumns)) {
     Column(Modifier.fillMaxSize().padding(contentPadding).background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
         CollapsingToolbar(scrollBehavior) {
         Column {
@@ -278,8 +284,9 @@ fun BrowserScreen(
                 DropdownMenu(expanded = menu != null, onDismissRequest = { menu = null }) {
                     if (menu == "view") {
                         DropdownMenuItem(text = { Text(strings[R.string.ui_search_options]) }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { menu = "root" })
-                        ChoiceMenuItem(strings[R.string.ui_list_view], !gridView, onClick = { gridView = false; menu = null })
-                        ChoiceMenuItem(strings[R.string.ui_grid_view], gridView, onClick = { gridView = true; menu = null })
+                        WorkViewOptions(gridView, gridColumns,
+                            onMode = { gridView = it; viewPreferences.saveSearchGridView(it); menu = null },
+                            onSize = { gridColumns = it; viewPreferences.saveSearchGridColumns(it) })
                     } else {
                         DropdownMenuItem(text = { Text(strings[R.string.ui_favorite_this_search]) }, leadingIcon = { ActionIcon(ActionSymbol.STAR) }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
                         DropdownMenuItem(text = { Text(strings[R.string.ui_go_to_page]) }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
@@ -436,7 +443,7 @@ fun BrowserScreen(
     ) {
         Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(if (gridView) 2 else 1),
+            columns = GridCells.Fixed(if (gridView) gridColumns else 1),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize(),
             state = listState,
@@ -516,6 +523,7 @@ fun BrowserScreen(
         }
     }
 
+    }
     }
     if (pageDialog) AlertDialog(
         onDismissRequest = { pageDialog = false },

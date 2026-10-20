@@ -91,11 +91,13 @@ internal fun WorkCard(
 ) {
     val density = LocalDensity.current
     val typography = MaterialTheme.typography
-    val rows = if (grid) 3 else 2
+    val cardSize = LocalWorkCardSize.current
+    val rows = if (grid) 3 else if (cardSize == WorkCardSize.SMALL) 1 else 2
     val tagHeight = with(density) { typography.bodyMedium.lineHeight.toDp() } + 8.dp
-    val bodyHeight = with(density) {
+    val minimumBodyHeight = with(density) {
         typography.titleSmall.lineHeight.toDp() * 2 + typography.bodySmall.lineHeight.toDp() + typography.labelSmall.lineHeight.toDp() * 2
     } + tagHeight * rows + 3.dp * (rows - 1) + 36.dp
+    val bodyHeight = if (grid) minimumBodyHeight else maxOf(minimumBodyHeight, minimumBodyHeight * cardSize.listScale)
     @Composable fun Body(modifier: Modifier) {
         Column(modifier.height(bodyHeight).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = typography.titleSmall, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -121,7 +123,7 @@ internal fun WorkCard(
             Cover(Modifier.fillMaxWidth().aspectRatio(.72f))
             Body(Modifier.fillMaxWidth())
         } else Row(Modifier.fillMaxWidth().height(bodyHeight)) {
-            Cover(Modifier.width(104.dp).fillMaxHeight())
+            Cover(Modifier.width(cardSize.listCoverWidth.dp).fillMaxHeight())
             Body(Modifier.weight(1f))
         }
     }

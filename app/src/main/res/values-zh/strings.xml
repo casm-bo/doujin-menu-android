@@ -202,9 +202,9 @@
     <string name="ui_search_gallery">"搜索画廊"</string>
     <string name="ui_gallery_options">"画廊选项"</string>
     <string name="ui_view_58d697">"视图"</string>
-    <string name="ui_large_2_columns">"大 · 2列"</string>
-    <string name="ui_medium_3_columns">"中 · 3列"</string>
-    <string name="ui_small_4_columns">"小 · 4列"</string>
+    <string name="ui_large_2_columns">"大"</string>
+    <string name="ui_medium_3_columns">"中"</string>
+    <string name="ui_small_4_columns">"小"</string>
     <string name="ui_storage_locations">"存储位置"</string>
     <string name="ui_no_storage_locations">"尚未添加存储位置"</string>
     <string name="ui_device">"设备 · "</string>

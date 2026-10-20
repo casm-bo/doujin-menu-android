@@ -76,6 +76,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -446,6 +447,7 @@ fun LibraryScreen(
             onCancel = { editingSeriesName = null })
         return
     }
+    CompositionLocalProvider(LocalWorkCardSize provides WorkCardSize.fromColumns(gridColumns)) {
     PullToRefreshBox(
         isRefreshing = state.isLibraryPullRefreshing,
         onRefresh = onRefresh,
@@ -470,18 +472,9 @@ fun LibraryScreen(
                         if (options != strings[R.string.ui_gallery_options]) DropdownMenuItem(text = { Text(options.orEmpty()) }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { options = strings[R.string.ui_gallery_options] })
                         when (options) {
                             strings[R.string.ui_view_58d697] -> {
-                                LibraryViewMode.entries.forEach { mode ->
-                                    ChoiceMenuItem(label = if (mode == LibraryViewMode.GRID) strings[R.string.ui_grid_view] else strings[R.string.ui_list_view], checked = viewMode == mode, onClick = {
-                                        viewModeName = mode.name; libraryPreferences.saveLibraryViewMode(mode.name); options = null
-                                    })
-                                }
-                                HorizontalDivider()
-                                listOf(2 to strings[R.string.ui_large_2_columns], 3 to strings[R.string.ui_medium_3_columns], 4 to strings[R.string.ui_small_4_columns]).forEach { (columns, label) ->
-                                    ChoiceMenuItem(label = label, checked = viewMode == LibraryViewMode.GRID && gridColumns == columns, onClick = {
-                                        gridColumns = columns; libraryPreferences.saveLibraryGridColumns(columns)
-                                        viewModeName = LibraryViewMode.GRID.name; libraryPreferences.saveLibraryViewMode(viewModeName); options = null
-                                    })
-                                }
+                                WorkViewOptions(viewMode == LibraryViewMode.GRID, gridColumns,
+                                    onMode = { grid -> viewModeName = if (grid) "GRID" else "LIST"; libraryPreferences.saveLibraryViewMode(viewModeName); options = null },
+                                    onSize = { gridColumns = it; libraryPreferences.saveLibraryGridColumns(it) })
                             }
                             strings[R.string.ui_storage_locations] -> {
                                 val locations = state.libraryLocations + state.desktopLibraryLocations
@@ -735,6 +728,7 @@ fun LibraryScreen(
         }
     }
 
+    }
     if (seriesDialog) {
         AlertDialog(
             onDismissRequest = { seriesDialog = false },

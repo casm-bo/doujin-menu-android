@@ -237,7 +237,12 @@ class LibraryPreferenceStore(context: Context) {
     fun saveLibraryViewMode(value: String) =
         preferences.edit().putString(KEY_LIBRARY_VIEW_MODE, value).apply()
 
-    fun loadLibraryGridColumns(): Int = preferences.getInt(KEY_LIBRARY_GRID_COLUMNS, 3).coerceIn(2, 4)
+    fun loadLibraryGridColumns(): Int = preferences.getInt(KEY_LIBRARY_GRID_COLUMNS, 2).coerceIn(2, 4)
+
+    fun loadSearchGridView(): Boolean = preferences.getBoolean("search_grid_view", false)
+    fun saveSearchGridView(value: Boolean) = preferences.edit().putBoolean("search_grid_view", value).apply()
+    fun loadSearchGridColumns(): Int = preferences.getInt("search_grid_columns", 3).coerceIn(2, 4)
+    fun saveSearchGridColumns(value: Int) = preferences.edit().putInt("search_grid_columns", value.coerceIn(2, 4)).apply()
 
     fun saveLibraryGridColumns(value: Int) =
         preferences.edit().putInt(KEY_LIBRARY_GRID_COLUMNS, value.coerceIn(2, 4)).apply()
