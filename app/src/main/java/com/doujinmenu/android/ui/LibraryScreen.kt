@@ -131,7 +131,7 @@ private fun thumbnailBadgeScale(columns: Int): Float = when (columns) {
 
 private const val LIST_THUMBNAIL_BADGE_SCALE = 0.62f
 
-private sealed interface LibraryMainEntry {
+internal sealed interface LibraryMainEntry {
     val title: String
     val modifiedAt: Long
     data class Book(val book: LibraryBook) : LibraryMainEntry {
@@ -141,6 +141,24 @@ private sealed interface LibraryMainEntry {
     data class Series(val name: String, val books: List<LibraryBook>) : LibraryMainEntry {
         override val title: String = name
         override val modifiedAt: Long = books.maxOfOrNull(LibraryBook::modifiedAt) ?: 0L
+    }
+}
+
+internal fun libraryMainEntries(
+    books: List<LibraryBook>, assignments: Map<String, CustomSeriesAssignment>, sort: LibrarySort,
+): List<LibraryMainEntry> {
+    val grouped = books.filter { it.id in assignments }.groupBy { assignments.getValue(it.id).name }
+    val entries = books.filter { it.id !in assignments }.map { LibraryMainEntry.Book(it) } +
+        grouped.map { (name, members) -> LibraryMainEntry.Series(name, members.sortedWith(
+            compareBy<LibraryBook> { assignments.getValue(it.id).order }.thenBy { it.id },
+        )) }
+    return when (sort) {
+        LibrarySort.TITLE_ASC -> entries.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+        LibrarySort.TITLE_DESC -> entries.sortedWith(compareByDescending<LibraryMainEntry, String>(String.CASE_INSENSITIVE_ORDER) { it.title })
+        LibrarySort.ARTIST_ASC -> entries.sortedWith(libraryMainEntryArtistComparator(false))
+        LibrarySort.ARTIST_DESC -> entries.sortedWith(libraryMainEntryArtistComparator(true))
+        LibrarySort.NEWEST -> entries.sortedByDescending { it.modifiedAt }
+        LibrarySort.OLDEST -> entries.sortedBy { it.modifiedAt }
     }
 }
 
@@ -282,7 +300,9 @@ fun LibraryScreen(
         state.libraryVisibilityFilter,
     ) { state.libraryBooksInVisibility() }
     val shownBooks = books.filterBySeries(selectedSeries, state.customSeriesByBookId)
-    val mainEntries = remember(books) { books.map { LibraryMainEntry.Book(it) } }
+    val mainEntries = remember(books, state.customSeriesByBookId, state.librarySort) {
+        libraryMainEntries(books, state.customSeriesByBookId, state.librarySort)
+    }
     val shownEntries = remember(shownBooks) { shownBooks.map { LibraryMainEntry.Book(it) } }
     val pullToRefreshState = rememberPullToRefreshState()
     val mainEntryKeys = mainEntries.map(LibraryMainEntry::scrollKey)
