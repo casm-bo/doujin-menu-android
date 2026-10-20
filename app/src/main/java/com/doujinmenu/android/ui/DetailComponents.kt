@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil3.compose.SubcomposeAsyncImage
 import coil3.network.httpHeaders
+import coil3.request.ImageRequest
+import kotlinx.coroutines.delay
 import com.doujinmenu.android.R
 import com.doujinmenu.android.data.PresentationRecord
 import com.doujinmenu.android.model.*
@@ -28,13 +30,23 @@ import com.doujinmenu.android.model.*
 @Composable
 internal fun DetailImage(model: Any?, contentDescription: String?, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Fit) {
     val strings = androidx.compose.ui.platform.LocalResources.current
-    var attempt by remember(model) { mutableIntStateOf(0) }
-    key(attempt) {
+    val identity = (model as? ImageRequest)?.data ?: model
+    var attempt by remember(identity) { mutableIntStateOf(0) }
+    key(identity, attempt) {
         SubcomposeAsyncImage(model = model, contentDescription = contentDescription, modifier = modifier, contentScale = contentScale,
             loading = { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(28.dp)) } },
-            error = { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                IconButton(onClick = { attempt++ }, modifier = Modifier.semantics { this.contentDescription = strings[R.string.ui_try_again] }) { ActionIcon(ActionSymbol.REFRESH) }
-            } })
+            error = {
+                LaunchedEffect(identity, attempt) {
+                    if (identity != null && attempt < 3) {
+                        delay(500L * (1 shl attempt))
+                        attempt++
+                    }
+                }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (identity != null && attempt < 3) CircularProgressIndicator(Modifier.size(28.dp))
+                    else IconButton(onClick = { attempt = 0 }, modifier = Modifier.semantics { this.contentDescription = strings[R.string.ui_try_again] }) { ActionIcon(ActionSymbol.REFRESH) }
+                }
+            })
     }
 }
 
