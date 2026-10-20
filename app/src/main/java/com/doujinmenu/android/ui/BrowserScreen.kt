@@ -267,7 +267,7 @@ fun BrowserScreen(
         if (!canCollapse) scrollBehavior.state.heightOffset = 0f
     }
     Column(Modifier.fillMaxSize().padding(contentPadding).background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
-        CollapsingSearchToolbar(scrollBehavior) {
+        CollapsingToolbar(scrollBehavior) {
         Column {
         tabHeader({
             UnifiedSearchField(state.searchQuery, { expandedPanel = null; onQueryChange(it) }, strings[R.string.ui_search_conditions], { editing = true; expandedPanel = "history" }, { submitSearch() })
@@ -626,18 +626,6 @@ fun LoadingRow(label: String) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CollapsingSearchToolbar(behavior: TopAppBarScrollBehavior, content: @Composable () -> Unit) {
-    Box(Modifier.clipToBounds().layout { measurable, constraints ->
-        val placeable = measurable.measure(constraints)
-        behavior.state.heightOffsetLimit = -placeable.height.toFloat()
-        val offset = behavior.state.heightOffset.roundToInt()
-        layout(placeable.width, (placeable.height + offset).coerceAtLeast(0)) {
-            placeable.placeRelative(0, offset)
-        }
-    }) { content() }
-}
 
 internal fun visibleSearchPage(firstVisibleListIndex: Int, index: SearchResultIndex): Int =
     index.pageAt((firstVisibleListIndex - 2).coerceAtLeast(0))

@@ -4,6 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WorkCardTest {
+    @Test fun toolbarUsesMeasuredWidthsForNarrowScreensAndLargerFonts() {
+        assertFalse(galleryToolsTwoRows(600, 200, 220, 8))
+        assertTrue(galleryToolsTwoRows(360, 200, 220, 8))
+        assertTrue(galleryToolsTwoRows(600, 300, 330, 8))
+    }
     @Test fun shortTagsShareRowsAndOverflowReservesRealSpace() {
         val all = packTags(listOf(20, 20, 20), 100, 2, 4, 12)
         assertEquals(listOf(0, 0, 0), all.tags.map { it.row })

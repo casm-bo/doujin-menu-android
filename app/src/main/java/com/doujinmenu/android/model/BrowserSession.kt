@@ -137,6 +137,13 @@ fun BrowserWorkspace.updateSearchScroll(
     })
 }
 
+fun BrowserWorkspace.updateLibraryScroll(pageKey: String, anchor: String?, index: Int, offset: Int): BrowserWorkspace = copy(
+    tabs = tabs.map { tab -> tab.copy(history = tab.history.map { page ->
+        if (page is BrowserPage.LibraryHome && page.key == pageKey) page.copy(scrollAnchorKey = anchor,
+            scrollIndex = index.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0)) else page
+    }) },
+)
+
 fun BrowserWorkspace.selectSearchTab(
     query: String,
     preferredLanguages: Set<String> = emptySet(),

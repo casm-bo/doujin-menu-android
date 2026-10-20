@@ -4,6 +4,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ScrollPositionTest {
+    @Test fun departingGallerySavesIntoItsOwnTabAfterTabSwitch() {
+        val home = BrowserPage.LibraryHome(key = "home")
+        val workspace = BrowserWorkspace.initial(home).openTab(BrowserPage.LibraryHome(key = "other"))
+        val saved = workspace.updateLibraryScroll("home", "series:example", 8, 45)
+        assertEquals(workspace.activeTab.currentPage, saved.activeTab.currentPage)
+        assertEquals(home.copy(scrollAnchorKey = "series:example", scrollIndex = 8, scrollOffset = 45), saved.tabs.first().currentPage)
+    }
     @Test fun `departing search saves into history without changing active detail`() {
         val search = BrowserPage.Search(key = "search", resultSessionId = "session")
         val detail = BrowserPage.OnlineGallery(42, "Detail")

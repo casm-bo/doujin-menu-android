@@ -73,6 +73,7 @@ import com.doujinmenu.android.model.pushPage
 import com.doujinmenu.android.model.selectTab
 import com.doujinmenu.android.model.selectSearchTab
 import com.doujinmenu.android.model.searchResultSessionIds
+import com.doujinmenu.android.model.updateLibraryScroll
 import com.doujinmenu.android.model.updateSearchScroll
 import com.doujinmenu.android.model.updateActiveSearch
 import com.doujinmenu.android.model.updateActiveLibraryHome
@@ -836,16 +837,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateGalleryScroll(anchorKey: String?, index: Int, offset: Int) {
-        val workspace = uiState.galleryWorkspace.updateActiveLibraryHome { page ->
-            page.copy(
-                scrollAnchorKey = anchorKey,
-                scrollIndex = index.coerceAtLeast(0),
-                scrollOffset = offset.coerceAtLeast(0),
-            )
-        }
+    fun updateGalleryScroll(pageKey: String, anchorKey: String?, index: Int, offset: Int) {
+        val workspace = uiState.galleryWorkspace.updateLibraryScroll(pageKey, anchorKey, index, offset)
         if (workspace != uiState.galleryWorkspace) {
             uiState = uiState.copy(galleryWorkspace = workspace)
+            browserPreferenceStore.saveGalleryWorkspace(workspace)
         }
     }
 
@@ -1527,7 +1523,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val urls = client.getLibraryBookPages(profile, remoteId)
                 book.copy(
                     pages = urls.mapIndexed { index, url -> LibraryPage(url, "${index + 1}") },
-                    coverUriOverride = urls.firstOrNull() ?: book.coverUri,
+                    coverUriOverride = book.coverUri,
                 )
             }
         } else {

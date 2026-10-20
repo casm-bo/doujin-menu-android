@@ -832,7 +832,7 @@ private fun MainTabContent(
                 initialScrollAnchorKey = libraryHome?.scrollAnchorKey,
                 initialScrollIndex = libraryHome?.scrollIndex ?: 0,
                 initialScrollOffset = libraryHome?.scrollOffset ?: 0,
-                onScrollChange = viewModel::updateGalleryScroll,
+                onScrollChange = { anchor, index, offset -> viewModel.updateGalleryScroll(libraryHome?.key.orEmpty(), anchor, index, offset) },
             )
         }
         MainDestination.History -> RecentHistoryScreen(

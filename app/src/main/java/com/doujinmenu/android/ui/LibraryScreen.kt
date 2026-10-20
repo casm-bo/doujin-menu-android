@@ -77,6 +77,13 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
+import kotlinx.coroutines.flow.filter
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -367,21 +374,19 @@ fun LibraryScreen(
         }
     }
 
+    fun persistScroll() {
+        if (seriesMode || !scrollRestored || mainEntryKeys.isEmpty()) return
+        val index = if (viewMode == LibraryViewMode.GRID) mainGridState.firstVisibleItemIndex else mainListState.firstVisibleItemIndex
+        val offset = if (viewMode == LibraryViewMode.GRID) mainGridState.firstVisibleItemScrollOffset else mainListState.firstVisibleItemScrollOffset
+        onScrollChange(mainEntryKeys.getOrNull(index), index, offset)
+    }
     LaunchedEffect(pageKey, viewMode, seriesMode, mainEntryKeys, scrollRestored) {
         if (seriesMode || !scrollRestored) return@LaunchedEffect
-        if (viewMode == LibraryViewMode.GRID) {
-            snapshotFlow { mainGridState.firstVisibleItemIndex to mainGridState.firstVisibleItemScrollOffset }
-                .distinctUntilChanged()
-                .collect { (index, offset) ->
-                    onScrollChange(mainEntryKeys.getOrNull(index), index, offset)
-                }
-        } else {
-            snapshotFlow { mainListState.firstVisibleItemIndex to mainListState.firstVisibleItemScrollOffset }
-                .distinctUntilChanged()
-                .collect { (index, offset) ->
-                    onScrollChange(mainEntryKeys.getOrNull(index), index, offset)
-                }
-        }
+        snapshotFlow { if (viewMode == LibraryViewMode.GRID) mainGridState.isScrollInProgress else mainListState.isScrollInProgress }
+            .filter { !it }.collect { persistScroll() }
+    }
+    DisposableEffect(pageKey, viewMode, seriesMode, mainEntryKeys, scrollRestored) {
+        onDispose { persistScroll() }
     }
 
     BackHandler {
@@ -411,6 +416,13 @@ fun LibraryScreen(
     val focusManager = LocalFocusManager.current
     BackHandler(queryExpanded && !selectionMode && !seriesSelectionMode) { queryExpanded = false; focusManager.clearFocus() }
     var options by remember { mutableStateOf<String?>(null) }
+    var filterMenuOpen by remember { mutableStateOf(false) }
+    var sortMenuOpen by remember { mutableStateOf(false) }
+    val canCollapse = books.isNotEmpty() && !queryExpanded && options == null && !filterMenuOpen && !sortMenuOpen &&
+        !selectionMode && !seriesSelectionMode && !editingSeriesOrder && !seriesDialog && !existingSeriesDialog
+    val collapseEnabled by rememberUpdatedState(canCollapse)
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { collapseEnabled })
+    LaunchedEffect(pageKey, canCollapse) { if (!canCollapse) scrollBehavior.state.heightOffset = 0f }
     val changeSeriesMode: (Boolean) -> Unit = {
         addingToSeries = null
         onSeriesModeChange(it)
@@ -435,7 +447,8 @@ fun LibraryScreen(
         },
         modifier = Modifier.fillMaxSize().padding(contentPadding),
     ) {
-        Column(modifier = Modifier.fillMaxSize().animateContentSize()) {
+        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+            CollapsingToolbar(scrollBehavior) {
             tabHeader({
                 UnifiedSearchField(state.libraryQuery, onQueryChange, strings[R.string.ui_search_gallery], { queryExpanded = true }, { queryExpanded = false })
             }, {
@@ -601,7 +614,7 @@ fun LibraryScreen(
             } else {
                 BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     val modes: @Composable () -> Unit = {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                             FilterChip(selected = !seriesMode && !state.libraryExcludeSeries, onClick = { changeSeriesMode(false) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, label = { Text(strings[R.string.ui_all]) })
                             FilterChip(selected = seriesMode || state.libraryExcludeSeries, onClick = {
                                 if (seriesMode) onExcludeSeriesChange(true) else changeSeriesMode(true)
@@ -612,16 +625,11 @@ fun LibraryScreen(
                     val tools: @Composable () -> Unit = {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                             LibraryFilterMenu(state.libraryFavoritesOnly, state.libraryReadFilter, state.libraryVisibilityFilter,
-                                onToggleFavoritesFilter, onReadFilterChange, onVisibilityFilterChange, state.libraryExcludeSeries, onExcludeSeriesChange)
-                            LibrarySortMenu(state.librarySort, onSortChange)
+                                onToggleFavoritesFilter, onReadFilterChange, onVisibilityFilterChange, state.libraryExcludeSeries, onExcludeSeriesChange, { filterMenuOpen = it })
+                            LibrarySortMenu(state.librarySort, onSortChange, { sortMenuOpen = it })
                         }
                     }
-                    if (maxWidth >= 440.dp) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        modes(); Spacer(Modifier.weight(1f)); tools()
-                    } else Column {
-                        modes()
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { tools() }
-                    }
+                    GalleryToolsRow(modes, tools)
                 }
 
             }
@@ -637,6 +645,7 @@ fun LibraryScreen(
                 }
             }
 
+            }
             when {
                 state.isLibraryScanning && state.libraryBooks.isEmpty() -> Box(
                     modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center,
@@ -963,19 +972,20 @@ private fun LibraryFilterMenu(
     onVisibilityFilterChange: (LibraryVisibilityFilter) -> Unit,
     excludeSeries: Boolean,
     onExcludeSeriesChange: (Boolean) -> Unit,
+    onMenuChange: (Boolean) -> Unit,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var expanded by remember { mutableStateOf(false) }
     val active = excludeSeries || favoritesOnly || readFilter != LibraryReadFilter.ALL ||
         visibilityFilter != LibraryVisibilityFilter.VISIBLE
     Box {
-        OutlinedButton(onClick = { expanded = true },
+        OutlinedButton(onClick = { expanded = true; onMenuChange(true) },
             contentPadding = PaddingValues(horizontal = 8.dp),
             colors = ButtonDefaults.outlinedButtonColors(containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
             ActionIcon(ActionSymbol.FILTER)
             Text(strings[R.string.ui_filter], Modifier.padding(start = 6.dp))
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false; onMenuChange(false) }) {
             LibraryFilterItems(favoritesOnly, readFilter, visibilityFilter, onToggleFavorites, onReadFilterChange, onVisibilityFilterChange, excludeSeries, onExcludeSeriesChange)
 
         }
@@ -1025,19 +1035,19 @@ internal fun LibrarySort.withDirection(ascending: Boolean): LibrarySort = when (
 }
 
 @Composable
-private fun LibrarySortMenu(sort: LibrarySort, onSortChange: (LibrarySort) -> Unit) {
+private fun LibrarySortMenu(sort: LibrarySort, onSortChange: (LibrarySort) -> Unit, onMenuChange: (Boolean) -> Unit) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var expanded by remember { mutableStateOf(false) }
     Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
         Box {
-            OutlinedButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            OutlinedButton(onClick = { expanded = true; onMenuChange(true) }, contentPadding = PaddingValues(horizontal = 8.dp)) {
                 ActionIcon(ActionSymbol.SORT)
                 Text(strings[R.string.ui_sort], Modifier.padding(start = 4.dp))
             }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false; onMenuChange(false) }) {
                 listOf(strings[R.string.ui_title] to LibrarySort.TITLE_ASC, strings[R.string.ui_artist] to LibrarySort.ARTIST_ASC, strings[R.string.ui_modified_date] to LibrarySort.OLDEST).forEach { (label, field) ->
                     val option = field.withDirection(sort.isAscending())
-                    ChoiceMenuItem(label, sort == option, onClick = { onSortChange(option); expanded = false })
+                    ChoiceMenuItem(label, sort == option, onClick = { onSortChange(option); expanded = false; onMenuChange(false) })
                 }
             }
         }
@@ -1051,7 +1061,7 @@ private fun LibrarySortMenu(sort: LibrarySort, onSortChange: (LibrarySort) -> Un
 
 @Composable
 private fun LibrarySelectionMark(selected: Boolean, modifier: Modifier = Modifier) {
-    val selectedColor = Color(0xFF356AE6)
+    val selectedColor = MaterialTheme.colorScheme.primary
     val idleColor = MaterialTheme.colorScheme.outline
     Canvas(modifier = modifier.size(22.dp)) {
         drawCircle(
