@@ -7,6 +7,45 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PresentationStoreTest {
+    @Test fun externalJpegOrientationIsAppliedToTheSavedCover() = kotlinx.coroutines.runBlocking<Unit> {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val source = java.io.File(context.cacheDir, "rotated-cover-test.jpg")
+        val bitmap = android.graphics.Bitmap.createBitmap(800, 400, android.graphics.Bitmap.Config.ARGB_8888)
+        source.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+        bitmap.recycle()
+        android.media.ExifInterface(source.absolutePath).apply {
+            setAttribute(android.media.ExifInterface.TAG_ORIENTATION, "6"); saveAttributes()
+        }
+        val store = PresentationCovers(context)
+        var hash: String? = null
+        try {
+            hash = store.import(ReaderImageSource(source.toURI().toString()))
+            val size = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(store.file(hash).absolutePath, size)
+            assertTrue(size.outHeight > size.outWidth)
+        } finally { source.delete(); hash?.let { store.file(it).delete() } }
+    }
+    @Test fun selectedCoverIsCopiedBoundedAndVerifiedIndependentlyOfItsSource() = kotlinx.coroutines.runBlocking<Unit> {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val source = java.io.File(context.cacheDir, "external-cover-test.png")
+        val bitmap = android.graphics.Bitmap.createBitmap(1000, 2400, android.graphics.Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.BLUE)
+        source.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+        val store = PresentationCovers(context)
+        var hash: String? = null
+        try {
+            hash = store.import(ReaderImageSource(source.toURI().toString()))
+            source.delete()
+            assertTrue(store.contains(hash))
+            val size = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            val bytes = store.bytes(hash)
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, size)
+            assertTrue(size.outWidth <= 512 && size.outHeight <= 1024)
+            assertTrue(runCatching { store.put(hash, byteArrayOf(1, 2, 3)) }.isFailure)
+            assertTrue(runCatching { store.file("../escape") }.isFailure)
+        } finally { source.delete(); hash?.let { store.file(it).delete() } }
+    }
     @Test fun newerEditsSurviveLateAcknowledgementsConflictsAndRestart() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val name = "presentation-test-${System.nanoTime()}.db"
