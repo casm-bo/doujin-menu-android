@@ -339,10 +339,6 @@ fun LibraryScreen(
     var scrollRestored by remember(pageKey) {
         mutableStateOf(savedAnchorKey == null || savedAnchorKey in mainEntryKeys)
     }
-    val openSeries: (String) -> Unit = { name ->
-        onSeriesModeChange(true)
-        onSelectedSeriesChange(name)
-    }
     val toggleBookSelection: (String) -> Unit = { id -> selectedIds = selectedIds.toggled(id) }
     val toggleSeriesSelection: (String, Set<String>) -> Unit = { name, ids ->
         selectedIds = if (ids.all { it in selectedIds }) selectedIds - ids
@@ -385,17 +381,17 @@ fun LibraryScreen(
     }
 
     fun persistScroll() {
-        if (seriesMode || !scrollRestored || mainEntryKeys.isEmpty()) return
+        if (seriesMode || selectedSeries != null || !scrollRestored || mainEntryKeys.isEmpty()) return
         val index = if (viewMode == LibraryViewMode.GRID) mainGridState.firstVisibleItemIndex else mainListState.firstVisibleItemIndex
         val offset = if (viewMode == LibraryViewMode.GRID) mainGridState.firstVisibleItemScrollOffset else mainListState.firstVisibleItemScrollOffset
         onScrollChange(mainEntryKeys.getOrNull(index), index, offset)
     }
-    LaunchedEffect(pageKey, viewMode, seriesMode, mainEntryKeys, scrollRestored) {
-        if (seriesMode || !scrollRestored) return@LaunchedEffect
+    LaunchedEffect(pageKey, viewMode, seriesMode, selectedSeries, mainEntryKeys, scrollRestored) {
+        if (seriesMode || selectedSeries != null || !scrollRestored) return@LaunchedEffect
         snapshotFlow { if (viewMode == LibraryViewMode.GRID) mainGridState.isScrollInProgress else mainListState.isScrollInProgress }
             .filter { !it }.collect { persistScroll() }
     }
-    DisposableEffect(pageKey, viewMode, seriesMode, mainEntryKeys, scrollRestored) {
+    DisposableEffect(pageKey, viewMode, seriesMode, selectedSeries, mainEntryKeys, scrollRestored) {
         onDispose { persistScroll() }
     }
 
@@ -412,7 +408,6 @@ fun LibraryScreen(
             }
             showSeriesList -> onSeriesListChange(false)
             selectedSeries != null -> onSelectedSeriesChange(null)
-            seriesMode -> onSeriesModeChange(false)
             else -> onBackToSearch()
         }
     }
@@ -608,7 +603,7 @@ fun LibraryScreen(
 
             }
 
-            if (seriesMode && selectedSeries != null && !selectionMode) {
+            if (selectedSeries != null && !selectionMode) {
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     TextButton(onClick = {
                         onSelectedSeriesChange(null)
@@ -668,14 +663,14 @@ fun LibraryScreen(
                     },
                 )
                 viewMode == LibraryViewMode.GRID -> LibraryGrid(
-                    entries = if (seriesMode) shownEntries else mainEntries,
+                    entries = if (selectedSeries != null) shownEntries else mainEntries,
                     state = state,
                     columns = gridColumns,
-                    gridState = if (seriesMode) seriesBooksGridState else mainGridState,
+                    gridState = if (selectedSeries != null) seriesBooksGridState else mainGridState,
                     selectedIds = selectedIds,
                     selectionMode = selectionMode,
                     onOpenBook = onOpenBook,
-                    onOpenSeries = openSeries,
+                    onOpenSeries = onSelectedSeriesChange,
                     onToggleBook = toggleBookSelection,
                     onToggleSeries = toggleSeriesSelection,
                     onLongPressBook = longPressBook,
@@ -685,13 +680,13 @@ fun LibraryScreen(
                     onToggleRead = onToggleRead,
                 )
                 else -> LibraryList(
-                    entries = if (seriesMode) shownEntries else mainEntries,
+                    entries = if (selectedSeries != null) shownEntries else mainEntries,
                     state = state,
-                    listState = if (seriesMode) seriesBooksListState else mainListState,
+                    listState = if (selectedSeries != null) seriesBooksListState else mainListState,
                     selectedIds = selectedIds,
                     selectionMode = selectionMode,
                     onOpenBook = onOpenBook,
-                    onOpenSeries = openSeries,
+                    onOpenSeries = onSelectedSeriesChange,
                     onToggleBook = toggleBookSelection,
                     onToggleSeries = toggleSeriesSelection,
                     onLongPressBook = longPressBook,
@@ -768,7 +763,7 @@ fun LibraryScreen(
     }
     if (deleteDialog) {
         val deletingSeries = seriesSelectionMode && seriesMode && selectedSeries == null
-        val removingFromSeries = selectionMode && seriesMode && selectedSeries != null
+        val removingFromSeries = selectionMode && selectedSeries != null
         AlertDialog(
             onDismissRequest = { deleteDialog = false },
             title = {

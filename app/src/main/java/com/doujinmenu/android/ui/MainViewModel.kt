@@ -1722,7 +1722,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun selectLibrarySeries(name: String?) = update { copy(selectedLibrarySeries = name, librarySeriesEpisodeList = false) }
     fun setLibrarySeriesEpisodeList(show: Boolean) = update { copy(librarySeriesEpisodeList = show) }
-    fun openLibrarySeriesList(name: String) = update { copy(librarySeriesMode = true, libraryExcludeSeries = false, selectedLibrarySeries = name, librarySeriesEpisodeList = true) }
+    fun openLibrarySeriesList(name: String) = update { copy(selectedLibrarySeries = name, librarySeriesEpisodeList = true) }
 
     fun commitLibrarySeriesEdit(name: String, baseline: Map<String, CustomSeriesAssignment>, orderedIds: List<String>): Boolean {
         if (uiState.isLibraryScanning || orderedIds.distinct().size != orderedIds.size || orderedIds.any { id -> uiState.libraryBooks.none { it.id == id } }) return false
