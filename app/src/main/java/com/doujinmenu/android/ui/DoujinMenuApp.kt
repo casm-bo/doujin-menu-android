@@ -338,9 +338,12 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 }
                 val nextBook = book?.let { viewModel.nextLibrarySeriesBook(it.id) }
                 val requestedPage = entry.arguments?.getInt("startPage") ?: -1
+                val session = remember(entry.id) { (viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryReader)?.takeIf { it.bookId == bookId } }
+                val sessionKey = session?.key ?: entry.id
                 LocalReaderScreen(
+                    sessionKey = sessionKey,
                     book = book,
-                    initialPage = if (requestedPage >= 0) requestedPage
+                    initialPage = session?.position?.page ?: if (requestedPage >= 0) requestedPage
                         else book?.let { viewModel.uiState.libraryProgress[it.id] } ?: 0,
                     isLoading = viewModel.uiState.isLibraryBookLoading,
                     error = viewModel.uiState.libraryScanError,
@@ -348,7 +351,10 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     preferences = viewModel.uiState.viewerPreferences,
                     onBack = galleryBack,
                     onToggleFavorite = { book?.let { viewModel.toggleLibraryFavorite(it.id) } },
-                    onProgress = { page -> book?.let { viewModel.updateLibraryProgress(it.id, page) } },
+                    onProgress = { page ->
+                        viewModel.updateReaderSession(sessionKey, page)
+                        book?.let { viewModel.updateLibraryProgress(it.id, page) }
+                    },
                     nextBookTitle = nextBook?.title,
                     onOpenNextBook = {
                         nextBook?.let {
@@ -393,15 +399,21 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     ?: return@composable
                 BackHandler(onBack = searchBack)
                 val requestedPage = entry.arguments?.getInt("startPage") ?: -1
+                val session = remember(entry.id) { (viewModel.uiState.browserWorkspace.activeTab.currentPage as? BrowserPage.OnlineReader)?.takeIf { it.galleryId == galleryId } }
+                val sessionKey = session?.key ?: entry.id
                 ReaderScreen(
+                    sessionKey = sessionKey,
                     galleryId = galleryId,
-                    initialPage = if (requestedPage >= 0) requestedPage
+                    initialPage = session?.position?.page ?: if (requestedPage >= 0) requestedPage
                         else viewModel.uiState.onlineReaderProgress[galleryId] ?: 0,
                     state = viewModel.uiState,
                     preferences = viewModel.uiState.viewerPreferences,
                     onLoad = viewModel::loadReader,
                     onBack = searchBack,
-                    onProgress = { page -> viewModel.updateOnlineReaderProgress(galleryId, page) },
+                    onProgress = { page ->
+                        viewModel.updateReaderSession(sessionKey, page)
+                        viewModel.updateOnlineReaderProgress(galleryId, page)
+                    },
                     onPreferencesChange = viewModel::updateViewerPreferences,
                 )
             }

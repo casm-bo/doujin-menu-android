@@ -2,6 +2,7 @@ package com.doujinmenu.android.security
 
 import android.content.Context
 import com.doujinmenu.android.model.AppThemeMode
+import com.doujinmenu.android.model.ReaderPosition
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserTab
 import com.doujinmenu.android.model.BrowserTabGroup
@@ -305,12 +306,16 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
         .put("galleryId", galleryId)
         .put("title", title)
         .put("startPage", startPage)
+        .put("readerPage", position?.page)
+        .put("readerOffset", position?.offset)
     is BrowserPage.LibraryReader -> JSONObject()
         .put("type", "libraryReader")
         .put("key", key)
         .put("bookId", bookId)
         .put("title", title)
         .put("startPage", startPage)
+        .put("readerPage", position?.page)
+        .put("readerOffset", position?.offset)
 }
 
 private fun JSONObject.toBrowserPage(): BrowserPage? {
@@ -346,6 +351,7 @@ private fun JSONObject.toBrowserPage(): BrowserPage? {
                 galleryId = galleryId,
                 title = optString("title"),
                 startPage = optInt("startPage", 0).coerceAtLeast(0),
+                position = if (has("readerPage") && !isNull("readerPage")) ReaderPosition(optInt("readerPage").coerceAtLeast(0), optInt("readerOffset").coerceAtLeast(0)) else null,
                 key = key,
             )
         }
@@ -354,6 +360,7 @@ private fun JSONObject.toBrowserPage(): BrowserPage? {
                 bookId = bookId,
                 title = optString("title"),
                 startPage = optInt("startPage", 0).coerceAtLeast(0),
+                position = if (has("readerPage") && !isNull("readerPage")) ReaderPosition(optInt("readerPage").coerceAtLeast(0), optInt("readerOffset").coerceAtLeast(0)) else null,
                 key = key,
             )
         }

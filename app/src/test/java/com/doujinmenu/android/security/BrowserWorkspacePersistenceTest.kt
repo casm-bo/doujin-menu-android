@@ -9,11 +9,34 @@ import com.doujinmenu.android.model.archiveGroup
 import com.doujinmenu.android.model.moveOverviewItem
 import com.doujinmenu.android.model.overviewItems
 import com.doujinmenu.android.model.pushPage
+import com.doujinmenu.android.model.ReaderPosition
+import com.doujinmenu.android.model.updateReaderPosition
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
+    @Test fun readerSessionRestoresLatestPositionWithoutChangingExplicitEntryPage() {
+        val reader = BrowserPage.OnlineReader(42, "Book", 3)
+        val original = BrowserWorkspace.initial(reader)
+        val advanced = original.updateReaderPosition(reader.key, ReaderPosition(49, 125))
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(advanced))
+        assertEquals(reader.copy(position = ReaderPosition(49, 125)), restored.activeTab.currentPage)
+        val next = restored.pushPage(BrowserPage.OnlineReader(42, "Book", 8))
+        assertEquals(null, (next.activeTab.currentPage as BrowserPage.OnlineReader).position)
+        assertEquals(8, (next.activeTab.currentPage as BrowserPage.OnlineReader).startPage)
+        assertEquals(original, original.updateReaderPosition("stale-key", ReaderPosition(0)))
+    }
+
+    @Test fun localReaderPositionIsIsolatedAcrossTabs() {
+        val reader = BrowserPage.LibraryReader("local", "Book", 3)
+        val other = BrowserPage.LibraryReader("local", "Book", 8)
+        val workspace = BrowserWorkspace.initial(reader).openTab(other)
+            .updateReaderPosition(reader.key, ReaderPosition(49))
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(workspace))
+        assertEquals(ReaderPosition(49), (restored.tabs.first().currentPage as BrowserPage.LibraryReader).position)
+        assertEquals(null, (restored.activeTab.currentPage as BrowserPage.LibraryReader).position)
+    }
     @Test
     fun cachedSearchSessionSurvivesHistoryAndGroupArchivingWithoutResultPayloads() {
         val page = BrowserPage.Search(query = "draft", submittedQuery = "tag:full_color",

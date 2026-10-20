@@ -32,6 +32,7 @@ import com.doujinmenu.android.model.ViewerPreferences
 
 @Composable
 fun ReaderScreen(
+    sessionKey: String,
     galleryId: Long,
     initialPage: Int,
     state: MainUiState,
@@ -80,7 +81,7 @@ fun ReaderScreen(
                 val title = state.galleryCache[galleryId]?.title
                     ?: strings[R.string.ui_gallery_d16837, (galleryId)]
                 UnifiedReader(
-                    readerKey = "online:$galleryId",
+                    readerKey = sessionKey,
                     title = title,
                     pages = pages,
                     initialPage = initialPage,

@@ -43,6 +43,8 @@ import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.AppThemeMode
 import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.DownloadStatus
+import com.doujinmenu.android.model.ReaderPosition
+import com.doujinmenu.android.model.updateReaderPosition
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserWorkspace
 import com.doujinmenu.android.model.GallerySummary
@@ -622,7 +624,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         applyGalleryWorkspace(workspace)
     }
 
-    fun activeBrowserPage(): BrowserPage = navigationPage
+    fun activeBrowserPage(): BrowserPage =
+        (uiState.browserWorkspace.tabs + uiState.galleryWorkspace.tabs).asSequence()
+            .flatMap { it.history.asSequence() }.firstOrNull { it.key == navigationPage.key } ?: navigationPage
+
+    fun updateReaderSession(pageKey: String, page: Int, offset: Int = 0) {
+        val position = ReaderPosition(page.coerceAtLeast(0), offset.coerceAtLeast(0))
+        val browser = uiState.browserWorkspace.updateReaderPosition(pageKey, position)
+        val gallery = uiState.galleryWorkspace.updateReaderPosition(pageKey, position)
+        if (browser != uiState.browserWorkspace) browserPreferenceStore.saveBrowserWorkspace(browser)
+        if (gallery != uiState.galleryWorkspace) browserPreferenceStore.saveGalleryWorkspace(gallery)
+        if (browser != uiState.browserWorkspace || gallery != uiState.galleryWorkspace) {
+            uiState = uiState.copy(browserWorkspace = browser, galleryWorkspace = gallery)
+        }
+    }
 
     fun newBrowserTab() {
         val workspace = uiState.browserWorkspace.openTab(BrowserPage.Search(preferredLanguages = uiState.preferredLanguages))

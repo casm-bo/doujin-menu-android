@@ -22,6 +22,7 @@ import com.doujinmenu.android.model.ViewerPreferences
 
 @Composable
 fun LocalReaderScreen(
+    sessionKey: String,
     book: LibraryBook?,
     initialPage: Int,
     isLoading: Boolean,
@@ -66,7 +67,7 @@ fun LocalReaderScreen(
         }
     }
     UnifiedReader(
-        readerKey = "local:${readableBook.id}",
+        readerKey = sessionKey,
         title = readableBook.title,
         pages = pages,
         initialPage = initialPage,

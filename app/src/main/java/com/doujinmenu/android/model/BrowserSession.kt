@@ -46,6 +46,7 @@ sealed interface BrowserPage {
         val title: String,
         val startPage: Int,
         override val key: String = UUID.randomUUID().toString(),
+        val position: ReaderPosition? = null,
     ) : BrowserPage
 
     data class LibraryReader(
@@ -53,8 +54,24 @@ sealed interface BrowserPage {
         val title: String,
         val startPage: Int,
         override val key: String = UUID.randomUUID().toString(),
+        val position: ReaderPosition? = null,
     ) : BrowserPage
 }
+
+data class ReaderPosition(val page: Int, val offset: Int = 0) {
+    init { require(page >= 0 && offset >= 0) }
+}
+
+fun BrowserWorkspace.updateReaderPosition(pageKey: String, position: ReaderPosition): BrowserWorkspace = copy(
+    tabs = tabs.map { tab -> tab.copy(history = tab.history.map { page ->
+        when {
+            page.key != pageKey -> page
+            page is BrowserPage.OnlineReader -> page.copy(position = position)
+            page is BrowserPage.LibraryReader -> page.copy(position = position)
+            else -> page
+        }
+    }) },
+)
 
 data class BrowserTab(
     val id: String = UUID.randomUUID().toString(),
