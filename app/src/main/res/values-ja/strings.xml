@@ -487,4 +487,7 @@
     <string name="ui_no_existing_series">先にシリーズを作成してください。</string>
     <string name="ui_series_no_longer_exists">このシリーズは削除されました。別のシリーズを選択してください。</string>
     <string name="ui_scrollbar">スクロールバー</string>
+    <string name="ui_biometric_unavailable">生体認証を利用できません。設定したアプリの認証方法を使用してください。</string>
+    <string name="ui_biometric_temporary_lockout">生体認証の試行回数が多すぎます。後で再試行するかアプリの認証方法を使用してください。</string>
+    <string name="ui_biometric_permanent_lockout">端末のPIN・パスワード・パターンで端末を解除すると生体認証を再開できます。アプリの認証方法は引き続き利用できます。</string>
 </resources>

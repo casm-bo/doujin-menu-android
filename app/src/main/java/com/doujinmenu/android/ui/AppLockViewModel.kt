@@ -14,9 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class AppLockViewModel(application: Application) : AndroidViewModel(application) {
+class AppLockViewModel @JvmOverloads constructor(application: Application, private val store: AppLockStore = AppLockStore(application)) : AndroidViewModel(application) {
     private val strings get() = androidx.core.content.ContextCompat.getContextForLanguage(getApplication()).resources
-    private val store = AppLockStore(application)
     private var credential = runCatching { store.read() }.getOrNull()
     var enabled by mutableStateOf(store.enabled); private set
     var locked by mutableStateOf(enabled); private set
@@ -24,10 +23,13 @@ class AppLockViewModel(application: Application) : AndroidViewModel(application)
     var error by mutableStateOf<String?>(if (enabled && credential == null) strings[R.string.msg_cannot_read_lock_data_app_data_must_be_reset_to_recove] else null); private set
     var method by mutableStateOf(credential?.method ?: LockMethod.PIN); private set
     var biometric by mutableStateOf(credential?.biometric == true); private set
-    var generation = 0L; private set
+    private val biometricSession = BiometricSession()
+    val activeBiometricRequest get() = biometricSession.active
+    var biometricInProgress by mutableStateOf(false); private set
+    var generation by mutableStateOf(0L); private set
     private var authorizedUntil = 0L
 
-    fun onBackground() { generation++; authorizedUntil = 0; if (enabled) locked = true }
+    fun onBackground() { biometricSession.background(); generation = biometricSession.generation; biometricInProgress = false; authorizedUntil = 0; if (enabled) locked = true }
     fun clearError() { error = null }
     fun verify(secret: String, settings: Boolean = false, completed: (Boolean) -> Unit = {}) {
         if (busy || secret.length > 128) return
@@ -44,12 +46,38 @@ class AppLockViewModel(application: Application) : AndroidViewModel(application)
             if (epoch != generation) return@launch
             val accepted = success.getOrDefault(false)
             error = if (accepted) null else success.exceptionOrNull()?.message ?: strings[R.string.msg_incorrect_credential]
-            if (accepted) { if (settings) authorizedUntil = SystemClock.elapsedRealtime() + 60_000 else locked = false }
+            if (accepted) { if (settings) authorizedUntil = SystemClock.elapsedRealtime() + 60_000 else { biometricSession.cancel(); biometricInProgress = false; locked = false } }
             completed(accepted)
         }
     }
-    fun biometricSuccess(epoch: Long) {
-        if (enabled && biometric && epoch == generation && credential != null) { locked = false; error = null }
+    fun beginBiometric(automatic: Boolean, available: Boolean): BiometricRequest? {
+        if (!enabled || !locked || !biometric || credential == null || busy) return null
+        val request = biometricSession.begin(automatic, available)
+        if (!available && !biometricInProgress) error = strings[R.string.ui_biometric_unavailable]
+        if (request != null) { biometricInProgress = true; error = null }
+        return request
+    }
+    fun biometricError(request: BiometricRequest, code: Int, message: String) {
+        if (!biometricSession.complete(request)) return
+        biometricInProgress = false
+        error = when (biometricFailure(code)) {
+            BiometricFailure.CANCELLED -> null
+            BiometricFailure.TEMPORARY_LOCKOUT -> strings[R.string.ui_biometric_temporary_lockout]
+            BiometricFailure.PERMANENT_LOCKOUT -> strings[R.string.ui_biometric_permanent_lockout]
+            BiometricFailure.UNAVAILABLE -> strings[R.string.ui_biometric_unavailable]
+            BiometricFailure.OTHER -> message
+        }
+    }
+    fun biometricSuccess(request: BiometricRequest) {
+        if (!enabled || !biometric || !locked || credential == null || !biometricSession.complete(request)) return
+        biometricInProgress = false; busy = true
+        viewModelScope.launch {
+            val reset = runCatching { withContext(Dispatchers.IO) { store.resetAttempts() } }
+            busy = false
+            if (request.generation != generation) return@launch
+            if (reset.isSuccess) { locked = false; error = null }
+            else error = strings[R.string.msg_could_not_save_lock_settings]
+        }
     }
     fun configure(method: LockMethod, secret: String, completed: () -> Unit) = change(completed) {
         LockCredential.create(method, secret).copy(biometric = biometric)
@@ -58,7 +86,7 @@ class AppLockViewModel(application: Application) : AndroidViewModel(application)
     fun disable(completed: () -> Unit) = change(completed) { null }
     private fun change(completed: () -> Unit, create: () -> LockCredential?) {
         if (busy) return
-        if (enabled && (locked || SystemClock.elapsedRealtime() >= authorizedUntil)) { error = strings[R.string.msg_verify_your_current_credential_first]; return }
+        if (!canChangeLock(enabled, locked, authorizedUntil, SystemClock.elapsedRealtime())) { error = strings[R.string.msg_verify_your_current_credential_first]; return }
         val epoch = generation
         busy = true
         viewModelScope.launch {

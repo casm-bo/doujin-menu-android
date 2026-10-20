@@ -487,4 +487,7 @@
     <string name="ui_no_existing_series">먼저 시리즈를 만들어 주세요.</string>
     <string name="ui_series_no_longer_exists">이 시리즈는 삭제되었습니다. 다른 시리즈를 선택해 주세요.</string>
     <string name="ui_scrollbar">스크롤바</string>
+    <string name="ui_biometric_unavailable">생체인증을 사용할 수 없습니다. 설정한 앱 잠금으로 해제해 주세요.</string>
+    <string name="ui_biometric_temporary_lockout">생체인증 시도가 너무 많습니다. 잠시 후 재시도하거나 앱 잠금으로 해제해 주세요.</string>
+    <string name="ui_biometric_permanent_lockout">기기 PIN·비밀번호·패턴으로 기기를 해제해야 생체인증 제한이 풀립니다. 앱 잠금으로는 계속 앱을 해제할 수 있습니다.</string>
 </resources>

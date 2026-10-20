@@ -13,9 +13,9 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONObject
 
-class AppLockStore(private val context: Context) {
+class AppLockStore(private val context: Context, private val preferenceName: String = "app_lock") {
     private val strings get() = androidx.core.content.ContextCompat.getContextForLanguage(context).resources
-    private val preferences = context.getSharedPreferences("app_lock", Context.MODE_PRIVATE)
+    private val preferences = context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
     val enabled get() = preferences.contains("credential")
     fun read(): LockCredential? {
         if (!enabled) return null
@@ -32,18 +32,19 @@ class AppLockStore(private val context: Context) {
             .putString("iv", encode(cipher.iv)).commit()) { strings.getString(R.string.msg_could_not_save_lock_settings) }
     }
     fun clear() { check(preferences.edit().clear().commit()) }
-    fun remainingDelay(now: Long): Long = (preferences.getLong("blocked_until", 0) - now).coerceAtLeast(0)
+    private fun attempts() = LockAttempts(preferences.getInt("attempts", 0).coerceIn(0, 4), preferences.getLong("blocked_until", 0).coerceAtLeast(0))
+    fun remainingDelay(now: Long): Long = attempts().remaining(now)
     fun failed(now: Long) {
-        val attempts = preferences.getInt("attempts", 0) + 1
-        check(preferences.edit().putInt("attempts", if (attempts >= 5) 0 else attempts)
-            .putLong("blocked_until", if (attempts >= 5) now + 30_000 else 0).commit())
+        val next = attempts().failed(now)
+        check(preferences.edit().putInt("attempts", next.count).putLong("blocked_until", next.blockedUntil).commit())
     }
     fun resetAttempts() { check(preferences.edit().remove("attempts").remove("blocked_until").commit()) }
     private fun key(): SecretKey {
+        val alias = if (preferenceName == "app_lock") "doujin_app_lock" else "doujin_$preferenceName"
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey("doujin_app_lock", null) as? SecretKey)?.let { return it }
+        (store.getKey(alias, null) as? SecretKey)?.let { return it }
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(KeyGenParameterSpec.Builder("doujin_app_lock", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            init(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).setKeySize(256).build())
         }.generateKey()
     }

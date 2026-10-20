@@ -3,9 +3,7 @@ package com.doujinmenu.android.ui
 import com.doujinmenu.android.R
 
 import androidx.activity.compose.BackHandler
-import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
@@ -25,7 +23,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
-import androidx.core.content.ContextCompat
 import com.doujinmenu.android.security.LockMethod
 import com.doujinmenu.android.security.appendPatternPoint
 import com.doujinmenu.android.security.validLockSecret
@@ -34,11 +31,19 @@ import kotlin.math.roundToInt
 val LocalAppLock = staticCompositionLocalOf<AppLockViewModel> { error("Missing app lock controller") }
 
 @Composable
-fun AppLockScreen(lock: AppLockViewModel, onBackground: () -> Unit) {
+fun AppLockScreen(lock: AppLockViewModel, onBiometricRequest: (Boolean) -> Unit, onBackground: () -> Unit) {
     val strings = androidx.compose.ui.platform.LocalResources.current
-    val activity = androidx.activity.compose.LocalActivity.current as AppCompatActivity
     var secret by remember { mutableStateOf("") }
-    var biometricError by remember { mutableStateOf<String?>(null) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val requestBiometric by rememberUpdatedState(onBiometricRequest)
+    DisposableEffect(lifecycleOwner, lock.generation) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) requestBiometric(true)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) requestBiometric(true)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     BackHandler { onBackground() }
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding().padding(24.dp).verticalScroll(rememberScrollState()),
@@ -47,20 +52,13 @@ fun AppLockScreen(lock: AppLockViewModel, onBackground: () -> Unit) {
             Text(strings[R.string.ui_app_lock], style = MaterialTheme.typography.headlineMedium)
             Text(strings[R.string.ui_unlock_with, (strings[lock.method.labelResource])])
             CredentialInput(lock.method, secret, { secret = it }, !lock.busy)
-            (lock.error ?: biometricError)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            lock.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(enabled = !lock.busy && secret.isNotEmpty(), onClick = { lock.verify(secret) { if (!it) secret = "" } }) {
                 Text(if (lock.busy) strings[R.string.ui_checking] else strings[R.string.ui_unlock])
             }
-            if (lock.biometric) OutlinedButton(enabled = !lock.busy, onClick = {
-                val epoch = lock.generation
-                val prompt = BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), object : BiometricPrompt.AuthenticationCallback() {
-                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) { lock.biometricSuccess(epoch) }
-                    override fun onAuthenticationError(code: Int, message: CharSequence) { biometricError = message.toString() }
-                })
-                prompt.authenticate(BiometricPrompt.PromptInfo.Builder().setTitle(strings[R.string.ui_unlock_app])
-                    .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-                    .setNegativeButtonText(strings[R.string.ui_use, (strings[lock.method.labelResource])]).build())
-            }) { Text(strings[R.string.ui_biometric_authentication]) }
+            if (lock.biometric) OutlinedButton(enabled = !lock.busy && !lock.biometricInProgress, onClick = { onBiometricRequest(false) }) {
+                Text(strings[R.string.ui_biometric_authentication])
+            }
         }
     }
 }

@@ -487,4 +487,7 @@
     <string name="ui_no_existing_series">请先创建一个系列。</string>
     <string name="ui_series_no_longer_exists">此系列已删除。请选择其他系列。</string>
     <string name="ui_scrollbar">滚动条</string>
+    <string name="ui_biometric_unavailable">生物识别不可用，请使用设置的应用凭据。</string>
+    <string name="ui_biometric_temporary_lockout">生物识别尝试次数过多，请稍后重试或使用应用凭据。</string>
+    <string name="ui_biometric_permanent_lockout">请使用设备PIN、密码或图案解锁设备以恢复生物识别。仍可使用应用凭据解锁本应用。</string>
 </resources>

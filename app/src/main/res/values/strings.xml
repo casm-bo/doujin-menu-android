@@ -487,4 +487,7 @@
     <string name="ui_no_existing_series">Create a series first.</string>
     <string name="ui_series_no_longer_exists">This series no longer exists. Select another series.</string>
     <string name="ui_scrollbar">Scrollbar</string>
+    <string name="ui_biometric_unavailable">Biometrics are unavailable. Use your configured app credential.</string>
+    <string name="ui_biometric_temporary_lockout">Too many biometric attempts. Try later or use your app credential.</string>
+    <string name="ui_biometric_permanent_lockout">Unlock the device with its PIN, password or pattern to restore biometrics. Your app credential can still unlock this app.</string>
 </resources>
