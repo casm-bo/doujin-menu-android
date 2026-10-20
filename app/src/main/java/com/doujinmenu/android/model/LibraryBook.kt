@@ -46,6 +46,7 @@ data class LibraryMetadata(
     val characters: List<String> = emptyList(),
     val tags: List<String> = emptyList(),
     val language: String? = null,
+    val publishedDate: String? = null,
 )
 
 data class CustomSeriesAssignment(
