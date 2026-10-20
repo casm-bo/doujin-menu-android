@@ -612,7 +612,7 @@ fun LibraryScreen(
                     },
                 )
             } else {
-                BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     val modes: @Composable () -> Unit = {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                             FilterChip(selected = !seriesMode && !state.libraryExcludeSeries, onClick = { changeSeriesMode(false) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, label = { Text(strings[R.string.ui_all]) })
