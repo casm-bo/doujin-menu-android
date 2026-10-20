@@ -57,19 +57,19 @@ class BrowserPreferenceStore(context: Context) {
             .mapTo(linkedSetOf()) { it.trim().lowercase() }
             .filterTo(linkedSetOf()) { it.isNotEmpty() }
 
-    fun loadSearchQueryHistory(): List<SearchQueryEntry> = runCatching {
-        val array = JSONArray(preferences.getString("search_query_history", "[]"))
+    fun loadSearchQueryHistory(key: String = "search_query_history"): List<SearchQueryEntry> = runCatching {
+        val array = JSONArray(preferences.getString(key, "[]"))
         List(minOf(array.length(), 50)) { index ->
             val item = array.getJSONObject(index)
             SearchQueryEntry(item.getString("query"), item.optJSONArray("languages").stringSet())
         }
     }.getOrDefault(emptyList())
 
-    fun saveSearchQueryHistory(entries: List<SearchQueryEntry>) {
+    fun saveSearchQueryHistory(entries: List<SearchQueryEntry>, key: String = "search_query_history") {
         val array = JSONArray(entries.take(50).map { entry ->
             JSONObject().put("query", entry.query).put("languages", JSONArray(entry.languages.toList()))
         })
-        preferences.edit().putString("search_query_history", array.toString()).apply()
+        preferences.edit().putString(key, array.toString()).apply()
     }
 
     fun savePreferredLanguages(languages: Set<String>) {
@@ -279,6 +279,7 @@ private fun JSONArray?.browserTabs(): List<BrowserTab> {
 private fun BrowserPage.toJson(): JSONObject = when (this) {
     is BrowserPage.LibraryHome -> JSONObject()
         .put("type", "libraryHome")
+        .put("query", query)
         .put("key", key)
         .put("scrollAnchorKey", scrollAnchorKey)
         .put("scrollIndex", scrollIndex)
@@ -331,6 +332,7 @@ private fun JSONObject.toBrowserPage(): BrowserPage? {
     return when (optString("type")) {
         "libraryHome" -> BrowserPage.LibraryHome(
             key = key,
+            query = optString("query"),
             scrollAnchorKey = optString("scrollAnchorKey").takeIf(String::isNotBlank),
             scrollIndex = optInt("scrollIndex", 0).coerceAtLeast(0),
             scrollOffset = optInt("scrollOffset", 0).coerceAtLeast(0),

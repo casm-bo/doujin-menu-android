@@ -86,7 +86,7 @@ fun RecentHistoryScreen(
             }
         }
         if (!state.historyRecording) Text(strings[R.string.ui_history_paused_reading_progress_is_still_saved], Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
-        if (entries.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (entries.isEmpty()) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
             Text(if (state.recentHistory.isEmpty()) strings[R.string.ui_galleries_you_open_will_appear_here] else strings[R.string.ui_no_matching_history])
         } else LazyVerticalGrid(columns = GridCells.Fixed(if (grid) 2 else 1), modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(entries, key = { it.key }) { entry ->

@@ -258,6 +258,9 @@ fun LibraryScreen(
     initialScrollIndex: Int,
     initialScrollOffset: Int,
     onScrollChange: (String?, Int, Int) -> Unit,
+    onSubmitSearch: () -> Unit = {},
+    onRecentSearch: (String) -> Unit = {},
+    onClearSearchHistory: () -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -450,7 +453,7 @@ fun LibraryScreen(
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             CollapsingToolbar(scrollBehavior) {
             tabHeader({
-                UnifiedSearchField(state.libraryQuery, onQueryChange, strings[R.string.ui_search_gallery], { queryExpanded = true }, { queryExpanded = false })
+                UnifiedSearchField(state.libraryQueryDraft, onQueryChange, strings[R.string.ui_search_gallery], { queryExpanded = true }, { onSubmitSearch(); queryExpanded = false })
             }, {
                 Box {
                     IconButton(onClick = { options = strings[R.string.ui_gallery_options] }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_gallery_options] }) { Text("⋯") }
@@ -511,12 +514,14 @@ fun LibraryScreen(
                 }
             })
             AnimatedVisibility(queryExpanded, enter = expandVertically(expandFrom = Alignment.Top), exit = shrinkVertically(shrinkTowards = Alignment.Top)) {
-                Column(Modifier.padding(horizontal = 16.dp)) {
+                androidx.compose.material3.OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                Column(Modifier.padding(12.dp)) {
+                    RecentSearchHistory(state.libraryQueryHistory, { entry ->
+                        onRecentSearch(entry.query); queryExpanded = false; focusManager.clearFocus()
+                    }, onClearSearchHistory)
                     Text(strings[R.string.ui_title_title_artist_artist_tag_tag_series_series_exclude_phrase], style = MaterialTheme.typography.bodySmall)
-                    Row {
-                        TextButton(onClick = { onQueryChange("") }) { Text(strings[R.string.ui_clear_search]) }
-                        TextButton(onClick = { queryExpanded = false; focusManager.clearFocus() }) { Text(strings[R.string.ui_collapse]) }
-                    }
+                    TextButton(onClick = { onQueryChange("") }) { Text(strings[R.string.ui_clear_search]) }
+                }
                 }
             }
             if (seriesSelectionMode && seriesMode && selectedSeries == null) {
@@ -1814,7 +1819,7 @@ private fun Set<String>.toggled(value: String): Set<String> =
 
 @Composable
 private fun LibraryEmpty(message: String) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
         Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

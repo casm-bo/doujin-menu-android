@@ -316,23 +316,9 @@ fun BrowserScreen(
             Column(Modifier.fillMaxWidth().heightIn(max = 300.dp)
                 .then(if (expandedPanel == "languages" || expandedPanel == "history") Modifier else Modifier.verticalScroll(editorScroll)).padding(12.dp)) {
                 if (expandedPanel == "history") {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(strings[R.string.ui_recent_searches], Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                        TextButton(onClick = onClearSearchHistory, enabled = state.searchQueryHistory.isNotEmpty()) { Text(strings[R.string.ui_clear_history]) }
-                    }
-                    if (state.searchQueryHistory.isEmpty()) Text(strings[R.string.ui_no_recent_searches], style = MaterialTheme.typography.bodyMedium)
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
-                        items(state.searchQueryHistory) { entry ->
-                            TextButton(onClick = {
-                                focusManager.clearFocus(); editing = false; expandedPanel = null; onRecentSearch(entry)
-                            }, modifier = Modifier.fillMaxWidth()) {
-                                Column(Modifier.fillMaxWidth()) {
-                                    Text(entry.query.ifBlank { strings[R.string.ui_all_galleries] }, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(entry.languages.sorted().joinToString().ifBlank { "Any" }, style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-                    }
+                    RecentSearchHistory(state.searchQueryHistory, { entry ->
+                        focusManager.clearFocus(); editing = false; expandedPanel = null; onRecentSearch(entry)
+                    }, onClearSearchHistory)
                 }
                 if (expandedPanel == null && (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions)) {
                     state.filterSuggestions.forEach { suggestion ->

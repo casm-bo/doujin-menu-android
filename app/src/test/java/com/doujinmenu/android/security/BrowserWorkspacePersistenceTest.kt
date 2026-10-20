@@ -1,5 +1,7 @@
 package com.doujinmenu.android.security
 
+import com.doujinmenu.android.model.updateLibraryScroll
+
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserWorkspace
 import com.doujinmenu.android.model.openTab
@@ -18,6 +20,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
+    @Test fun galleryQuerySurvivesScrollAndProcessRestorePerTab() {
+        val page = BrowserPage.LibraryHome(query = "tag:hi")
+        val workspace = BrowserWorkspace.initial(page).openTab(BrowserPage.LibraryHome(query = "artist:other"))
+            .updateLibraryScroll(page.key, "book:20", 19, 30)
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(workspace))
+        assertEquals("tag:hi", (restored.tabs.first().currentPage as BrowserPage.LibraryHome).query)
+        assertEquals(19, (restored.tabs.first().currentPage as BrowserPage.LibraryHome).scrollIndex)
+        assertEquals("artist:other", (restored.activeTab.currentPage as BrowserPage.LibraryHome).query)
+    }
     @Test fun finalReaderAndPreviewPositionsFollowArchivedTabs() {
         val detail = BrowserPage.LibraryBook("pc:1", "Book")
         val reader = BrowserPage.LibraryReader("pc:1", "Book", 3)

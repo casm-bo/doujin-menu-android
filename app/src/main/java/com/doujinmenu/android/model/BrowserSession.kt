@@ -7,6 +7,7 @@ sealed interface BrowserPage {
 
     data class LibraryHome(
         override val key: String = UUID.randomUUID().toString(),
+        val query: String = "",
         val scrollAnchorKey: String? = null,
         val scrollIndex: Int = 0,
         val scrollOffset: Int = 0,

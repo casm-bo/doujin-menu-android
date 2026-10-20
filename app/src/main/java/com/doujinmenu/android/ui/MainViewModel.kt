@@ -159,6 +159,8 @@ data class MainUiState(
     val onlineReaderProgress: Map<Long, Int> = emptyMap(),
     val customSeriesByBookId: Map<String, CustomSeriesAssignment> = emptyMap(),
     val libraryQuery: String = "",
+    val libraryQueryDraft: String = "",
+    val libraryQueryHistory: List<SearchQueryEntry> = emptyList(),
     val libraryFavoritesOnly: Boolean = false,
     val libraryReadFilter: LibraryReadFilter = LibraryReadFilter.ALL,
     val libraryVisibilityFilter: LibraryVisibilityFilter = LibraryVisibilityFilter.VISIBLE,
@@ -270,10 +272,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val loadedWorkspace = browserPreferenceStore.loadBrowserWorkspace()
         val galleryWorkspace = browserPreferenceStore.loadGalleryWorkspace()
         val loadedSearch = loadedWorkspace.activeTab.currentPage as? BrowserPage.Search
-        val activeLanguages = loadedSearch?.preferredLanguages?.takeIf { it.isNotEmpty() }
-            ?: savedLanguages
+        val activeLanguages = if (loadedSearch != null && (loadedSearch.currentPage > 0 || loadedSearch.resultSessionId != null))
+            loadedSearch.preferredLanguages else loadedSearch?.preferredLanguages?.takeIf { it.isNotEmpty() } ?: savedLanguages
         val browserWorkspace = loadedWorkspace.updateActiveSearch { search ->
-            if (search.preferredLanguages.isEmpty()) search.copy(preferredLanguages = activeLanguages) else search
+            search.copy(query = if (search.submittedQueries.isNotEmpty()) search.submittedQuery else search.query,
+                preferredLanguages = if (search.preferredLanguages.isEmpty()) activeLanguages else search.preferredLanguages)
         }
         val activeSearch = browserWorkspace.activeTab.currentPage as? BrowserPage.Search
         uiState = uiState.copy(
@@ -285,6 +288,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             selectedProfileId = profiles.firstOrNull()?.id,
             browserWorkspace = browserWorkspace,
             galleryWorkspace = galleryWorkspace,
+            libraryQuery = (galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query.orEmpty(),
+            libraryQueryDraft = (galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query.orEmpty(),
+            libraryQueryHistory = browserPreferenceStore.loadSearchQueryHistory("library_query_history"),
             searchQuery = activeSearch?.query.orEmpty(),
             submittedSearchQuery = activeSearch?.submittedQuery.orEmpty(),
             submittedSearchQueries = activeSearch?.submittedQueries.orEmpty(),
@@ -361,7 +367,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun setSearchQuery(value: String) {
         update { copy(searchQuery = value) }
-        syncActiveSearch()
         refreshFilterSuggestions(value)
     }
 
@@ -375,7 +380,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             filterSuggestions = emptyList(),
             isLoadingFilterSuggestions = false,
         )
-        syncActiveSearch()
     }
     fun setFavoriteName(value: String) = update { copy(favoriteName = value) }
 
@@ -435,15 +439,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val languages = uiState.preferredLanguages.toMutableSet().apply {
             if (!add(normalized)) remove(normalized)
         }
-        browserPreferenceStore.savePreferredLanguages(languages)
         uiState = uiState.copy(preferredLanguages = languages)
-        syncActiveSearch(persist = true)
     }
 
     fun selectAnyLanguage() {
-        browserPreferenceStore.savePreferredLanguages(emptySet())
         uiState = uiState.copy(preferredLanguages = emptySet())
-        syncActiveSearch(persist = true)
     }
 
     fun removeCustomLanguage(language: String) {
@@ -451,9 +451,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val custom = uiState.customLanguages - normalized
         val selected = uiState.preferredLanguages - normalized
         browserPreferenceStore.saveCustomLanguages(custom)
-        browserPreferenceStore.savePreferredLanguages(selected)
         uiState = uiState.copy(customLanguages = custom, preferredLanguages = selected)
-        syncActiveSearch(persist = true)
     }
 
     fun searchFromLanguage(language: String) {
@@ -1026,7 +1024,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refresh() {
         if (uiState.isLoadingPage || uiState.isRefreshing) return
-        val searchKey = activeSearchPage()?.key ?: return
+        val page = activeSearchPage() ?: return
+        val searchKey = page.key
+        uiState = uiState.copy(searchQuery = if (page.submittedQueries.isNotEmpty()) page.submittedQuery else page.query,
+            preferredLanguages = page.preferredLanguages)
         browserSearchJob = viewModelScope.launch {
             uiState = uiState.copy(isRefreshing = true)
             try {
@@ -1230,6 +1231,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun refreshLibrary(showPullFeedback: Boolean) {
         if (uiState.isLibraryScanning) return
+        if (showPullFeedback) uiState = uiState.copy(libraryQueryDraft = uiState.libraryQuery)
         val scannedLocations = uiState.libraryLocations
         val profile = selectedProfile()
         viewModelScope.launch {
@@ -1467,7 +1469,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setLibraryQuery(value: String) = update { copy(libraryQuery = value) }
+    fun setLibraryQuery(value: String) = update { copy(libraryQueryDraft = value) }
+    fun submitLibrarySearch(query: String = uiState.libraryQueryDraft) {
+        val applied = query.trim()
+        val history = uiState.libraryQueryHistory.recordQuery(SearchQueryEntry(applied))
+        val workspace = uiState.galleryWorkspace.updateActiveLibraryHome { it.copy(query = applied, scrollAnchorKey = null, scrollIndex = 0, scrollOffset = 0) }
+        browserPreferenceStore.saveSearchQueryHistory(history, "library_query_history")
+        browserPreferenceStore.saveGalleryWorkspace(workspace)
+        uiState = uiState.copy(libraryQuery = applied, libraryQueryDraft = applied, libraryQueryHistory = history, galleryWorkspace = workspace)
+    }
+    fun clearLibrarySearchHistory() {
+        browserPreferenceStore.saveSearchQueryHistory(emptyList(), "library_query_history")
+        uiState = uiState.copy(libraryQueryHistory = emptyList())
+    }
     fun toggleLibraryFavoritesFilter() = update {
         copy(libraryFavoritesOnly = !libraryFavoritesOnly)
     }
@@ -2425,6 +2439,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         browserPreferenceStore.saveActiveGalleryWorkspace(true)
         uiState = uiState.copy(
             galleryWorkspace = workspace,
+            libraryQuery = (workspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query ?: uiState.libraryQuery,
+            libraryQueryDraft = (workspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query ?: uiState.libraryQueryDraft,
             galleries = emptyList(),
             searchResultWindow = null,
             nextSearchPageError = null,
@@ -2441,8 +2457,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun syncActiveSearch(persist: Boolean = false) {
         val workspace = uiState.browserWorkspace.updateActiveSearch { search ->
             search.copy(
-                query = uiState.searchQuery,
-                preferredLanguages = uiState.preferredLanguages,
                 submittedQuery = uiState.submittedSearchQuery,
                 submittedQueries = uiState.submittedSearchQueries,
                 resultIds = emptyList(),
@@ -2468,7 +2482,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (uiState.submittedSearchQueries.isEmpty()) uiState.searchQuery.trim() else ""
             }
         }
-        val searchQueries = if (reset) {
+        val searchQueries = if (reset && preserveResults) {
+            uiState.submittedSearchQueries.ifEmpty { queriesWithPreferredLanguages(query, uiState.preferredLanguages) }
+        } else if (reset) {
             queriesWithPreferredLanguages(query, uiState.preferredLanguages)
         } else {
             uiState.submittedSearchQueries.ifEmpty {
@@ -2482,9 +2498,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val index = if (reset) SearchResultIndex(java.util.UUID.randomUUID().toString(), searchQueries)
             else uiState.searchResultWindow?.index ?: return
         if (reset) {
-            val history = uiState.searchQueryHistory.recordQuery(SearchQueryEntry(query, uiState.preferredLanguages))
-            browserPreferenceStore.saveSearchQueryHistory(history)
-            uiState = uiState.copy(searchQueryHistory = history)
+            browserPreferenceStore.savePreferredLanguages(uiState.preferredLanguages)
+            if (!preserveResults) {
+                val history = uiState.searchQueryHistory.recordQuery(SearchQueryEntry(query, uiState.preferredLanguages))
+                browserPreferenceStore.saveSearchQueryHistory(history)
+                uiState = uiState.copy(searchQueryHistory = history)
+            }
         }
         val revision = uiState.browserNavigationRevision
         if (reset) {
@@ -2492,8 +2511,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (!preserveResults) visibleSearchResults = 0..0
         }
         val previousWorkspace = uiState.browserWorkspace
+        val previousResults = uiState.searchResultWindow
+        val previousPage = uiState.currentPage
+        val previousHasNext = uiState.hasNextPage
         val workspace = previousWorkspace.updateActiveSearch { search ->
-            search.copy(resultSessionId = index.sessionId,
+            search.copy(query = if (reset) query else search.query,
+                preferredLanguages = if (reset) uiState.preferredLanguages else search.preferredLanguages,
+                resultSessionId = index.sessionId,
                 scrollPage = if (reset && !preserveResults) 1 else search.scrollPage,
                 scrollAnchorKey = if (reset && !preserveResults) null else search.scrollAnchorKey,
                 scrollIndex = if (reset && !preserveResults) 0 else search.scrollIndex,
@@ -2540,6 +2564,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             throw cancelled
         } catch (error: Exception) {
             if (isSearchSessionCurrent(searchKey, index.sessionId, revision)) {
+                if (preserveResults) uiState = uiState.copy(browserWorkspace = previousWorkspace,
+                    searchResultWindow = previousResults, currentPage = previousPage, hasNextPage = previousHasNext, isLoadingPage = false)
                 uiState = uiState.copy(
                     message = error.message ?: strings[R.string.msg_could_not_load_search_page],
                     nextSearchPageError = error.message ?: strings[R.string.msg_could_not_load_search_page],
