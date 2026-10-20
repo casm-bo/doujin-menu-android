@@ -319,7 +319,7 @@ fun LibraryScreen(
         state.libraryHiddenIds,
         state.libraryVisibilityFilter,
     ) { state.libraryBooksInVisibility() }
-    val shownBooks = books.filterBySeries(selectedSeries, state.customSeriesByBookId)
+    val shownBooks = (if (selectedSeries == null) books else visibilityBooks).filterBySeries(selectedSeries, state.customSeriesByBookId)
     val mainEntries = remember(books, state.customSeriesByBookId, state.librarySort) {
         libraryMainEntries(books, state.customSeriesByBookId, state.librarySort)
     }
@@ -630,7 +630,7 @@ fun LibraryScreen(
                 state.libraryLocations.isEmpty() && state.desktopLibraryLocations.isEmpty() -> LibraryEmpty(
                     strings[R.string.ui_first_add_a_library_folder_in_settings],
                 )
-                books.isEmpty() -> LibraryEmpty(strings[R.string.ui_no_books_match_the_conditions])
+                books.isEmpty() && selectedSeries == null -> LibraryEmpty(strings[R.string.ui_no_books_match_the_conditions])
                 seriesMode && selectedSeries == null -> LibrarySeriesOverview(
                     books = books,
                     allBooks = visibilityBooks,

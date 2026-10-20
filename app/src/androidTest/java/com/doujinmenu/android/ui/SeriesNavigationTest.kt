@@ -66,5 +66,15 @@ class SeriesNavigationTest {
         }
         // Opening a detail must not overwrite the main list's saved position with episode-list state.
         assertEquals(12, mainOffset)
+        // A reader can open an episode list while the user's home filter still excludes series.
+        compose.runOnIdle { state = baseline.copy(libraryExcludeSeries = true, selectedLibrarySeries = "Fixture series", librarySeriesEpisodeList = true) }
+        compose.onNodeWithText("Episode A").assertExists()
+        compose.onNodeWithText("Episode B").assertExists()
+        compose.onNodeWithText("Standalone").assertDoesNotExist()
+        compose.runOnIdle { back.onBackPressed() }
+        compose.runOnIdle { back.onBackPressed() }
+        compose.onNodeWithText("Standalone").assertExists()
+        compose.onNodeWithText("Fixture series").assertDoesNotExist()
+        compose.runOnIdle { assertTrue(state.libraryExcludeSeries); assertFalse(state.librarySeriesMode); assertEquals(0, filterChanges) }
     }
 }
