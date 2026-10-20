@@ -25,7 +25,7 @@ import org.junit.Test
 class ScrollbarGestureTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun touchVibratesOnceAndTrackStaysStillUntilDragged() {
+    @Test fun thumbDragsImmediatelyButTrackRequiresLongPress() {
         val state = LazyListState()
         var vibrations = 0
         val haptic = object : HapticFeedback {
@@ -44,15 +44,15 @@ class ScrollbarGestureTest {
             down(Offset(centerX, 12f)); advanceEventTime(16); moveTo(Offset(centerX, height * .6f)); advanceEventTime(16); up()
         }
         compose.runOnIdle { assertTrue("Thumb must move without waiting for a long press", state.firstVisibleItemIndex > 20); assertEquals(1, vibrations) }
-        val before = state.firstVisibleItemIndex
+        compose.runOnIdle { kotlinx.coroutines.runBlocking { state.scrollToItem(0) } }
         compose.onNodeWithTag("dynamic-scrollbar").performTouchInput {
-            down(Offset(centerX, height * .95f)); advanceEventTime(650); up()
+            down(Offset(centerX, height * .5f)); advanceEventTime(16); moveTo(Offset(centerX, height * .6f)); up()
         }
-        compose.runOnIdle { assertEquals(before, state.firstVisibleItemIndex); assertEquals(2, vibrations) }
+        compose.runOnIdle { assertTrue("Ordinary track swipe must not jump to the middle", state.firstVisibleItemIndex < 10); assertEquals(1, vibrations) }
         compose.onNodeWithTag("dynamic-scrollbar").performTouchInput {
-            down(Offset(centerX, height * .95f)); advanceEventTime(16); moveTo(Offset(centerX, height.toFloat())); up()
+            down(Offset(centerX, height * .95f)); advanceEventTime(650); moveTo(Offset(centerX, height.toFloat())); up()
         }
-        compose.runOnIdle { assertFalse(state.canScrollForward); assertEquals(3, vibrations) }
+        compose.runOnIdle { assertFalse(state.canScrollForward); assertEquals(2, vibrations) }
         compose.onNodeWithTag("content").performTouchInput { swipeDown() }
         compose.runOnIdle { assertTrue(state.canScrollForward) }
     }

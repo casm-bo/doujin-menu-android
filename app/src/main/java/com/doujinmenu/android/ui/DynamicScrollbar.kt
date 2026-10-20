@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -130,8 +131,6 @@ private fun BoxScope.DynamicVerticalScrollbar(
         .pointerInput(Unit) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
-                down.consume()
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 val height = size.height.toFloat()
                 val gestureMetrics = currentMetrics
                 val gestureVisible = currentVisible
@@ -141,6 +140,10 @@ private fun BoxScope.DynamicVerticalScrollbar(
                 val thumb = height * gestureMetrics.sizeFraction
                 val top = (height - thumb) * gestureMetrics.positionFraction
                 val onThumb = down.position.y in (top - 12.dp.toPx())..(top + thumb + 12.dp.toPx())
+                // Track swipes belong to the content until a deliberate long press claims them.
+                val start = if (onThumb) down else awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                start.consume()
+                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 val grabOffset = if (onThumb) down.position.y - (top + thumb / 2) else 0f
                 var previous: ScrollbarTarget? = null
                 fun move(y: Float) {
@@ -149,7 +152,8 @@ private fun BoxScope.DynamicVerticalScrollbar(
                 }
                 dragging = true
                 try {
-                    drag(down.id) { change -> change.consume(); move(change.position.y) }
+                    if (!onThumb) move(start.position.y)
+                    drag(start.id) { change -> change.consume(); move(change.position.y) }
                 } finally { dragging = false }
             }
         }) {
