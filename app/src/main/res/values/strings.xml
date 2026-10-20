@@ -486,4 +486,5 @@
     <string name="ui_add_to_series">Add to series</string>
     <string name="ui_no_existing_series">Create a series first.</string>
     <string name="ui_series_no_longer_exists">This series no longer exists. Select another series.</string>
+    <string name="ui_scrollbar">Scrollbar</string>
 </resources>

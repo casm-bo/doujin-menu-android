@@ -1,10 +1,21 @@
 package com.doujinmenu.android.ui
 
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class DynamicScrollbarTest {
+    @Test fun pixelOffsetMovesThumbWithinTheSameRowAndDragKeepsSubrowPrecision() {
+        val before = scrollbarMetrics(10, 10, 100)!!
+        val after = scrollbarMetrics(10, 10, 100, 1f)!!
+        assertTrue(after.positionFraction > before.positionFraction)
+        val target = scrollbarTarget(113f, 1000f, before, 10, 100, 200f, 2)
+        assertEquals(6, target.index)
+        assertTrue(target.offset > 0)
+        assertEquals(ScrollbarTarget(99, 0), scrollbarTarget(1000f, 1000f, before, 10, 100, 200f, 2))
+        assertEquals(ScrollbarTarget(0, 0), scrollbarTarget(-100f, 1000f, before, 10, 100, 200f, 2))
+    }
     @Test
     fun metricsTrackViewportWithinScrollableContent() {
         val metrics = scrollbarMetrics(firstVisibleItemIndex = 45, visibleItemCount = 10, totalItemCount = 100)!!

@@ -486,4 +486,5 @@
     <string name="ui_add_to_series">시리즈에 추가</string>
     <string name="ui_no_existing_series">먼저 시리즈를 만들어 주세요.</string>
     <string name="ui_series_no_longer_exists">이 시리즈는 삭제되었습니다. 다른 시리즈를 선택해 주세요.</string>
+    <string name="ui_scrollbar">스크롤바</string>
 </resources>
