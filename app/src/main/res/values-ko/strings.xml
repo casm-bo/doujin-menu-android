@@ -483,4 +483,7 @@
     <string name="ui_text_color">문자 색상</string>
     <string name="ui_contrast_adjusted">읽기 어려운 문자 색상은 자동 보정합니다. 라이트·다크 색상은 따로 저장합니다.</string>
     <string name="ui_reset_style">스타일 기본값 복원</string>
+    <string name="ui_add_to_series">시리즈에 추가</string>
+    <string name="ui_no_existing_series">먼저 시리즈를 만들어 주세요.</string>
+    <string name="ui_series_no_longer_exists">이 시리즈는 삭제되었습니다. 다른 시리즈를 선택해 주세요.</string>
 </resources>

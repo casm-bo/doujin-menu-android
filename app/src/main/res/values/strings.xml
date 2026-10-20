@@ -483,4 +483,7 @@
     <string name="ui_text_color">Text color</string>
     <string name="ui_contrast_adjusted">Text contrast is adjusted for readability. Light and dark colors are saved separately.</string>
     <string name="ui_reset_style">Reset style</string>
+    <string name="ui_add_to_series">Add to series</string>
+    <string name="ui_no_existing_series">Create a series first.</string>
+    <string name="ui_series_no_longer_exists">This series no longer exists. Select another series.</string>
 </resources>

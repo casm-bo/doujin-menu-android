@@ -812,6 +812,7 @@ private fun MainTabContent(
                 onMarkRead = viewModel::markLibraryBooksRead,
                 onMarkUnread = viewModel::markLibraryBooksUnread,
                 onAssignSeries = viewModel::assignLibrarySeries,
+                onAppendSeries = viewModel::appendLibrarySeries,
                 onReorderSeriesBooks = viewModel::reorderLibrarySeriesBooks,
                 onSetBooksHidden = viewModel::setLibraryBooksHidden,
                 onDeleteBooks = viewModel::deleteLibraryBooks,

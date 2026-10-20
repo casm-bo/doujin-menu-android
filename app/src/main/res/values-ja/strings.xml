@@ -483,4 +483,7 @@
     <string name="ui_text_color">文字色</string>
     <string name="ui_contrast_adjusted">読みやすい文字色に自動調整します。ライト・ダークの色は別々に保存します。</string>
     <string name="ui_reset_style">スタイルをリセット</string>
+    <string name="ui_add_to_series">既存のシリーズに追加</string>
+    <string name="ui_no_existing_series">先にシリーズを作成してください。</string>
+    <string name="ui_series_no_longer_exists">このシリーズは削除されました。別のシリーズを選択してください。</string>
 </resources>

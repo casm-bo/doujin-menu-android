@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -232,6 +233,7 @@ fun LibraryScreen(
     onMarkRead: (Set<String>) -> Unit,
     onMarkUnread: (Set<String>) -> Unit,
     onAssignSeries: (Set<String>, String) -> Unit,
+    onAppendSeries: (Set<String>, String) -> Boolean,
     onReorderSeriesBooks: (List<String>) -> Unit,
     onSetBooksHidden: (Set<String>, Boolean) -> Unit,
     onDeleteBooks: (Set<String>) -> Unit,
@@ -267,6 +269,7 @@ fun LibraryScreen(
     var selectedSeriesNames by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var seriesSelectionMode by rememberSaveable { mutableStateOf(false) }
     var firstSelectedSeriesName by rememberSaveable { mutableStateOf<String?>(null) }
+    var existingSeriesDialog by rememberSaveable { mutableStateOf(false) }
     var seriesDialog by rememberSaveable { mutableStateOf(false) }
     var seriesName by rememberSaveable { mutableStateOf("") }
     var editingSeriesOrder by rememberSaveable { mutableStateOf(false) }
@@ -558,6 +561,7 @@ fun LibraryScreen(
                         ({ seriesDialog = true })
                     } else null,
                     seriesLabel = strings[R.string.ui_add_series],
+                    onExistingSeries = if (addingToSeries == null) ({ existingSeriesDialog = true }) else null,
                     onSave = addingToSeries?.let { target ->
                         {
                             val previousIds = state.customSeriesByBookId
@@ -730,6 +734,23 @@ fun LibraryScreen(
         }
     }
 
+    if (existingSeriesDialog) {
+        val names = state.customSeriesByBookId.values.map { it.name }.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+        AlertDialog(onDismissRequest = { existingSeriesDialog = false },
+            title = { Text(strings[R.string.ui_add_to_series]) },
+            text = {
+                if (names.isEmpty()) Text(strings[R.string.ui_no_existing_series])
+                else LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    listItems(names, key = { it }) { name ->
+                        TextButton(onClick = {
+                            if (onAppendSeries(selectedIds, name)) {
+                                existingSeriesDialog = false; selectionMode = false; selectedIds = emptySet()
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) { Text(name) }
+                    }
+                }
+            }, confirmButton = {}, dismissButton = { TextButton(onClick = { existingSeriesDialog = false }) { Text(strings[R.string.ui_cancel]) } })
+    }
     if (seriesDialog) {
         AlertDialog(
             onDismissRequest = { seriesDialog = false },
@@ -890,6 +911,7 @@ private fun LibrarySelectionToolbar(
     onFavorite: (() -> Unit)?,
     onRead: (() -> Unit)?,
     onSeries: (() -> Unit)?,
+    onExistingSeries: (() -> Unit)? = null,
     onMerge: (() -> Unit)? = null,
     onSave: (() -> Unit)? = null,
     readLabel: String? = null,
@@ -917,7 +939,8 @@ private fun LibrarySelectionToolbar(
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                 listOf(
                     Triple(strings[R.string.ui_add_favorite], onFavorite, ActionSymbol.HEART), Triple(readLabel ?: strings[R.string.ui_read], onRead, ActionSymbol.READ),
-                    Triple(seriesLabel ?: strings[R.string.ui_series], onSeries, ActionSymbol.SERIES), Triple(strings[R.string.ui_merge], onMerge, ActionSymbol.MERGE),
+                    Triple(seriesLabel ?: strings[R.string.ui_series], onSeries, ActionSymbol.SERIES),
+                    Triple(strings[R.string.ui_add_to_series], onExistingSeries, ActionSymbol.SERIES), Triple(strings[R.string.ui_merge], onMerge, ActionSymbol.MERGE),
                     Triple(strings[R.string.ui_save], onSave, ActionSymbol.SAVE), Triple(strings[R.string.ui_rename], onRename, ActionSymbol.EDIT),
                     Triple(hideLabel ?: strings[R.string.ui_hide], onHide, ActionSymbol.HIDE), Triple(strings[R.string.ui_delete], onDelete, ActionSymbol.DELETE),
                 ).forEach { (label, action, symbol) ->

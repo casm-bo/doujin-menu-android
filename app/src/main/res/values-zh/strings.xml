@@ -483,4 +483,7 @@
     <string name="ui_text_color">文字颜色</string>
     <string name="ui_contrast_adjusted">自动调整文字对比度。浅色和深色配色分别保存。</string>
     <string name="ui_reset_style">重置样式</string>
+    <string name="ui_add_to_series">添加到系列</string>
+    <string name="ui_no_existing_series">请先创建一个系列。</string>
+    <string name="ui_series_no_longer_exists">此系列已删除。请选择其他系列。</string>
 </resources>

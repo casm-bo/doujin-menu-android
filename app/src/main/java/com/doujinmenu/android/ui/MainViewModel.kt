@@ -1616,30 +1616,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val name = seriesName.trim()
         if (name.isEmpty()) return
         if (!ensureValidSeriesName(name)) return
-        val modifiedAt = System.currentTimeMillis()
-        val affectedNames = bookIds.mapNotNullTo(linkedSetOf()) { id ->
-            uiState.customSeriesByBookId[id]?.name?.takeIf { it != name }
-        } + name
-        var nextOrder = uiState.customSeriesByBookId.values
-            .filter { it.name == name }
-            .maxOfOrNull(CustomSeriesAssignment::order)?.plus(1) ?: 0
-        val additions = buildMap {
-            bookIds.forEach { bookId ->
-                val existing = uiState.customSeriesByBookId[bookId]
-                put(
-                    bookId,
-                    if (existing?.name == name) existing.copy(modifiedAt = modifiedAt)
-                    else CustomSeriesAssignment(name, nextOrder++, modifiedAt),
-                )
-            }
-        }
-        val assignments = touchSeriesAssignments(
-            reindexSeriesAssignments(uiState.customSeriesByBookId + additions, affectedNames),
-            affectedNames,
-            modifiedAt,
-        )
+        val validIds = bookIds.intersect(uiState.libraryBooks.mapTo(hashSetOf()) { it.id })
+        val assignments = com.doujinmenu.android.model.appendSeriesMembers(uiState.customSeriesByBookId, validIds, name, System.currentTimeMillis())
         persistCustomSeries(assignments)
         uiState = uiState.copy(customSeriesByBookId = assignments)
+    }
+
+    fun appendLibrarySeries(bookIds: Set<String>, name: String): Boolean {
+        if (uiState.customSeriesByBookId.values.none { it.name == name }) {
+            uiState = uiState.copy(message = strings[R.string.ui_series_no_longer_exists], isError = true)
+            return false
+        }
+        assignLibrarySeries(bookIds, name)
+        return true
     }
 
     fun autoCreateLibrarySeries() {
