@@ -8,14 +8,7 @@ import com.doujinmenu.android.network.CompanionClient
 class PresentationSync(private val client: CompanionClient, private val store: PresentationStore, private val covers: PresentationCovers) {
     suspend fun sync(profile: DesktopProfile) {
         store.adoptDeviceEdits()
-        var cursor = store.cursor(profile.id)
-        do {
-            val page = client.getPresentations(profile, cursor)
-            require(page.cursor >= cursor && (!page.hasMore || page.cursor > cursor)) { "Invalid metadata sync cursor" }
-            for (value in page.values) { downloadCover(profile, value); store.receive(value) }
-            cursor = page.cursor
-            store.saveCursor(profile.id, cursor)
-        } while (page.hasMore)
+        // Recover a lost acknowledgement before treating our own server edit as a conflict.
         for (record in store.pending()) {
             record.value.coverHash?.let { client.transferCover(profile, it, covers.bytes(it)) }
             val result = client.savePresentation(profile, record)
@@ -27,6 +20,14 @@ class PresentationSync(private val client: CompanionClient, private val store: P
                 else -> error("Unknown metadata sync result")
             }
         }
+        var cursor = store.cursor(profile.id)
+        do {
+            val page = client.getPresentations(profile, cursor)
+            require(page.cursor >= cursor && (!page.hasMore || page.cursor > cursor)) { "Invalid metadata sync cursor" }
+            for (value in page.values) { downloadCover(profile, value); store.receive(value) }
+            cursor = page.cursor
+            store.saveCursor(profile.id, cursor)
+        } while (page.hasMore)
     }
     private suspend fun downloadCover(profile: DesktopProfile, value: GalleryPresentation) {
         value.coverHash?.let { hash -> if (!covers.contains(hash)) covers.put(hash, client.transferCover(profile, hash)) }
