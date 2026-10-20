@@ -27,10 +27,18 @@ android {
         }
     }
 
+    testBuildType = "uitest"
+
     buildTypes {
         getByName("debug") {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+        }
+        create("uitest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".uitest"
+            versionNameSuffix = "-uitest"
+            matchingFallbacks += listOf("debug")
         }
         getByName("release") {
             signingConfig = signingConfigs.findByName("release")
@@ -70,7 +78,7 @@ dependencies {
 
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    add("uitestImplementation", "androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
