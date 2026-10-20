@@ -180,6 +180,7 @@ data class BackgroundGalleryTab(
     val workspace: BrowserWorkspace,
     val tabId: String?,
     val alreadyOpen: Boolean = false,
+    val galleryWorkspace: Boolean = false,
 )
 
 fun BrowserWorkspace.openGalleryInBackground(galleryId: Long, title: String): BackgroundGalleryTab {

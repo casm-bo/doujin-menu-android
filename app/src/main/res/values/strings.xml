@@ -519,4 +519,5 @@
     <string name="ui_exclude_episodes">Exclude episodes</string>
     <string name="ui_empty_series_keeps_files">Saving an empty series removes the group. Gallery files are kept.</string>
     <string name="ui_series_edit_conflict">This series changed while editing. Cancel and reopen it to review the latest version.</string>
+    <string name="ui_series_details">Series details</string>
 </resources>

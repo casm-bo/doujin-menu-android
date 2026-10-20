@@ -49,4 +49,13 @@ class DetailUiTest {
         compose.onNodeWithText(strings.getString(R.string.ui_use_pc_edit)).performClick()
         assertTrue(accepted)
     }
+    @Test fun undownloadedDetailDoesNotOfferMetadataOrCoverEditing() {
+        val strings = InstrumentationRegistry.getInstrumentation().targetContext.resources
+        compose.setContent { DoujinMenuTheme { PresentationActions(GalleryPresentation("hitomi:42", "Online", LibraryMetadata()), null,
+            emptyList(), false, null, { _, _ -> }, { _, _ -> }, {}, listOf(DetailMenuAction("Favorite", ActionSymbol.STAR) {}), editable = false) } }
+        compose.onNodeWithContentDescription(strings.getString(R.string.ui_detail_options)).performClick()
+        compose.onNodeWithText("Favorite").assertExists()
+        compose.onNodeWithText(strings.getString(R.string.ui_edit_metadata)).assertDoesNotExist()
+        compose.onNodeWithText(strings.getString(R.string.ui_cover_from_image)).assertDoesNotExist()
+    }
 }

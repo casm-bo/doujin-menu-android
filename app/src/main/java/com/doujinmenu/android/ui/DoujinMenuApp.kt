@@ -123,9 +123,10 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     duration = SnackbarDuration.Short,
                 )
                 if (action == SnackbarResult.ActionPerformed &&
-                    viewModel.uiState.browserWorkspace.tabs.any { it.id == result.tabId }) {
+                    (if (result.galleryWorkspace) viewModel.uiState.galleryWorkspace else viewModel.uiState.browserWorkspace).tabs.any { it.id == result.tabId }) {
                     viewModel.tabPreviews.captureNow()
-                    viewModel.selectBrowserTab(requireNotNull(result.tabId))
+                    if (result.galleryWorkspace) viewModel.selectGalleryTab(requireNotNull(result.tabId))
+                    else viewModel.selectBrowserTab(requireNotNull(result.tabId))
                 }
             }
         }
@@ -856,6 +857,7 @@ private fun MainTabContent(
                 onAssignSeries = viewModel::assignLibrarySeries,
                 onAppendSeries = viewModel::appendLibrarySeries,
                 onCommitSeriesEdit = viewModel::commitLibrarySeriesEdit,
+                onLoadSeriesPreview = viewModel::loadSeriesBookPreview,
                 onReadBook = viewModel::openLibraryReaderTab,
                 onSearchFacet = { viewModel.searchFromFacet(it); onNavigate(MainDestination.Browser) },
                 onSearchLanguage = { viewModel.searchFromLanguage(it); onNavigate(MainDestination.Browser) },

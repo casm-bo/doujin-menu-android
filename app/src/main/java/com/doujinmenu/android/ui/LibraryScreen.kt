@@ -266,6 +266,7 @@ fun LibraryScreen(
     onSearchFacet: (String) -> Unit = {},
     onSearchLanguage: (String) -> Unit = {},
     onSeriesListChange: (Boolean) -> Unit = {},
+    onLoadSeriesPreview: (String) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -623,7 +624,7 @@ fun LibraryScreen(
                         onSelectedSeriesChange(null)
                     }) { Text("<") }
                     Text(selectedSeries, Modifier.weight(1f).padding(12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (showSeriesList) TextButton(onClick = { onSeriesListChange(false) }) { Text(strings[R.string.ui_gallery_details]) }
+                    if (showSeriesList) TextButton(onClick = { onSeriesListChange(false) }) { Text(strings[R.string.ui_series_details]) }
 
                 }
             }
@@ -636,6 +637,7 @@ fun LibraryScreen(
                     onRename = { selectedSeriesNames = setOf(selectedSeries); renameInput = selectedSeries; renameSeriesDialog = true },
                     onFavorite = { onToggleSeriesFavorite(selectedSeries) }, onRead = onMarkRead, onUnread = onMarkUnread, onHidden = onSetBooksHidden,
                     onDelete = { onDeleteSeries(setOf(selectedSeries)); onSelectedSeriesChange(null) }, onSearchFacet = onSearchFacet, onSearchLanguage = onSearchLanguage,
+                    onLoadPreview = onLoadSeriesPreview,
                 )
                 state.isLibraryScanning && state.libraryBooks.isEmpty() -> Box(
                     modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center,
@@ -1363,7 +1365,7 @@ private fun ThumbnailBadge(text: String, modifier: Modifier, scale: Float) {
 }
 
 @Composable
-private fun LibraryWorkCard(
+internal fun LibraryWorkCard(
     book: LibraryBook, progress: Int, grid: Boolean, favorite: Boolean, read: Boolean,
     selected: Boolean, selectionMode: Boolean, onOpen: () -> Unit, onLongPress: () -> Unit,
     onToggleFavorite: () -> Unit, badgeScale: Float,

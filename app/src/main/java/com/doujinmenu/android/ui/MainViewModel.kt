@@ -189,6 +189,8 @@ data class MainUiState(
     val librarySyncError: String? = null,
     val libraryScanError: String? = null,
     val isLibraryBookLoading: Boolean = false,
+    val seriesPreviewLoadingIds: Set<String> = emptySet(),
+    val seriesPreviewErrors: Map<String, String> = emptyMap(),
     val viewerPreferences: ViewerPreferences = ViewerPreferences(),
     val downloadLocation: StorageLocation? = null,
     val desktopDownloadPath: String? = null,
@@ -675,6 +677,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openGalleryBackgroundTab(galleryId: Long): BackgroundGalleryTab? {
+        libraryBookIdForGallery(galleryId)?.let { bookId ->
+            val book = uiState.libraryBooks.first { it.id == bookId }
+            val workspace = uiState.galleryWorkspace
+            workspace.tabs.firstOrNull { it.groupId == workspace.activeTab.groupId &&
+                (it.currentPage as? BrowserPage.LibraryBook)?.bookId == bookId }?.let {
+                return BackgroundGalleryTab(workspace, it.id, alreadyOpen = true, galleryWorkspace = true)
+            }
+            val next = workspace.openTab(BrowserPage.LibraryBook(bookId, book.title), activate = false)
+            val tabId = next.tabs.last().id.takeIf { next != workspace }
+            if (tabId != null) rememberNewTab(tabId, true, uiState.browserWorkspace.activeTabId, false, activate = false)
+            uiState = uiState.copy(galleryWorkspace = next)
+            browserPreferenceStore.saveGalleryWorkspace(next)
+            return BackgroundGalleryTab(next, tabId, galleryWorkspace = true)
+        }
         val gallery = uiState.galleryCache[galleryId]
             ?: uiState.galleries.firstOrNull { it.id == galleryId } ?: return null
         val result = uiState.browserWorkspace.openGalleryInBackground(galleryId, gallery.title)
@@ -1713,6 +1729,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 }
+        }
+    }
+
+    fun loadSeriesBookPreview(bookId: String) {
+        val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
+        if (book.hasResolvedReaderPages() || bookId in uiState.seriesPreviewLoadingIds) return
+        val profile = selectedProfile()
+        uiState = uiState.copy(seriesPreviewLoadingIds = uiState.seriesPreviewLoadingIds + bookId,
+            seriesPreviewErrors = uiState.seriesPreviewErrors - bookId)
+        viewModelScope.launch {
+            try {
+                val prepared = if (book.isCloud) {
+                    check(profile != null && book.remoteBookId != null) { strings[R.string.msg_reconnect_to_desktop_and_retry] }
+                    val pages = client.getLibraryBookPages(profile, book.remoteBookId)
+                    book.copy(pages = pages.mapIndexed { index, url -> LibraryPage(url, "${index + 1}") }, coverUriOverride = book.coverUri)
+                } else libraryArchiveExtractor.materialize(book)
+                if (selectedProfile()?.id == profile?.id) uiState = uiState.copy(libraryBooks = uiState.libraryBooks.map {
+                    if (it.id == bookId && it.folderUri == book.folderUri) presentedBook(prepared) else it
+                })
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) {
+                if (selectedProfile()?.id == profile?.id) uiState = uiState.copy(seriesPreviewErrors = uiState.seriesPreviewErrors +
+                    (bookId to (error.message ?: strings[R.string.msg_could_not_open_archive])))
+            } finally { uiState = uiState.copy(seriesPreviewLoadingIds = uiState.seriesPreviewLoadingIds - bookId) }
         }
     }
 

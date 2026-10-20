@@ -519,4 +519,5 @@
     <string name="ui_exclude_episodes">エピソードを除外</string>
     <string name="ui_empty_series_keeps_files">空のシリーズを保存するとグループのみ解除します。作品のファイルは保持します。</string>
     <string name="ui_series_edit_conflict">編集中にシリーズが変更されました。キャンセルして開き直してください。</string>
+    <string name="ui_series_details">シリーズ詳細</string>
 </resources>

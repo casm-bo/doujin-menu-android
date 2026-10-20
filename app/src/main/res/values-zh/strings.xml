@@ -519,4 +519,5 @@
     <string name="ui_exclude_episodes">移出剧集</string>
     <string name="ui_empty_series_keeps_files">保存空系列将仅取消分组，作品文件保留。</string>
     <string name="ui_series_edit_conflict">编辑期间系列已更改。请取消并重新打开以查看最新内容。</string>
+    <string name="ui_series_details">系列详情</string>
 </resources>

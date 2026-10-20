@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 internal enum class ActionSymbol {
     FILTER, SORT, GRID, LIST, FOLDER, SERIES, SELECT, REFRESH, SYNC, STAR, HEART,
     PAGE, CLEAR, DELETE, LANGUAGE, EDIT, READ, MERGE, SAVE, HIDE, PLAY, PAUSE,
-    SEARCH, DEVICE, PC, BACK,
+    SEARCH, DEVICE, PC, BACK, SETTINGS, ADD,
 }
 
 /** Small vector icons share the surrounding button's color and accessible label. */
@@ -72,6 +72,20 @@ internal fun ActionIcon(symbol: ActionSymbol, modifier: Modifier = Modifier) {
                 ActionSymbol.DEVICE -> { box(6f, 2f, 12f, 20f); line(10f, 18f, 14f, 18f) }
                 ActionSymbol.PC -> { box(2f, 3f, 20f, 14f); line(12f, 17f, 12f, 22f); line(7f, 22f, 17f, 22f) }
                 ActionSymbol.BACK -> { line(3f, 12f, 21f, 12f); path(10f to 5f, 3f to 12f, 10f to 19f) }
+                ActionSymbol.ADD -> { line(4f, 12f, 20f, 12f); line(12f, 4f, 12f, 20f) }
+                ActionSymbol.SETTINGS -> {
+                    val teeth = Path().apply {
+                        repeat(32) { point ->
+                            val angle = point * Math.PI / 16
+                            val radius = if (point % 4 in 1..2) 10f else 7.5f
+                            val x = 12f + kotlin.math.cos(angle).toFloat() * radius
+                            val y = 12f + kotlin.math.sin(angle).toFloat() * radius
+                            if (point == 0) moveTo(x, y) else lineTo(x, y)
+                        }; close()
+                    }
+                    drawPath(teeth, color, style = outline)
+                    drawCircle(color, 3f, Offset(12f, 12f), style = outline)
+                }
             }
         }
     }

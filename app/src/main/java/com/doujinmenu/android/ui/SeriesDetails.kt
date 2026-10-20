@@ -22,7 +22,7 @@ import org.json.JSONObject
 internal fun SeriesDetailContent(name: String, books: List<LibraryBook>, state: MainUiState, onList: () -> Unit, onEdit: () -> Unit,
     onOpenBook: (String) -> Unit, onReadBook: (String, Int) -> Unit, onRename: () -> Unit, onFavorite: () -> Unit,
     onRead: (Set<String>) -> Unit, onUnread: (Set<String>) -> Unit, onHidden: (Set<String>, Boolean) -> Unit, onDelete: () -> Unit,
-    onSearchFacet: (String) -> Unit, onSearchLanguage: (String) -> Unit) {
+    onSearchFacet: (String) -> Unit, onSearchLanguage: (String) -> Unit, onLoadPreview: (String) -> Unit = {}) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val sorted = remember(books, state.customSeriesByBookId) { books.sortedWith(compareBy<LibraryBook> { state.customSeriesByBookId[it.id]?.order ?: Int.MAX_VALUE }.thenBy { it.id }) }
@@ -40,9 +40,9 @@ internal fun SeriesDetailContent(name: String, books: List<LibraryBook>, state: 
                 sorted.sumOf { it.pages.size.toLong() }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), information = strings[R.string.ui_series_episode_count, sorted.size],
                 onSearchFacet = onSearchFacet, onSearchLanguage = onSearchLanguage, webtoon = sorted.any { it.webtoon == true }, options = {
                     Box {
-                        IconButton(onClick = { options = true }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_detail_options] }) { Text("⋯") }
+                        IconButton(onClick = { options = true }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_detail_options] }) { ActionIcon(ActionSymbol.SETTINGS) }
                         DropdownMenu(expanded = options, onDismissRequest = { options = false }) {
-                            listOf(DetailMenuAction(strings[R.string.ui_series_options_edit], ActionSymbol.EDIT, onEdit),
+                            listOf(DetailMenuAction(strings[R.string.ui_series_options_edit], ActionSymbol.SORT, onEdit),
                                 DetailMenuAction(strings[R.string.ui_rename_series], ActionSymbol.EDIT, onRename),
                                 DetailMenuAction(strings[if (favorite) R.string.ui_remove_favorite else R.string.ui_add_favorite], ActionSymbol.STAR, onFavorite),
                                 DetailMenuAction(strings[if (read) R.string.ui_mark_unread else R.string.ui_mark_read], ActionSymbol.READ) { if (read) onUnread(ids) else onRead(ids) },
@@ -55,6 +55,14 @@ internal fun SeriesDetailContent(name: String, books: List<LibraryBook>, state: 
                 })
         }
         item {
+            val lastRead = state.recentHistory.firstNotNullOfOrNull { entry -> entry.page?.let { page ->
+                entry.findBook(sorted)?.let { it to page }
+            } } ?: sorted.firstOrNull { (state.libraryProgress[it.id] ?: 0) > 0 }?.let { it to state.libraryProgress.getValue(it.id) }
+            lastRead?.let { (book, page) ->
+                Button(onClick = { onReadBook(book.id, page.coerceIn(0, (book.pages.size - 1).coerceAtLeast(0))) }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    ActionIcon(ActionSymbol.PLAY); Text(strings[R.string.ui_continue_reading], Modifier.padding(start = 6.dp))
+                }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { sorted.firstOrNull()?.let { onReadBook(it.id, 0) } }, enabled = sorted.isNotEmpty(), modifier = Modifier.weight(1f)) { Text(strings[R.string.ui_read_from_beginning]) }
                 OutlinedButton(onClick = onList, modifier = Modifier.weight(1f)) { ActionIcon(ActionSymbol.LIST); Text(strings[R.string.ui_list], Modifier.padding(start = 6.dp)) }
@@ -67,6 +75,29 @@ internal fun SeriesDetailContent(name: String, books: List<LibraryBook>, state: 
                     Text(book.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
                 } }
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        item { Text(strings[R.string.ui_gallery_preview], style = MaterialTheme.typography.titleMedium) }
+        sorted.forEach { book ->
+            item(key = "preview:${book.id}") {
+                LaunchedEffect(book.id) { onLoadPreview(book.id) }
+                Text(book.title, style = MaterialTheme.typography.titleSmall)
+                state.seriesPreviewErrors[book.id]?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { onLoadPreview(book.id) }) { ActionIcon(ActionSymbol.REFRESH); Text(strings[R.string.ui_try_again]) }
+                }
+            }
+            itemsIndexed(book.pages.chunked(3), key = { index, _ -> "preview:${book.id}:$index" }) { rowIndex, row ->
+                LaunchedEffect(book.id) { if (row.any { it.uri.isBlank() }) onLoadPreview(book.id) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEachIndexed { column, page -> Box(Modifier.weight(1f).height(160.dp).semantics { contentDescription = page.name }.clickable(enabled = page.uri.isNotBlank()) {
+                        onReadBook(book.id, rowIndex * 3 + column)
+                    }, contentAlignment = Alignment.Center) {
+                        if (page.uri.isBlank()) CircularProgressIndicator(Modifier.size(28.dp))
+                        else DetailImage(libraryImageRequest(context, page.uri, book.cloudToken), null, Modifier.fillMaxSize())
+                    } }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
             }
         }
     }
@@ -104,7 +135,7 @@ internal fun SeriesOptionsEditor(name: String, books: List<LibraryBook>, assignm
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         if (adding) { order = order + chosen.filter { it !in order }; chosen = emptySet(); adding = false } else adding = true
-                    }, modifier = Modifier.weight(1f)) { ActionIcon(ActionSymbol.SERIES); Text(strings[if (adding) R.string.ui_confirm else R.string.ui_add_episodes], Modifier.padding(start = 6.dp)) }
+                    }, modifier = Modifier.weight(1f)) { ActionIcon(ActionSymbol.ADD); Text(strings[if (adding) R.string.ui_confirm else R.string.ui_add_episodes], Modifier.padding(start = 6.dp)) }
                     OutlinedButton(onClick = { order = order.filterNot { it in selected }; selected = emptySet() }, enabled = !adding && selected.isNotEmpty(), modifier = Modifier.weight(1f)) {
                         ActionIcon(ActionSymbol.DELETE); Text(strings[R.string.ui_exclude_episodes], Modifier.padding(start = 6.dp))
                     }
@@ -115,12 +146,10 @@ internal fun SeriesOptionsEditor(name: String, books: List<LibraryBook>, assignm
         if (failed) Text(strings[R.string.ui_series_edit_conflict], Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
         if (adding) LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(books.filter { it.id !in order }, key = { it.id }) { book ->
-                OutlinedCard(onClick = { chosen = if (book.id in chosen) chosen - book.id else chosen + book.id }) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = book.id in chosen, onCheckedChange = null)
-                        Column(Modifier.weight(1f)) { Text(book.title); assignments[book.id]?.name?.let { Text(it, style = MaterialTheme.typography.labelSmall) } }
-                    }
-                }
+                LibraryWorkCard(book, 0, grid = false, favorite = false, read = false,
+                    selected = book.id in chosen, selectionMode = true,
+                    onOpen = { chosen = if (book.id in chosen) chosen - book.id else chosen + book.id }, onLongPress = {},
+                    onToggleFavorite = {}, badgeScale = .82f)
             }
         } else if (order.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(strings[R.string.ui_empty_series_keeps_files], Modifier.padding(16.dp)) }
         else LibrarySeriesOrderEditor(order.mapNotNull(byId::get), order.mapIndexed { index, id -> id to CustomSeriesAssignment(name, index) }.toMap(),

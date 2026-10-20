@@ -519,4 +519,5 @@
     <string name="ui_exclude_episodes">에피소드 제외</string>
     <string name="ui_empty_series_keeps_files">빈 시리즈를 저장하면 묶음만 해제됩니다. 작품 파일은 유지됩니다.</string>
     <string name="ui_series_edit_conflict">편집 중 시리즈가 변경되었습니다. 취소하고 다시 열어 최신 내용을 확인하세요.</string>
+    <string name="ui_series_details">시리즈 상세</string>
 </resources>

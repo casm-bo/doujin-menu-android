@@ -80,7 +80,7 @@ internal data class DetailMenuAction(val label: String, val symbol: ActionSymbol
 @Composable
 internal fun PresentationActions(value: GalleryPresentation, record: PresentationRecord?, sources: List<ReaderImageSource>,
     busy: Boolean, syncError: String?, onSave: (GalleryPresentation, Boolean) -> Unit, onCover: (GalleryPresentation, ReaderImageSource) -> Unit,
-    onAcceptRemote: () -> Unit, actions: List<DetailMenuAction>) {
+    onAcceptRemote: () -> Unit, actions: List<DetailMenuAction>, editable: Boolean = true) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
@@ -91,19 +91,21 @@ internal fun PresentationActions(value: GalleryPresentation, record: Presentatio
         uri?.let { onCover(latestValue, ReaderImageSource(it.toString())) }
     }
     Box {
-        IconButton(onClick = { menu = true }, enabled = !busy, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_detail_options] }) { Text("⋯") }
+        IconButton(onClick = { menu = true }, enabled = !busy, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_detail_options] }) { ActionIcon(ActionSymbol.SETTINGS) }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            if (editable) {
             DropdownMenuItem(text = { Text(strings[R.string.ui_edit_metadata]) }, leadingIcon = { ActionIcon(ActionSymbol.EDIT) }, onClick = { menu = false; editor = true })
             DropdownMenuItem(text = { Text(strings[R.string.ui_cover_from_page]) }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = sources.isNotEmpty(), onClick = { menu = false; coverPicker = true })
             DropdownMenuItem(text = { Text(strings[R.string.ui_cover_from_image]) }, leadingIcon = { ActionIcon(ActionSymbol.FOLDER) }, onClick = { menu = false; external.launch(arrayOf("image/*")) })
             if (actions.isNotEmpty()) HorizontalDivider()
+            }
             actions.forEach { action -> DropdownMenuItem(text = { Text(action.label) }, leadingIcon = { ActionIcon(action.symbol) }, onClick = { menu = false; action.onClick() }) }
-            if (record?.conflict != null) {
+            if (editable && record?.conflict != null) {
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text(strings[R.string.ui_metadata_conflict]) }, enabled = false, onClick = {})
                 DropdownMenuItem(text = { Text(strings[R.string.ui_keep_phone_edit]) }, onClick = { menu = false; editor = true })
                 DropdownMenuItem(text = { Text(strings[R.string.ui_use_pc_edit]) }, onClick = { menu = false; onAcceptRemote() })
-            } else if (record?.dirty == true) {
+            } else if (editable && record?.dirty == true) {
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text(syncError ?: strings[R.string.ui_metadata_pending]) }, enabled = false, onClick = {})
             }
@@ -186,7 +188,7 @@ internal fun WorkPresentationActions(viewModel: MainViewModel, value: GalleryPre
         if (bookIds.isNotEmpty()) add(DetailMenuAction(strings[R.string.ui_delete_gallery], ActionSymbol.DELETE) { confirmDelete = true })
     }
     PresentationActions(value, state.presentations[value.key], sources, state.isBusy, state.presentationSyncError,
-        viewModel::saveGalleryPresentation, viewModel::changePresentationCover, { viewModel.acceptRemotePresentation(value.key) }, actions)
+        viewModel::saveGalleryPresentation, viewModel::changePresentationCover, { viewModel.acceptRemotePresentation(value.key) }, actions, editable = bookIds.isNotEmpty())
     if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text(strings[R.string.ui_delete_gallery]) },
         text = { Text(strings[R.string.ui_delete_selected_items_desktop_originals_move_to_trash_and_are, bookIds.size]) },
         confirmButton = { TextButton(onClick = { confirmDelete = false; viewModel.deleteLibraryBooks(bookIds) }) { Text(strings[R.string.ui_delete]) } },
