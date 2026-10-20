@@ -13,6 +13,8 @@ import org.json.JSONObject
 
 class AppearancePreferenceStore(context: Context) {
     private val preferences = context.getSharedPreferences("appearance", Context.MODE_PRIVATE)
+    fun loadHistoryGrid(): Boolean = preferences.getBoolean("history_grid", false)
+    fun saveHistoryGrid(grid: Boolean) { preferences.edit().putBoolean("history_grid", grid).apply() }
     fun loadStyle(): AppStyle = appStyleFromJson(preferences.getString("style", null))
     fun saveStyle(style: AppStyle) { preferences.edit().putString("style", appStyleToJson(style)).apply() }
     fun loadFontSize(): Float = runCatching { parseAppFontSize(preferences.getFloat("font_size", DEFAULT_FONT_SIZE_SP).toString()) }.getOrNull() ?: DEFAULT_FONT_SIZE_SP

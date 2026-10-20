@@ -849,6 +849,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val historyMetadataPermits = kotlinx.coroutines.sync.Semaphore(2)
+    suspend fun loadHistoryMetadata(galleryId: Long) {
+        historyMetadataPermits.acquire()
+        try {
+            if (galleryId in uiState.galleryCache) return
+            try {
+                val gallery = hitomiClient.getGallery(galleryId)
+                uiState = uiState.copy(galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)))
+            } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+            catch (_: Exception) { /* A missing history thumbnail must not interrupt browsing. */ }
+        } finally { historyMetadataPermits.release() }
+    }
+
     fun ensureGalleryLoaded(galleryId: Long) {
         val cached = uiState.galleryCache[galleryId] ?: uiState.galleries.firstOrNull { it.id == galleryId }
         if (cached != null) { recordOnlineHistory(cached); return }
