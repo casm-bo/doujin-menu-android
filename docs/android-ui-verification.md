@@ -75,7 +75,7 @@ See [testing.md](testing.md) for commands that avoid targeting installed user ap
 
 ## Additional implementation verification — 2026-10-20
 
-- Android: 207 unit tests, zero failures (two opt-in live-service tests skipped).
+- Android: 208 unit tests, zero failures (two opt-in live-service tests skipped).
   Debug Lint reports zero errors; debug and release APK assembly passed.
 - Isolated SM-N986N device suite: 43 tests passed, including real biometric prompt
   cancellation/rotation, reader/preview restoration, scalable History labels,
@@ -99,6 +99,12 @@ See [testing.md](testing.md) for commands that avoid targeting installed user ap
 - APK labels were inspected in English/Korean/Japanese/Chinese: Doujin Menu debug,
   package com.doujinmenu.android.debug, version 1.0.0-debug (12).
 - v0.10.0 notes are preserved verbatim; new notes are under v1.0.0.
+- The final `.debug` APK was installed on SM-N986N and launched successfully.
+  The device had only the isolated test packages before this install. No debug
+  or release app was uninstalled or cleared during this verification. The live
+  fullscreen search editor and keyboard were inspected after installation.
+- A final regression test confirms that an older metadata snapshot without an
+  upload date preserves the date newly fetched from the source gallery.
 
 Metadata/cover protocol and storage are documented in [metadata-sync.md](metadata-sync.md).
 Real successful biometric scans and transfer against the user's installed PC build
