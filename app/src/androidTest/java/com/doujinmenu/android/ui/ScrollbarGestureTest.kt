@@ -30,7 +30,7 @@ class ScrollbarGestureTest {
         var vibrations = 0
         val haptic = object : HapticFeedback {
             override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
-                assertEquals(HapticFeedbackType.TextHandleMove, hapticFeedbackType)
+                assertEquals(HapticFeedbackType.KeyboardTap, hapticFeedbackType)
                 vibrations++
             }
         }

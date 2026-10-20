@@ -143,7 +143,7 @@ private fun BoxScope.DynamicVerticalScrollbar(
                 // Track swipes belong to the content until a deliberate long press claims them.
                 val start = if (onThumb) down else awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
                 start.consume()
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                hapticFeedback.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                 val grabOffset = if (onThumb) down.position.y - (top + thumb / 2) else 0f
                 var previous: ScrollbarTarget? = null
                 fun move(y: Float) {
