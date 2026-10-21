@@ -17,12 +17,14 @@ import androidx.compose.ui.unit.dp
 import com.doujinmenu.android.R
 import com.doujinmenu.android.model.*
 import org.json.JSONObject
+import kotlinx.coroutines.flow.filter
 
 @Composable
 internal fun SeriesDetailContent(name: String, books: List<LibraryBook>, state: MainUiState, onList: () -> Unit, onEdit: () -> Unit,
     onOpenBook: (String) -> Unit, onReadBook: (String, Int) -> Unit, onRename: () -> Unit, onFavorite: () -> Unit,
     onRead: (Set<String>) -> Unit, onUnread: (Set<String>) -> Unit, onHidden: (Set<String>, Boolean) -> Unit, onDelete: () -> Unit,
-    onSearchFacet: (String) -> Unit, onSearchLanguage: (String) -> Unit, onLoadPreview: (String) -> Unit = {}) {
+    onSearchFacet: (String) -> Unit, onSearchLanguage: (String) -> Unit, onLoadPreview: (String) -> Unit = {},
+    pageKey: String = name, initialPosition: ReaderPosition = ReaderPosition(0), onPositionChange: (ReaderPosition) -> Unit = {}) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val sorted = remember(books, state.customSeriesByBookId) { books.sortedWith(compareBy<LibraryBook> { state.customSeriesByBookId[it.id]?.order ?: Int.MAX_VALUE }.thenBy { it.id }) }
@@ -33,7 +35,13 @@ internal fun SeriesDetailContent(name: String, books: List<LibraryBook>, state: 
     val hidden = ids.isNotEmpty() && ids.all { it in state.libraryHiddenIds }
     var options by remember { mutableStateOf(false) }
     var delete by rememberSaveable(name) { mutableStateOf(false) }
-    val list = rememberSaveable(name, saver = LazyListState.Saver) { LazyListState() }
+    val list = remember(pageKey) { LazyListState(initialPosition.page, initialPosition.offset) }
+    val savePosition by rememberUpdatedState(onPositionChange)
+    fun persistPosition() { if (books.isNotEmpty()) savePosition(ReaderPosition(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset)) }
+    LaunchedEffect(pageKey, list, books.isNotEmpty()) {
+        snapshotFlow { list.isScrollInProgress }.filter { !it }.collect { persistPosition() }
+    }
+    DisposableEffect(pageKey, list, books.isNotEmpty()) { onDispose { persistPosition() } }
     LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             DetailHeader(name, metadata, sorted.firstOrNull()?.let { libraryImageRequest(context, it.coverUri, it.cloudToken) },

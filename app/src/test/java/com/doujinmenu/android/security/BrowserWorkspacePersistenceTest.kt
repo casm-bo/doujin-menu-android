@@ -15,11 +15,21 @@ import com.doujinmenu.android.model.ReaderPosition
 import com.doujinmenu.android.model.updateReaderPosition
 import com.doujinmenu.android.model.updatePreviewPosition
 import com.doujinmenu.android.model.goBack
+import com.doujinmenu.android.model.renameSeriesPages
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
+    @Test fun seriesPagesKeepIndependentDetailsEpisodesAndNamesAfterRestore() {
+        val first = BrowserPage.LibrarySeries("First / series", episodeList = true, previewPosition = ReaderPosition(8, 19), episodePosition = ReaderPosition(12, 27))
+        val second = BrowserPage.LibrarySeries("Second")
+        val workspace = BrowserWorkspace.initial(BrowserPage.LibraryHome()).pushPage(first).openTab(second)
+            .renameSeriesPages("First / series", "Renamed")
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(workspace)).galleryWorkspace()
+        assertEquals(first.copy(name = "Renamed"), restored.tabs.first().currentPage)
+        assertEquals(second, restored.activeTab.currentPage)
+    }
     @Test fun galleryQuerySurvivesScrollAndProcessRestorePerTab() {
         val page = BrowserPage.LibraryHome(query = "tag:hi")
         val workspace = BrowserWorkspace.initial(page).openTab(BrowserPage.LibraryHome(query = "artist:other"))

@@ -284,6 +284,15 @@ private fun JSONArray?.browserTabs(): List<BrowserTab> {
 }
 
 private fun BrowserPage.toJson(): JSONObject = when (this) {
+    is BrowserPage.LibrarySeries -> JSONObject()
+        .put("type", "librarySeries")
+        .put("key", key)
+        .put("name", name)
+        .put("episodeList", episodeList)
+        .put("previewIndex", previewPosition.page)
+        .put("previewOffset", previewPosition.offset)
+        .put("episodeIndex", episodePosition.page)
+        .put("episodeOffset", episodePosition.offset)
     is BrowserPage.LibraryHome -> JSONObject()
         .put("type", "libraryHome")
         .put("query", query)
@@ -337,6 +346,11 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
 private fun JSONObject.toBrowserPage(): BrowserPage? {
     val key = optString("key").takeIf(String::isNotBlank) ?: UUID.randomUUID().toString()
     return when (optString("type")) {
+        "librarySeries" -> optString("name").takeIf(String::isNotBlank)?.let { name ->
+            BrowserPage.LibrarySeries(name, key, optBoolean("episodeList"),
+                ReaderPosition(optInt("previewIndex").coerceAtLeast(0), optInt("previewOffset").coerceAtLeast(0)),
+                ReaderPosition(optInt("episodeIndex").coerceAtLeast(0), optInt("episodeOffset").coerceAtLeast(0)))
+        }
         "libraryHome" -> BrowserPage.LibraryHome(
             key = key,
             query = optString("query"),
@@ -395,7 +409,7 @@ internal fun BrowserWorkspace.galleryWorkspace(): BrowserWorkspace = onlyPages(
     fallback = BrowserPage.LibraryHome(),
     prependLibraryHome = true,
 ) { page ->
-    page is BrowserPage.LibraryHome || page is BrowserPage.LibraryBook || page is BrowserPage.LibraryReader
+    page is BrowserPage.LibraryHome || page is BrowserPage.LibrarySeries || page is BrowserPage.LibraryBook || page is BrowserPage.LibraryReader
 }
 
 private fun BrowserWorkspace.onlyPages(

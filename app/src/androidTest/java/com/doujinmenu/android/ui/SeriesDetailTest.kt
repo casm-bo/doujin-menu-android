@@ -28,7 +28,7 @@ class SeriesDetailTest {
             LibraryBook("reader-nav-$index", title, locationUri = "fixture", locationName = "Fixture", folderUri = "",
                 pages = listOf(LibraryPage(cover.toURI().toString(), "Page 1")), modifiedAt = 1)
         }
-        val home = BrowserPage.LibraryHome()
+        val home = BrowserPage.LibrarySeries("Navigation series")
         var workspace by mutableStateOf(BrowserWorkspace.initial(home))
         lateinit var back: OnBackPressedDispatcher
         compose.setContent { DoujinMenuTheme {
@@ -42,10 +42,10 @@ class SeriesDetailTest {
                     onBack = { workspace = workspace.goBack() }, onToggleFavorite = {},
                     onProgress = { workspace = workspace.updateReaderPosition(current.key, it) },
                     nextBookTitle = if (book.id == books.first().id) books.last().title else null,
-                    onOpenNextBook = { workspace = workspace.continueLibraryReader(BrowserPage.LibraryReader(books.last().id, books.last().title, 0), fromSeries = true) },
+                    onOpenNextBook = { workspace = workspace.continueLibraryReader(BrowserPage.LibraryReader(books.last().id, books.last().title, 0)) },
                     onPreferencesChange = {})
             } else SeriesDetailContent("Navigation series", books, MainUiState(), {}, {}, {},
-                { id, page -> workspace = workspace.pushPage(BrowserPage.LibraryReader(id, books.first { it.id == id }.title, page)) },
+                { id, page -> workspace = workspace.openLibraryReader(BrowserPage.LibraryReader(id, books.first { it.id == id }.title, page)) },
                 {}, {}, {}, {}, { _, _ -> }, {}, {}, {})
         } }
         compose.onNode(hasScrollAction()).performScrollToNode(hasText(context.getString(R.string.ui_read_from_beginning)))

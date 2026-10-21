@@ -30,6 +30,14 @@ sealed interface BrowserPage {
         val scrollPage: Int = 1,
     ) : BrowserPage
 
+    data class LibrarySeries(
+        val name: String,
+        override val key: String = UUID.randomUUID().toString(),
+        val episodeList: Boolean = false,
+        val previewPosition: ReaderPosition = ReaderPosition(0),
+        val episodePosition: ReaderPosition = ReaderPosition(0),
+    ) : BrowserPage
+
     data class OnlineGallery(
         val galleryId: Long,
         val title: String,
@@ -84,6 +92,7 @@ fun BrowserWorkspace.updatePreviewPosition(pageKey: String, position: ReaderPosi
         page.key != pageKey -> page
         page is BrowserPage.OnlineGallery -> page.copy(previewPosition = position)
         page is BrowserPage.LibraryBook -> page.copy(previewPosition = position)
+        page is BrowserPage.LibrarySeries -> page.copy(previewPosition = position)
         else -> page
     }
 }
@@ -215,11 +224,31 @@ fun BrowserWorkspace.pushPage(page: BrowserPage): BrowserWorkspace = updateActiv
     tab.copy(history = history, currentIndex = history.lastIndex)
 }
 
-fun BrowserWorkspace.continueLibraryReader(page: BrowserPage.LibraryReader, fromSeries: Boolean): BrowserWorkspace = updateActiveTab { tab ->
-    val previous = tab.history.take(tab.currentIndex)
-    val seriesOrigin = if (fromSeries) previous.indexOfLast { it is BrowserPage.LibraryHome } else -1
-    val history = (if (seriesOrigin >= 0) previous.take(seriesOrigin + 1) else previous) + page
+private fun List<BrowserPage>.withLibraryReader(page: BrowserPage.LibraryReader): List<BrowserPage> {
+    val seriesOrigin = indexOfLast { it is BrowserPage.LibrarySeries }
+        .takeIf { it > indexOfLast { entry -> entry is BrowserPage.LibraryHome } }
+    val origin = if (seriesOrigin != null) take(seriesOrigin + 1).mapIndexed { index, entry ->
+        if (index == seriesOrigin) (entry as BrowserPage.LibrarySeries).copy(episodeList = false) else entry
+    } else this
+    return (origin + page).takeLast(MAX_TAB_HISTORY)
+}
+
+fun BrowserWorkspace.openLibraryReader(page: BrowserPage.LibraryReader): BrowserWorkspace = updateActiveTab { tab ->
+    val history = tab.history.take(tab.currentIndex + 1).withLibraryReader(page)
     tab.copy(history = history, currentIndex = history.lastIndex)
+}
+
+fun BrowserWorkspace.continueLibraryReader(page: BrowserPage.LibraryReader): BrowserWorkspace = updateActiveTab { tab ->
+    val history = tab.history.take(tab.currentIndex).withLibraryReader(page)
+    tab.copy(history = history, currentIndex = history.lastIndex)
+}
+
+fun BrowserWorkspace.updateLibrarySeries(pageKey: String, transform: (BrowserPage.LibrarySeries) -> BrowserPage.LibrarySeries): BrowserWorkspace = mapPages { page ->
+    if (page is BrowserPage.LibrarySeries && page.key == pageKey) transform(page) else page
+}
+
+fun BrowserWorkspace.renameSeriesPages(oldName: String, newName: String): BrowserWorkspace = mapPages { page ->
+    if (page is BrowserPage.LibrarySeries && page.name == oldName) page.copy(name = newName) else page
 }
 
 fun BrowserWorkspace.goBack(): BrowserWorkspace = updateActiveTab { tab ->
@@ -270,6 +299,7 @@ private fun BrowserWorkspace.updateActiveTab(
 val BrowserPage.label: String
     get() = when (this) {
         is BrowserPage.LibraryHome -> "새 갤러리"
+        is BrowserPage.LibrarySeries -> name
         is BrowserPage.Search -> query.ifBlank { "새 검색" }
         is BrowserPage.OnlineGallery -> title.ifBlank { "갤러리 $galleryId" }
         is BrowserPage.LibraryBook -> title.ifBlank { "다운로드 작품" }

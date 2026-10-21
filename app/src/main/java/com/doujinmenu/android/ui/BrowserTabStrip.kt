@@ -46,6 +46,7 @@ internal fun BrowserPage.localizedToolbarTitle(strings: android.content.res.Reso
     is BrowserPage.Search -> (if (currentPage > 0 || submittedQueries.isNotEmpty()) submittedQuery.ifBlank { submittedQueries.joinToString(" · ") } else query)
         .ifBlank { preferredLanguages.joinToString(" · ").ifBlank { strings[R.string.ui_new_search] } }
     is BrowserPage.LibraryHome -> strings[R.string.ui_gallery]
+    is BrowserPage.LibrarySeries -> name
     is BrowserPage.OnlineGallery -> title.ifBlank { strings[R.string.ui_gallery_d16837, galleryId] }
     is BrowserPage.OnlineReader -> title.ifBlank { strings[R.string.ui_gallery_d16837, galleryId] }
     is BrowserPage.LibraryBook -> title.ifBlank { strings[R.string.ui_gallery] }

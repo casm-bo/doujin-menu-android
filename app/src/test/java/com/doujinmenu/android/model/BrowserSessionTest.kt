@@ -7,16 +7,16 @@ import org.junit.Test
 
 class BrowserSessionTest {
     @Test fun nextEpisodeReplacesReaderAndBackReturnsToItsOrigin() {
-        val origin = BrowserPage.LibraryHome(scrollIndex = 14, scrollOffset = 27)
+        val origin = BrowserPage.LibrarySeries("Series", previewPosition = ReaderPosition(14, 27))
         val first = BrowserPage.LibraryReader("first", "Episode 1", 0, position = ReaderPosition(49, 5000))
         val workspace = BrowserWorkspace.initial(origin).pushPage(first)
         val next = BrowserPage.LibraryReader("second", "Episode 2", 0)
-        val continued = workspace.continueLibraryReader(next, fromSeries = true)
+        val continued = workspace.continueLibraryReader(next)
         assertEquals(listOf(origin, next), continued.activeTab.history)
         assertEquals(origin, continued.goBack().activeTab.currentPage)
         assertEquals(null, next.position)
         assertEquals(continued, continued.updateReaderPosition(first.key, ReaderPosition(49, 5100)))
-        val third = continued.continueLibraryReader(BrowserPage.LibraryReader("third", "Episode 3", 0), fromSeries = true)
+        val third = continued.continueLibraryReader(BrowserPage.LibraryReader("third", "Episode 3", 0))
         assertEquals(2, third.activeTab.history.size)
         assertEquals(origin, third.goBack().activeTab.currentPage)
     }
@@ -27,7 +27,7 @@ class BrowserSessionTest {
             .pushPage(BrowserPage.LibraryBook("stale", "Old forward page")).goBack()
         val other = workspace.openTab(BrowserPage.Search(query = "untouched"), activate = false)
         val replacement = BrowserPage.LibraryReader("second", "Episode 2", 0)
-        val continued = other.continueLibraryReader(replacement, fromSeries = false)
+        val continued = other.continueLibraryReader(replacement)
         assertEquals(listOf(origin, replacement), continued.activeTab.history)
         assertEquals(other.tabs.last(), continued.tabs.last())
         assertEquals(origin, continued.goBack().activeTab.currentPage)
@@ -35,13 +35,38 @@ class BrowserSessionTest {
 
     @Test fun nextEpisodeFromSeriesDropsIntermediateEpisodeDetails() {
         val home = BrowserPage.LibraryHome(query = "saved filter", scrollIndex = 4)
+        val series = BrowserPage.LibrarySeries("Series", previewPosition = ReaderPosition(5, 20))
         val previous = BrowserWorkspace.initial(home)
+            .pushPage(series)
             .pushPage(BrowserPage.LibraryBook("first", "Episode 1", previewPosition = ReaderPosition(49)))
             .pushPage(BrowserPage.LibraryReader("first", "Episode 1", 49))
         val next = BrowserPage.LibraryReader("second", "Episode 2", 0)
-        val continued = previous.continueLibraryReader(next, fromSeries = true)
-        assertEquals(listOf(home, next), continued.activeTab.history)
-        assertEquals(home, continued.goBack().activeTab.currentPage)
+        val continued = previous.continueLibraryReader(next)
+        assertEquals(listOf(home, series, next), continued.activeTab.history)
+        assertEquals(series, continued.goBack().activeTab.currentPage)
+    }
+
+    @Test fun readingFromEpisodeListReturnsToSeriesDetailAndKeepsPreviewPosition() {
+        val home = BrowserPage.LibraryHome(query = "tag:hi", scrollIndex = 8, scrollOffset = 13)
+        val series = BrowserPage.LibrarySeries("Series", episodeList = true, previewPosition = ReaderPosition(7, 41), episodePosition = ReaderPosition(3, 25))
+        val workspace = BrowserWorkspace.initial(home).pushPage(series)
+            .pushPage(BrowserPage.LibraryBook("first", "First"))
+            .openLibraryReader(BrowserPage.LibraryReader("first", "First", 49))
+        assertEquals(listOf(home, series.copy(episodeList = false)), workspace.goBack().activeTab.history.take(2))
+        assertEquals(series.copy(episodeList = false), workspace.goBack().activeTab.currentPage)
+        assertEquals(home, workspace.goBack().goBack().activeTab.currentPage)
+    }
+
+    @Test fun aSeriesInAnotherTabOrBeforeHomeDoesNotStealTheReaderOrigin() {
+        val old = BrowserPage.LibrarySeries("Old series")
+        val home = BrowserPage.LibraryHome()
+        val detail = BrowserPage.LibraryBook("standalone", "Standalone")
+        val workspace = BrowserWorkspace.initial(old).pushPage(home).pushPage(detail)
+            .openTab(BrowserPage.LibrarySeries("Other tab"), activate = false)
+            .openLibraryReader(BrowserPage.LibraryReader("standalone", "Standalone", 0))
+            .continueLibraryReader(BrowserPage.LibraryReader("next", "Next", 0))
+        assertEquals(detail, workspace.goBack().activeTab.currentPage)
+        assertEquals("Other tab", (workspace.tabs.last().currentPage as BrowserPage.LibrarySeries).name)
     }
 
     @Test

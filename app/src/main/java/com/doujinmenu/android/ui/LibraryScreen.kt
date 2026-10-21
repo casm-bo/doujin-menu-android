@@ -122,6 +122,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.doujinmenu.android.model.LibraryBook
+import com.doujinmenu.android.model.ReaderPosition
 import com.doujinmenu.android.model.resolveScrollIndex
 import com.doujinmenu.android.model.CustomSeriesAssignment
 import com.doujinmenu.android.model.LibraryReadFilter
@@ -268,6 +269,9 @@ fun LibraryScreen(
     onSeriesListChange: (Boolean) -> Unit = {},
     onLoadSeriesPreview: (String) -> Unit = {},
     onSelectSuggestion: (com.doujinmenu.android.network.FilterSuggestion) -> Unit = {},
+    seriesPage: com.doujinmenu.android.model.BrowserPage.LibrarySeries? = null,
+    onSeriesPreviewPosition: (com.doujinmenu.android.model.ReaderPosition) -> Unit = {},
+    onSeriesEpisodePosition: (Int, Int) -> Unit = { _, _ -> },
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -280,7 +284,7 @@ fun LibraryScreen(
         mutableIntStateOf(libraryPreferences.loadLibraryGridColumns())
     }
     val seriesMode = state.librarySeriesMode
-    val selectedSeries = state.selectedLibrarySeries
+    val selectedSeries = seriesPage?.name
     var selectedIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var selectionMode by rememberSaveable { mutableStateOf(false) }
     var selectedSeriesNames by rememberSaveable { mutableStateOf(emptySet<String>()) }
@@ -290,7 +294,7 @@ fun LibraryScreen(
     var seriesDialog by rememberSaveable { mutableStateOf(false) }
     var seriesName by rememberSaveable { mutableStateOf("") }
     var editingSeriesName by rememberSaveable { mutableStateOf<String?>(null) }
-    val showSeriesList = state.librarySeriesEpisodeList
+    val showSeriesList = seriesPage?.episodeList == true
     var pendingSeriesSelection by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteDialog by rememberSaveable { mutableStateOf(false) }
     var renameBookDialog by rememberSaveable { mutableStateOf(false) }
@@ -330,10 +334,10 @@ fun LibraryScreen(
     val restoredIndex = resolveScrollIndex(savedAnchorKey, initialScrollIndex, mainEntryKeys)
     val mainGridState = remember(pageKey) { LazyGridState(restoredIndex, initialScrollOffset) }
     val mainListState = remember(pageKey) { LazyListState(restoredIndex, initialScrollOffset) }
-    val seriesBooksGridState = rememberLazyGridState()
-    val seriesBooksListState = rememberLazyListState()
-    val seriesOverviewGridState = rememberLazyGridState()
-    val seriesOverviewListState = rememberLazyListState()
+    val seriesBooksGridState = remember(pageKey) { LazyGridState(seriesPage?.episodePosition?.page ?: 0, seriesPage?.episodePosition?.offset ?: 0) }
+    val seriesBooksListState = remember(pageKey) { LazyListState(seriesPage?.episodePosition?.page ?: 0, seriesPage?.episodePosition?.offset ?: 0) }
+    val seriesOverviewGridState = remember(pageKey) { LazyGridState(initialScrollIndex, initialScrollOffset) }
+    val seriesOverviewListState = remember(pageKey) { LazyListState(initialScrollIndex, initialScrollOffset) }
     val filterSignature = libraryFilterSignature(state)
     var previousFilterSignature by rememberSaveable { mutableStateOf(filterSignature) }
     var scrollRestored by remember(pageKey) {
@@ -381,19 +385,38 @@ fun LibraryScreen(
     }
 
     fun persistScroll() {
-        if (seriesMode || selectedSeries != null || !scrollRestored || mainEntryKeys.isEmpty()) return
+        if (selectedSeries != null || !scrollRestored || mainEntryKeys.isEmpty()) return
+        if (seriesMode) {
+            onScrollChange(null,
+                if (viewMode == LibraryViewMode.GRID) seriesOverviewGridState.firstVisibleItemIndex else seriesOverviewListState.firstVisibleItemIndex,
+                if (viewMode == LibraryViewMode.GRID) seriesOverviewGridState.firstVisibleItemScrollOffset else seriesOverviewListState.firstVisibleItemScrollOffset)
+            return
+        }
         val index = if (viewMode == LibraryViewMode.GRID) mainGridState.firstVisibleItemIndex else mainListState.firstVisibleItemIndex
         val offset = if (viewMode == LibraryViewMode.GRID) mainGridState.firstVisibleItemScrollOffset else mainListState.firstVisibleItemScrollOffset
         onScrollChange(mainEntryKeys.getOrNull(index), index, offset)
     }
     LaunchedEffect(pageKey, viewMode, seriesMode, selectedSeries, mainEntryKeys, scrollRestored) {
-        if (seriesMode || selectedSeries != null || !scrollRestored) return@LaunchedEffect
-        snapshotFlow { if (viewMode == LibraryViewMode.GRID) mainGridState.isScrollInProgress else mainListState.isScrollInProgress }
+        if (selectedSeries != null || !scrollRestored) return@LaunchedEffect
+        snapshotFlow { if (seriesMode) {
+            if (viewMode == LibraryViewMode.GRID) seriesOverviewGridState.isScrollInProgress else seriesOverviewListState.isScrollInProgress
+        } else if (viewMode == LibraryViewMode.GRID) mainGridState.isScrollInProgress else mainListState.isScrollInProgress }
             .filter { !it }.collect { persistScroll() }
     }
     DisposableEffect(pageKey, viewMode, seriesMode, selectedSeries, mainEntryKeys, scrollRestored) {
         onDispose { persistScroll() }
     }
+    fun persistEpisodes() {
+        if (!showSeriesList) return
+        onSeriesEpisodePosition(
+            if (viewMode == LibraryViewMode.GRID) seriesBooksGridState.firstVisibleItemIndex else seriesBooksListState.firstVisibleItemIndex,
+            if (viewMode == LibraryViewMode.GRID) seriesBooksGridState.firstVisibleItemScrollOffset else seriesBooksListState.firstVisibleItemScrollOffset)
+    }
+    LaunchedEffect(pageKey, showSeriesList, viewMode) {
+        if (showSeriesList) snapshotFlow { if (viewMode == LibraryViewMode.GRID) seriesBooksGridState.isScrollInProgress else seriesBooksListState.isScrollInProgress }
+            .filter { !it }.collect { persistEpisodes() }
+    }
+    DisposableEffect(pageKey, showSeriesList, viewMode) { onDispose { persistEpisodes() } }
 
     BackHandler {
         when {
@@ -417,7 +440,7 @@ fun LibraryScreen(
     var filterMenuOpen by remember { mutableStateOf(false) }
     var sortMenuOpen by remember { mutableStateOf(false) }
     val searchExpansion = LocalInlineSearch.current ?: remember(pageKey) { InlineSearchState() }
-    val canCollapse = books.isNotEmpty() && !searchExpansion.expanded && options == null && !filterMenuOpen && !sortMenuOpen &&
+    val canCollapse = selectedSeries == null && books.isNotEmpty() && !searchExpansion.expanded && options == null && !filterMenuOpen && !sortMenuOpen &&
         !selectionMode && !seriesSelectionMode && editingSeriesName == null && !seriesDialog && !existingSeriesDialog
     val collapseEnabled by rememberUpdatedState(canCollapse)
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { collapseEnabled })
@@ -583,7 +606,7 @@ fun LibraryScreen(
                         selectedIds = emptySet()
                     },
                 )
-            } else {
+            } else if (selectedSeries == null) {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     val modes: @Composable () -> Unit = {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -606,18 +629,17 @@ fun LibraryScreen(
 
             }
 
+            }
             if (selectedSeries != null && !selectionMode) {
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                    TextButton(onClick = {
-                        onSelectedSeriesChange(null)
-                    }) { Text("<") }
+                    IconButton(onClick = { if (showSeriesList) onSeriesListChange(false) else onSelectedSeriesChange(null) },
+                        modifier = Modifier.semantics { contentDescription = strings[R.string.ui_back] }) { ActionIcon(ActionSymbol.BACK) }
                     Text(selectedSeries, Modifier.weight(1f).padding(12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (showSeriesList) TextButton(onClick = { onSeriesListChange(false) }) { Text(strings[R.string.ui_series_details]) }
 
                 }
             }
 
-            }
             }
             when {
                 selectedSeries != null && !selectionMode && !showSeriesList -> SeriesDetailContent(
@@ -627,6 +649,7 @@ fun LibraryScreen(
                     onFavorite = { onToggleSeriesFavorite(selectedSeries) }, onRead = onMarkRead, onUnread = onMarkUnread, onHidden = onSetBooksHidden,
                     onDelete = { onDeleteSeries(setOf(selectedSeries)); onSelectedSeriesChange(null) }, onSearchFacet = onSearchFacet, onSearchLanguage = onSearchLanguage,
                     onLoadPreview = onLoadSeriesPreview,
+                    pageKey = pageKey, initialPosition = seriesPage.previewPosition, onPositionChange = onSeriesPreviewPosition,
                 )
                 state.isLibraryScanning && state.libraryBooks.isEmpty() -> Box(
                     modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center,

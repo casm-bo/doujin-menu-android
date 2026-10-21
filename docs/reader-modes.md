@@ -31,3 +31,7 @@ Scrollbar movement uses the same page/offset saving as touch scrolling.
 Continuing to the next episode replaces the current reader history entry and
 starts at page one. When reading from a series, Back returns to its detail view
 without revisiting earlier episode readers or intermediate episode details.
+Series details are independent `library-series` navigation destinations and tab
+history entries. The aggregate preview and episode list keep separate scroll
+positions through reader navigation and workspace restoration. Opening or leaving
+a series does not change the gallery's All/Series/Exclude-series filter.

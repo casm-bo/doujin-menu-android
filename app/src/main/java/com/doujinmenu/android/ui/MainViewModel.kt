@@ -74,6 +74,9 @@ import com.doujinmenu.android.model.NEW_TAB_RETURN_WINDOW_MS
 import com.doujinmenu.android.model.closeTabReturningTo
 import com.doujinmenu.android.model.pushPage
 import com.doujinmenu.android.model.continueLibraryReader
+import com.doujinmenu.android.model.openLibraryReader
+import com.doujinmenu.android.model.updateLibrarySeries
+import com.doujinmenu.android.model.renameSeriesPages
 import com.doujinmenu.android.model.selectTab
 import com.doujinmenu.android.model.selectSearchTab
 import com.doujinmenu.android.model.searchResultSessionIds
@@ -184,8 +187,6 @@ data class MainUiState(
     val selectedLibraryLocationUris: Set<String>? = null,
     val librarySeriesMode: Boolean = false,
     val libraryExcludeSeries: Boolean = false,
-    val selectedLibrarySeries: String? = null,
-    val librarySeriesEpisodeList: Boolean = false,
     val isAutoCreatingSeries: Boolean = false,
     val isLibraryScanning: Boolean = false,
     val isLibraryPullRefreshing: Boolean = false,
@@ -762,7 +763,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openLibraryReaderTab(bookId: String, startPage: Int) {
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
         applyGalleryWorkspace(
-            uiState.galleryWorkspace.pushPage(BrowserPage.LibraryReader(
+            uiState.galleryWorkspace.openLibraryReader(BrowserPage.LibraryReader(
                 bookId = bookId,
                 title = book.title,
                 startPage = startPage.coerceAtLeast(0),
@@ -775,11 +776,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val current = workspace.activeTab.currentPage as? BrowserPage.LibraryReader ?: return
         if (current.bookId == bookId) return
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
-        val series = uiState.customSeriesByBookId[current.bookId]?.name
-        val fromSeries = series != null && uiState.selectedLibrarySeries == series && uiState.customSeriesByBookId[bookId]?.name == series
         openLibraryBook(bookId)
-        if (fromSeries) uiState = uiState.copy(librarySeriesEpisodeList = false)
-        applyGalleryWorkspace(workspace.continueLibraryReader(BrowserPage.LibraryReader(bookId, book.title, 0), fromSeries))
+        applyGalleryWorkspace(workspace.continueLibraryReader(BrowserPage.LibraryReader(bookId, book.title, 0)))
     }
 
     fun initialMainDestination(): String = browserPreferenceStore.loadMainDestination()
@@ -1719,14 +1717,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
     fun setLibrarySeriesMode(enabled: Boolean) = update {
-        copy(librarySeriesMode = enabled, libraryExcludeSeries = false, selectedLibrarySeries = null, librarySeriesEpisodeList = false)
+        copy(librarySeriesMode = enabled, libraryExcludeSeries = false)
     }
     fun setLibraryExcludeSeries(enabled: Boolean) = update {
-        copy(libraryExcludeSeries = enabled, librarySeriesMode = false, selectedLibrarySeries = null, librarySeriesEpisodeList = false)
+        copy(libraryExcludeSeries = enabled, librarySeriesMode = false)
     }
-    fun selectLibrarySeries(name: String?) = update { copy(selectedLibrarySeries = name, librarySeriesEpisodeList = false) }
-    fun setLibrarySeriesEpisodeList(show: Boolean) = update { copy(librarySeriesEpisodeList = show) }
-    fun openLibrarySeriesList(name: String) = update { copy(selectedLibrarySeries = name, librarySeriesEpisodeList = true) }
+    fun selectLibrarySeries(name: String?) {
+        if (name == null) { goBackInGalleryTab(); return }
+        applyGalleryWorkspace(uiState.galleryWorkspace.pushPage(BrowserPage.LibrarySeries(name)))
+    }
+    fun setLibrarySeriesEpisodeList(show: Boolean) {
+        val page = uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibrarySeries ?: return
+        applyGalleryWorkspace(uiState.galleryWorkspace.updateLibrarySeries(page.key) { it.copy(episodeList = show) })
+    }
+    fun openLibrarySeriesList(name: String) {
+        applyGalleryWorkspace(uiState.galleryWorkspace.pushPage(BrowserPage.LibrarySeries(name, episodeList = true)))
+    }
+    fun updateSeriesEpisodeScroll(pageKey: String, index: Int, offset: Int) {
+        val workspace = uiState.galleryWorkspace.updateLibrarySeries(pageKey) {
+            it.copy(episodePosition = ReaderPosition(index.coerceAtLeast(0), offset.coerceAtLeast(0)))
+        }
+        if (workspace != uiState.galleryWorkspace) {
+            uiState = uiState.copy(galleryWorkspace = workspace)
+            browserPreferenceStore.saveGalleryWorkspace(workspace)
+        }
+    }
 
     fun commitLibrarySeriesEdit(name: String, baseline: Map<String, CustomSeriesAssignment>, orderedIds: List<String>): Boolean {
         if (uiState.isLibraryScanning || orderedIds.distinct().size != orderedIds.size || orderedIds.any { id -> uiState.libraryBooks.none { it.id == id } }) return false
@@ -1738,9 +1753,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         persistCustomSeries(assignments)
         val favorites = if (orderedIds.isEmpty()) uiState.libraryFavoriteSeriesNames - name else uiState.libraryFavoriteSeriesNames
         libraryPreferenceStore.saveFavoriteSeriesNames(favorites)
-        uiState = uiState.copy(customSeriesByBookId = assignments, libraryFavoriteSeriesNames = favorites,
-            selectedLibrarySeries = uiState.selectedLibrarySeries.takeUnless { it == name && orderedIds.isEmpty() },
-            librarySeriesEpisodeList = uiState.librarySeriesEpisodeList && orderedIds.isNotEmpty())
+        uiState = uiState.copy(customSeriesByBookId = assignments, libraryFavoriteSeriesNames = favorites)
+        if (orderedIds.isEmpty() && (uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibrarySeries)?.name == name) goBackInGalleryTab()
         return true
     }
 
@@ -2170,8 +2184,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(
             customSeriesByBookId = assignments,
             libraryFavoriteSeriesNames = favorites,
-            selectedLibrarySeries = if (uiState.selectedLibrarySeries == oldName) normalized else uiState.selectedLibrarySeries,
         )
+        val workspace = uiState.galleryWorkspace.renameSeriesPages(oldName, normalized)
+        if (workspace != uiState.galleryWorkspace) applyGalleryWorkspace(workspace)
     }
 
     fun mergeLibrarySeries(seriesNames: List<String>, mergedName: String) {
@@ -2626,7 +2641,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             applyBrowserWorkspace(workspace, reload = true)
             return
         }
-        val originIsGallery = navigationPage is BrowserPage.LibraryHome || navigationPage is BrowserPage.LibraryBook || navigationPage is BrowserPage.LibraryReader
+        val originIsGallery = navigationPage is BrowserPage.LibraryHome || navigationPage is BrowserPage.LibrarySeries || navigationPage is BrowserPage.LibraryBook || navigationPage is BrowserPage.LibraryReader
         val origin = if (originIsGallery) uiState.galleryWorkspace else uiState.browserWorkspace
         val workspace = uiState.browserWorkspace.openTab(BrowserPage.Search(query = query, preferredLanguages = preferredLanguages))
         rememberNewTab(workspace.activeTabId, false, origin.activeTabId, originIsGallery)

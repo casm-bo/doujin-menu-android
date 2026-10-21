@@ -179,7 +179,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
             (appliedNavigationRevision == browserNavigationRevision || (browserNavigationRevision == 0L && lastMainDestination !in setOf("browser", "library")))
         appliedNavigationRevision = browserNavigationRevision
         if (restoringMain && (page is BrowserPage.Search || page is BrowserPage.LibraryHome)) return@LaunchedEffect
-        if (page is BrowserPage.LibraryHome || page is BrowserPage.LibraryBook || page is BrowserPage.LibraryReader) searchOpenedFromGallery = false
+        if (page is BrowserPage.LibraryHome || page is BrowserPage.LibrarySeries || page is BrowserPage.LibraryBook || page is BrowserPage.LibraryReader) searchOpenedFromGallery = false
         when (page) {
             is BrowserPage.LibraryHome -> {
                 lastMainDestination = MainDestination.Library.route
@@ -198,6 +198,10 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 }
             }
             is BrowserPage.OnlineGallery -> navController.navigate("gallery/${page.galleryId}") {
+                popUpTo("main")
+                launchSingleTop = true
+            }
+            is BrowserPage.LibrarySeries -> navController.navigate("library-series/${Uri.encode(page.name)}") {
                 popUpTo("main")
                 launchSingleTop = true
             }
@@ -287,6 +291,14 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     },
                 )
             }
+            composable("library-series/{seriesName}") { entry ->
+                val initial = remember(entry.id) { viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibrarySeries } ?: return@composable
+                val page = (viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibrarySeries)?.takeIf { it.key == initial.key } ?: initial
+                BackHandler(onBack = galleryBack)
+                LibraryTabContent(viewModel, PaddingValues(0.dp), viewModel::openLibraryBookTab, galleryBack,
+                    onSearchFacet = { searchOpenedFromGallery = true; viewModel.searchFromFacet(it) },
+                    onSearchLanguage = { searchOpenedFromGallery = true; viewModel.searchFromLanguage(it) }, seriesPage = page)
+            }
             composable("library-detail/{bookId}") { entry ->
                 val bookId = entry.arguments?.getString("bookId") ?: return@composable
                 BackHandler(onBack = galleryBack)
@@ -321,8 +333,6 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         currentBook?.id?.let { id ->
                             viewModel.uiState.customSeriesByBookId[id]?.name?.let { series ->
                                 viewModel.openLibrarySeriesList(series)
-                                lastMainDestination = MainDestination.Library.route
-                                navController.popBackStack("main", inclusive = false)
                             }
                         }
                     },
@@ -840,62 +850,12 @@ private fun MainTabContent(
                 onVisibleResultsChange = viewModel::loadVisibleSearchResults,
             )
         }
-        MainDestination.Library -> {
-            val libraryHome = viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome
-            LibraryScreen(
-                state = viewModel.uiState,
-                tabHeader = { query, actions -> AppGalleryTabStrip(viewModel,
-                    titleContent = query, actions = actions) },
-                onSync = viewModel::syncLibraryNow,
-                contentPadding = contentPadding,
-                onQueryChange = viewModel::setLibraryQuery,
-                onSubmitSearch = { viewModel.submitLibrarySearch() },
-                onRecentSearch = { viewModel.submitLibrarySearch(it) },
-                onClearSearchHistory = viewModel::clearLibrarySearchHistory,
-                onToggleFavoritesFilter = viewModel::toggleLibraryFavoritesFilter,
-                onExcludeSeriesChange = viewModel::setLibraryExcludeSeries,
-                onReadFilterChange = viewModel::setLibraryReadFilter,
-                onVisibilityFilterChange = viewModel::setLibraryVisibilityFilter,
-                onSortChange = viewModel::setLibrarySort,
-                onLocationChange = viewModel::toggleLibraryLocation,
-                onRefresh = viewModel::refreshLibrary,
-                onOpenBook = onLibraryBookClick,
-                onToggleFavorite = viewModel::toggleLibraryFavorite,
-                onToggleSeriesFavorite = viewModel::toggleLibrarySeriesFavorite,
-                onToggleRead = viewModel::toggleLibraryRead,
-                onAddFavorites = viewModel::addLibraryFavorites,
-                onMarkRead = viewModel::markLibraryBooksRead,
-                onMarkUnread = viewModel::markLibraryBooksUnread,
-                onAssignSeries = viewModel::assignLibrarySeries,
-                onAppendSeries = viewModel::appendLibrarySeries,
-                onCommitSeriesEdit = viewModel::commitLibrarySeriesEdit,
-                onLoadSeriesPreview = viewModel::loadSeriesBookPreview,
-                onSelectSuggestion = viewModel::selectLibrarySuggestion,
-                onReadBook = viewModel::openLibraryReaderTab,
-                onSearchFacet = { viewModel.searchFromFacet(it); onNavigate(MainDestination.Browser) },
-                onSearchLanguage = { viewModel.searchFromLanguage(it); onNavigate(MainDestination.Browser) },
-                onSeriesListChange = viewModel::setLibrarySeriesEpisodeList,
-                onSetBooksHidden = viewModel::setLibraryBooksHidden,
-                onDeleteBooks = viewModel::deleteLibraryBooks,
-                onRenameBook = viewModel::renameLibraryBook,
-                onRemoveBooksFromSeries = viewModel::removeLibraryBooksFromSeries,
-                onRenameSeries = viewModel::renameLibrarySeries,
-                onMergeSeries = viewModel::mergeLibrarySeries,
-                onDeleteSeries = viewModel::deleteLibrarySeries,
-                onAutoCreateSeries = viewModel::autoCreateLibrarySeries,
-                onSeriesModeChange = viewModel::setLibrarySeriesMode,
-                onSelectedSeriesChange = viewModel::selectLibrarySeries,
-                onBackToSearch = {
-                    if (viewModel.canReturnFromNewTab(true)) viewModel.goBackInGalleryTab()
-                    else onNavigate(MainDestination.Browser)
-                },
-                pageKey = libraryHome?.key.orEmpty(),
-                initialScrollAnchorKey = libraryHome?.scrollAnchorKey,
-                initialScrollIndex = libraryHome?.scrollIndex ?: 0,
-                initialScrollOffset = libraryHome?.scrollOffset ?: 0,
-                onScrollChange = { anchor, index, offset -> viewModel.updateGalleryScroll(libraryHome?.key.orEmpty(), anchor, index, offset) },
-            )
-        }
+        MainDestination.Library -> LibraryTabContent(
+            viewModel, contentPadding, onLibraryBookClick,
+            onBack = { if (viewModel.canReturnFromNewTab(true)) viewModel.goBackInGalleryTab() else onNavigate(MainDestination.Browser) },
+            onSearchFacet = { viewModel.searchFromFacet(it); onNavigate(MainDestination.Browser) },
+            onSearchLanguage = { viewModel.searchFromLanguage(it); onNavigate(MainDestination.Browser) },
+        )
         MainDestination.History -> RecentHistoryScreen(
             state = viewModel.uiState, contentPadding = contentPadding,
             onOpen = viewModel::openHistory, onRemove = viewModel::removeHistory,
@@ -953,4 +913,70 @@ private fun MainTabContent(
         }
         }
     }
+}
+
+@Composable
+private fun LibraryTabContent(
+    viewModel: MainViewModel,
+    contentPadding: PaddingValues,
+    onOpenBook: (String) -> Unit,
+    onBack: () -> Unit,
+    onSearchFacet: (String) -> Unit,
+    onSearchLanguage: (String) -> Unit,
+    seriesPage: BrowserPage.LibrarySeries? = null,
+) {
+            val libraryHome = viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome
+            LibraryScreen(
+                state = viewModel.uiState,
+                tabHeader = { query, actions -> if (seriesPage == null) AppGalleryTabStrip(viewModel,
+                    titleContent = query, actions = actions) else AppGalleryTabStrip(viewModel) },
+                onSync = viewModel::syncLibraryNow,
+                contentPadding = contentPadding,
+                onQueryChange = viewModel::setLibraryQuery,
+                onSubmitSearch = { viewModel.submitLibrarySearch() },
+                onRecentSearch = { viewModel.submitLibrarySearch(it) },
+                onClearSearchHistory = viewModel::clearLibrarySearchHistory,
+                onToggleFavoritesFilter = viewModel::toggleLibraryFavoritesFilter,
+                onExcludeSeriesChange = viewModel::setLibraryExcludeSeries,
+                onReadFilterChange = viewModel::setLibraryReadFilter,
+                onVisibilityFilterChange = viewModel::setLibraryVisibilityFilter,
+                onSortChange = viewModel::setLibrarySort,
+                onLocationChange = viewModel::toggleLibraryLocation,
+                onRefresh = viewModel::refreshLibrary,
+                onOpenBook = onOpenBook,
+                onToggleFavorite = viewModel::toggleLibraryFavorite,
+                onToggleSeriesFavorite = viewModel::toggleLibrarySeriesFavorite,
+                onToggleRead = viewModel::toggleLibraryRead,
+                onAddFavorites = viewModel::addLibraryFavorites,
+                onMarkRead = viewModel::markLibraryBooksRead,
+                onMarkUnread = viewModel::markLibraryBooksUnread,
+                onAssignSeries = viewModel::assignLibrarySeries,
+                onAppendSeries = viewModel::appendLibrarySeries,
+                onCommitSeriesEdit = viewModel::commitLibrarySeriesEdit,
+                onLoadSeriesPreview = viewModel::loadSeriesBookPreview,
+                onSelectSuggestion = viewModel::selectLibrarySuggestion,
+                onReadBook = viewModel::openLibraryReaderTab,
+                onSearchFacet = onSearchFacet,
+                onSearchLanguage = onSearchLanguage,
+                onSeriesListChange = viewModel::setLibrarySeriesEpisodeList,
+                onSetBooksHidden = viewModel::setLibraryBooksHidden,
+                onDeleteBooks = viewModel::deleteLibraryBooks,
+                onRenameBook = viewModel::renameLibraryBook,
+                onRemoveBooksFromSeries = viewModel::removeLibraryBooksFromSeries,
+                onRenameSeries = viewModel::renameLibrarySeries,
+                onMergeSeries = viewModel::mergeLibrarySeries,
+                onDeleteSeries = viewModel::deleteLibrarySeries,
+                onAutoCreateSeries = viewModel::autoCreateLibrarySeries,
+                onSeriesModeChange = viewModel::setLibrarySeriesMode,
+                onSelectedSeriesChange = viewModel::selectLibrarySeries,
+                onBackToSearch = onBack,
+                pageKey = seriesPage?.key ?: libraryHome?.key.orEmpty(),
+                initialScrollAnchorKey = libraryHome?.scrollAnchorKey,
+                initialScrollIndex = libraryHome?.scrollIndex ?: 0,
+                initialScrollOffset = libraryHome?.scrollOffset ?: 0,
+                onScrollChange = { anchor, index, offset -> viewModel.updateGalleryScroll(libraryHome?.key.orEmpty(), anchor, index, offset) },
+                seriesPage = seriesPage,
+                onSeriesPreviewPosition = { position -> seriesPage?.let { viewModel.updatePreviewScroll(it.key, position) } },
+                onSeriesEpisodePosition = { index, offset -> seriesPage?.let { viewModel.updateSeriesEpisodeScroll(it.key, index, offset) } },
+            )
 }
