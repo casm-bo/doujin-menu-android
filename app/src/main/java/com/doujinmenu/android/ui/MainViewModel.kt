@@ -296,7 +296,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var downloadRefreshJob: Job? = null
     private var librarySyncDebounceJob: Job? = null
     private var importantLibraryRefreshJob: Job? = null
-    private var reconnectLibraryRefreshJob: Job? = null
+    private var successfulDesktopRefreshes = 0L
     private var activeBookPreparationJob: Job? = null
     private var libraryRefreshJob: Job? = null
     private var libraryProfileGeneration = 0L
@@ -693,6 +693,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun reloadProfileLibrary() {
         libraryProfileGeneration++
         librarySuggestionIndex = null
+        importantLibraryRefreshJob?.cancel()
         libraryRefreshJob?.cancel()
         activeBookPreparationJob?.cancel()
         uiState = uiState.copy(libraryBooks = emptyList(), activeLibraryBook = null, isLibraryScanning = false,
@@ -1458,6 +1459,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (profile != null) syncPresentations(profile)
             val cloudResult = profile?.let { runCatching { client.getLibraryBooks(it) } }
             if (!current()) return@launch
+            if (cloudResult?.isSuccess == true) successfulDesktopRefreshes++
             val cloudBooks = when {
                 profile == null -> emptyList()
                 cloudResult?.isSuccess == true -> cloudResult.getOrThrow()
@@ -3179,28 +3181,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncActiveSearch(persist = true)
         browserPreferenceStore.saveGalleryWorkspace(uiState.galleryWorkspace)
         stopConnectionMonitoring()
-        reconnectLibraryRefreshJob?.cancel()
+        importantLibraryRefreshJob?.cancel()
         librarySyncDebounceJob?.cancel()
         librarySyncDebounceJob = viewModelScope.launch { flushPendingLibrarySync() }
     }
 
-    private fun requestImportantLibraryRefresh() {
+    private fun requestImportantLibraryRefresh() = requestLibraryRefreshWhenIdle(reconnect = false)
+
+    private fun requestReconnectLibraryRefresh() = requestLibraryRefreshWhenIdle(reconnect = true)
+
+    private fun requestLibraryRefreshWhenIdle(reconnect: Boolean) {
+        // A queued server change is stronger than a reconnect check.
+        if (reconnect && importantLibraryRefreshJob?.isActive == true) return
         importantLibraryRefreshJob?.cancel()
+        val generation = libraryProfileGeneration
+        val completed = successfulDesktopRefreshes
+        val inFlight = libraryRefreshJob
         importantLibraryRefreshJob = viewModelScope.launch {
+            inFlight?.join()
             while (uiState.isLibraryScanning || uiState.isLibrarySyncing) {
                 delay(IMPORTANT_LIBRARY_REFRESH_RETRY_MS)
             }
-            refreshLibrarySilently()
-        }
-    }
-
-    private fun requestReconnectLibraryRefresh() {
-        reconnectLibraryRefreshJob?.cancel()
-        reconnectLibraryRefreshJob = viewModelScope.launch {
-            while (uiState.isLibraryScanning) {
-                delay(IMPORTANT_LIBRARY_REFRESH_RETRY_MS)
+            if (generation == libraryProfileGeneration && (!reconnect || successfulDesktopRefreshes == completed)) {
+                refreshLibrarySilently()
             }
-            refreshLibrarySilently()
         }
     }
 
