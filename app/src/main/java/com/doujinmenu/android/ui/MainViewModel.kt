@@ -278,6 +278,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val libraryIdentityStore = LibraryIdentityStore(application)
     private val presentationCovers = PresentationCovers(application)
     private val presentationSyncMutex = Mutex()
+    private var presentationReloadRevision = 0L
     private fun presentationStore(profileId: String? = uiState.selectedProfileId) = PresentationStore(libraryIdentityStore, profileId)
     private val libraryScanner = LibraryScanner(application, libraryIdentityStore)
     private val libraryArchiveExtractor = LibraryArchiveExtractor(application)
@@ -369,7 +370,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
             downloadDestination = browserPreferenceStore.loadDownloadDestination(),
         )
-        reloadPresentations()
+        viewModelScope.launch { runOperation { reloadPresentations() } }
         viewModelScope.launch {
             requestStore.requests.collect { requests ->
                 val completed = requests.any { request -> request.status == RequestStatus.COMPLETED &&
@@ -404,15 +405,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val value = uiState.presentations["hitomi:${gallery.id}"]?.value
         return gallery.withPresentation(value, coverUri(value))
     }
-    private fun reloadPresentations() {
-        val values = presentationStore().all().associateBy { it.value.key }
-        uiState = uiState.copy(presentations = values)
-        uiState = uiState.copy(libraryBooks = uiState.libraryBooks.map(::presentedBook),
-            activeLibraryBook = uiState.activeLibraryBook?.let(::presentedBook),
-            galleries = uiState.galleries.map(::presentedGallery),
-            activeGallery = uiState.activeGallery?.let(::presentedGallery),
-            galleryCache = uiState.galleryCache.mapValues { presentedGallery(it.value) })
-        uiState = uiState.copy(librarySyncPendingCount = pendingLibrarySyncCount())
+    private suspend fun reloadPresentations() {
+        val profileId = uiState.selectedProfileId
+        val generation = libraryProfileGeneration
+        val revision = ++presentationReloadRevision
+        val values = withContext(Dispatchers.IO) { presentationStore(profileId).all().associateBy { it.value.key } }
+        fun current() = revision == presentationReloadRevision && generation == libraryProfileGeneration && profileId == uiState.selectedProfileId
+        while (current()) {
+            val base = uiState
+            val prepared = withContext(Dispatchers.Default) {
+                if (values == base.presentations) return@withContext null
+                fun book(value: LibraryBook) = presentedBook(value, values).let { if (it == value) value else it }
+                fun gallery(value: GallerySummary): GallerySummary {
+                    val presentation = values["hitomi:${value.id}"]?.value
+                    return value.withPresentation(presentation, coverUri(presentation)).let { if (it == value) value else it }
+                }
+                base.copy(presentations = values, libraryBooks = base.libraryBooks.map(::book),
+                    activeLibraryBook = base.activeLibraryBook?.let(::book), galleries = base.galleries.map(::gallery),
+                    activeGallery = base.activeGallery?.let(::gallery), galleryCache = base.galleryCache.mapValues { gallery(it.value) },
+                    librarySyncPendingCount = distinctPendingSyncCount(libraryPreferenceStore.loadPendingSeriesSyncIds(),
+                        libraryPreferenceStore.loadPendingBookStateSyncIds(), base.libraryBooks) + values.values.count { it.dirty })
+            } ?: return
+            if (!current()) return
+            val latest = uiState
+            if (base.libraryBooks !== latest.libraryBooks || base.activeLibraryBook !== latest.activeLibraryBook ||
+                base.galleries !== latest.galleries || base.activeGallery !== latest.activeGallery || base.galleryCache !== latest.galleryCache) continue
+            uiState = latest.copy(presentations = values, libraryBooks = prepared.libraryBooks, activeLibraryBook = prepared.activeLibraryBook,
+                galleries = prepared.galleries, activeGallery = prepared.activeGallery, galleryCache = prepared.galleryCache,
+                librarySyncPendingCount = prepared.librarySyncPendingCount)
+            return
+        }
     }
 
     fun saveGalleryPresentation(value: GalleryPresentation, resolveConflict: Boolean = false) {
@@ -438,8 +460,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         saveGalleryPresentation(latest.copy(webtoon = webtoon))
     }
     fun acceptRemotePresentation(key: String) {
-        presentationStore().acceptRemote(key)
-        reloadPresentations()
+        val profileId = uiState.selectedProfileId
+        viewModelScope.launch { runOperation {
+            withContext(Dispatchers.IO) { presentationStore(profileId).acceptRemote(key) }
+            if (profileId == uiState.selectedProfileId) reloadPresentations()
+        } }
     }
     fun changePresentationCover(value: GalleryPresentation, source: com.doujinmenu.android.model.ReaderImageSource) {
         val profileId = uiState.selectedProfileId
@@ -462,7 +487,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) {
             if (uiState.selectedProfileId == profile.id) {
-                val hasEdits = presentationStore(profile.id).all().any { it.dirty }
+                val hasEdits = withContext(Dispatchers.IO) { presentationStore(profile.id).all().any { it.dirty } }
                 uiState = uiState.copy(presentationSyncError = if (hasEdits) error.message else null)
             }
         }
@@ -699,8 +724,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(libraryBooks = emptyList(), activeLibraryBook = null, isLibraryScanning = false,
             isLibraryBookLoading = false, isLibraryPullRefreshing = false, desktopLibraryLocations = emptyList(),
             desktopDownloadPath = null, galleryCache = emptyMap(), galleries = emptyList(), activeGallery = null,
-            seriesPreviewLoadingIds = emptySet(), seriesPreviewErrors = emptyMap(), presentationSyncError = null)
-        reloadPresentations()
+            seriesPreviewLoadingIds = emptySet(), seriesPreviewErrors = emptyMap(), presentations = emptyMap(), presentationSyncError = null)
+        viewModelScope.launch { runOperation { reloadPresentations() } }
         refreshLibrarySilently()
     }
 
@@ -3291,7 +3316,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) = bookStateSyncMutex.withLock {
         if (uploadLocalBooks) uploadMissingLocalBooks(profile, books, ids)
         val customTitles = libraryPreferenceStore.loadCustomTitles()
-        val presentations = presentationStore(profile.id).all().associateBy { it.value.key }
+        val presentations = withContext(Dispatchers.IO) { presentationStore(profile.id).all().associateBy { it.value.key } }
         val modifiedTimes = libraryPreferenceStore.loadBookStateModifiedTimes()
         val versionBySyncId = latestSyncStateVersions(books)
         val booksBySyncId = books
