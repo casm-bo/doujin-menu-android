@@ -1815,17 +1815,13 @@ private fun LibraryEmpty(message: String) {
 }
 
 internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
-    val queryTerms = parseLibraryQuery(state.libraryQuery)
-    val filtered = state.libraryBooksInVisibility().asSequence()
+    val filtered = filterLibraryBooksByQuery(state.libraryBooksInVisibility(), state.libraryQuery, state.customSeriesByBookId).asSequence()
         .filter { !state.libraryExcludeSeries || it.id !in state.customSeriesByBookId }
         .filter {
             when {
                 state.selectedLibraryLocationUris != null -> it.locationUri in state.selectedLibraryLocationUris
                 else -> true
             }
-        }
-        .filter { book ->
-            queryTerms.all { term -> term.matches(book, state.customSeriesByBookId[book.id]?.name) }
         }
         .filter { book ->
             !state.libraryFavoritesOnly ||
@@ -1866,6 +1862,11 @@ private fun MainUiState.libraryBooksInVisibility(): List<LibraryBook> = libraryB
         LibraryVisibilityFilter.HIDDEN -> book.id in libraryHiddenIds
         LibraryVisibilityFilter.ALL -> true
     }
+}
+
+internal fun filterLibraryBooksByQuery(books: List<LibraryBook>, query: String, assignments: Map<String, CustomSeriesAssignment> = emptyMap()): List<LibraryBook> {
+    val terms = parseLibraryQuery(query)
+    return if (terms.isEmpty()) books else books.filter { book -> terms.all { it.matches(book, assignments[book.id]?.name) } }
 }
 
 private data class LibraryQueryTerm(val field: String?, val value: String, val excluded: Boolean) {

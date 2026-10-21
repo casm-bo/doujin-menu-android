@@ -129,10 +129,12 @@ internal fun SeriesOptionsEditor(name: String, books: List<LibraryBook>, assignm
     var selected by rememberSaveable(name) { mutableStateOf(emptySet<String>()) }
     var adding by rememberSaveable(name) { mutableStateOf(false) }
     var chosen by rememberSaveable(name) { mutableStateOf(emptySet<String>()) }
+    var query by rememberSaveable(name) { mutableStateOf("") }
     var failed by remember { mutableStateOf(false) }
     val byId = remember(books) { books.associateBy { it.id } }
     BackHandler { if (adding) { adding = false; chosen = emptySet() } else onCancel() }
-    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+    Column(Modifier.fillMaxSize().padding(contentPadding).consumeWindowInsets(contentPadding)
+        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Column(Modifier.fillMaxWidth().padding(8.dp)) {
                 Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
@@ -142,7 +144,8 @@ internal fun SeriesOptionsEditor(name: String, books: List<LibraryBook>, assignm
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
-                        if (adding) { order = order + chosen.filter { it !in order }; chosen = emptySet(); adding = false } else adding = true
+                        if (adding) { order = order + chosen.filter { it !in order }; chosen = emptySet(); adding = false }
+                        else { query = ""; adding = true }
                     }, modifier = Modifier.weight(1f)) { ActionIcon(ActionSymbol.ADD); Text(strings[if (adding) R.string.ui_confirm else R.string.ui_add_episodes], Modifier.padding(start = 6.dp)) }
                     OutlinedButton(onClick = { order = order.filterNot { it in selected }; selected = emptySet() }, enabled = !adding && selected.isNotEmpty(), modifier = Modifier.weight(1f)) {
                         ActionIcon(ActionSymbol.DELETE); Text(strings[R.string.ui_exclude_episodes], Modifier.padding(start = 6.dp))
@@ -152,12 +155,20 @@ internal fun SeriesOptionsEditor(name: String, books: List<LibraryBook>, assignm
             }
         }
         if (failed) Text(strings[R.string.ui_series_edit_conflict], Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
-        if (adding) LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(books.filter { it.id !in order }, key = { it.id }) { book ->
+        if (adding) InlineSearchLayout(remember(name) { InlineSearchState() }, Modifier.weight(1f)) {
+            val candidates = remember(books, order, query, assignments) {
+                filterLibraryBooksByQuery(books.filter { it.id !in order }, query, assignments)
+            }
+            Column(Modifier.fillMaxSize()) {
+                UnifiedSearchField(query, { query = it }, strings[R.string.ui_search_gallery], {}, {})
+                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(candidates, key = { it.id }) { book ->
                 LibraryWorkCard(book, 0, grid = false, favorite = false, read = false,
                     selected = book.id in chosen, selectionMode = true,
                     onOpen = { chosen = if (book.id in chosen) chosen - book.id else chosen + book.id }, onLongPress = {},
                     onToggleFavorite = {}, badgeScale = .82f)
+            }
+                }
             }
         } else if (order.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(strings[R.string.ui_empty_series_keeps_files], Modifier.padding(16.dp)) }
         else LibrarySeriesOrderEditor(order.mapNotNull(byId::get), order.mapIndexed { index, id -> id to CustomSeriesAssignment(name, index) }.toMap(),
