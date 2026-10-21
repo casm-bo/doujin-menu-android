@@ -130,6 +130,16 @@ data class BrowserWorkspace(
 fun BrowserWorkspace.selectTab(tabId: String): BrowserWorkspace =
     if (tabs.any { it.id == tabId }) copy(activeTabId = tabId) else this
 
+/** Keep a departing screen bound to its own page while the detail route enters. */
+inline fun <reified T : BrowserPage> BrowserWorkspace.currentOrPreviousPage(): T? {
+    val tab = activeTab
+    for (index in tab.currentIndex.coerceIn(tab.history.indices) downTo 0) {
+        val page = tab.history[index]
+        if (page is T) return page
+    }
+    return null
+}
+
 val BrowserWorkspace.searchResultSessionIds: Set<String>
     get() = (tabs + groups.flatMap { it.archivedTabs }).flatMap { it.history }
         .filterIsInstance<BrowserPage.Search>().mapNotNull { it.resultSessionId }.toSet()

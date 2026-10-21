@@ -4,6 +4,7 @@ import com.doujinmenu.android.R
 import com.doujinmenu.android.model.presentation
 import com.doujinmenu.android.model.presentationKey
 import com.doujinmenu.android.model.seriesPresentationKey
+import com.doujinmenu.android.model.currentOrPreviousPage
 
 import android.content.Intent
 import android.net.Uri
@@ -813,15 +814,15 @@ private fun MainTabContent(
         label = "mainFragmentTransition",
     ) { current ->
         val pageStateKey = when (current) {
-            MainDestination.Browser -> "browser:${viewModel.uiState.browserWorkspace.activeTab.currentPage.key}"
-            MainDestination.Library -> "library:${viewModel.uiState.galleryWorkspace.activeTab.currentPage.key}"
+            MainDestination.Browser -> "browser:${viewModel.uiState.browserWorkspace.currentOrPreviousPage<BrowserPage.Search>()?.key}"
+            MainDestination.Library -> "library:${viewModel.uiState.galleryWorkspace.currentOrPreviousPage<BrowserPage.LibraryHome>()?.key}"
             else -> current.route
         }
         pageStates.SaveableStateProvider(pageStateKey) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (current) {
         MainDestination.Browser -> {
-            val search = viewModel.uiState.browserWorkspace.activeTab.currentPage as? BrowserPage.Search
+            val search = viewModel.uiState.browserWorkspace.currentOrPreviousPage<BrowserPage.Search>()
             BrowserScreen(
                 state = viewModel.uiState,
                 tabHeader = { query, actions -> AppSearchTabStrip(viewModel,
@@ -937,7 +938,7 @@ private fun LibraryTabContent(
     onSearchLanguage: (String) -> Unit,
     seriesPage: BrowserPage.LibrarySeries? = null,
 ) {
-            val libraryHome = viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome
+            val libraryHome = viewModel.uiState.galleryWorkspace.currentOrPreviousPage<BrowserPage.LibraryHome>()
             LibraryScreen(
                 state = viewModel.uiState,
                 tabHeader = { query, actions -> if (seriesPage == null) AppGalleryTabStrip(viewModel,

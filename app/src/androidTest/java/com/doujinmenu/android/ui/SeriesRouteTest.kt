@@ -121,13 +121,37 @@ class SeriesRouteTest {
             compose.onNode(hasScrollAction()).performTouchInput { swipeUp() }
             val visible = compose.onAllNodesWithText("Route standalone", substring = true).fetchSemanticsNodes()
                 .filter { it.boundsInRoot.height > 40 }.minBy { it.boundsInRoot.top }
-            val title = visible.config[androidx.compose.ui.semantics.SemanticsProperties.Text].first().text
+            val title = visible.config[androidx.compose.ui.semantics.SemanticsProperties.Text].first { it.text.startsWith("Route standalone") }.text
             val top = visible.boundsInRoot.top
             compose.onNodeWithText(context.getString(MainDestination.Settings.labelResource)).performClick()
             compose.onNodeWithText(context.getString(MainDestination.Library.labelResource)).performClick()
             compose.onNodeWithText(title).assertIsDisplayed()
             assertEquals("Tab return must retain both item offset and toolbar position", top,
                 compose.onNodeWithText(title).fetchSemanticsNode().boundsInRoot.top, 2f)
+            compose.onNode(hasScrollAction()).performScrollToIndex(20)
+            val beforeDetail = compose.onAllNodesWithText("Route standalone", substring = true).fetchSemanticsNodes()
+                .filter { it.boundsInRoot.height > 40 }.minBy { it.boundsInRoot.top }
+            val detailTitle = beforeDetail.config[androidx.compose.ui.semantics.SemanticsProperties.Text].first { it.text.startsWith("Route standalone") }.text
+            val beforeDetailTop = beforeDetail.boundsInRoot.top
+            val home = model.activeBrowserPage() as BrowserPage.LibraryHome
+            compose.mainClock.autoAdvance = false
+            compose.onNodeWithText(detailTitle).performClick()
+            repeat(12) {
+                compose.mainClock.advanceTimeByFrame()
+                assertTrue("Outgoing gallery must never flash its first card during detail entry",
+                    compose.onAllNodes(hasText("Route standalone 2") and hasClickAction()).fetchSemanticsNodes().none { it.boundsInRoot.height > 0 })
+            }
+            compose.mainClock.autoAdvance = true
+            compose.waitForIdle()
+            compose.runOnIdle {
+                val savedHome = model.uiState.galleryWorkspace.activeTab.history.filterIsInstance<BrowserPage.LibraryHome>().single()
+                assertEquals(home.scrollAnchorKey, savedHome.scrollAnchorKey)
+                assertEquals(home.scrollIndex, savedHome.scrollIndex)
+                assertEquals(home.scrollOffset, savedHome.scrollOffset)
+                back.onBackPressed()
+            }
+            assertEquals("Returning from a book restores the exact card and toolbar position", beforeDetailTop,
+                compose.onNodeWithText(detailTitle).fetchSemanticsNode().boundsInRoot.top, 2f)
             compose.runOnIdle { model.setLibrarySeriesMode(true) }
             compose.onNodeWithText(name).performClick()
             compose.runOnIdle { back.onBackPressed() }

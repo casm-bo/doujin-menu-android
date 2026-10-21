@@ -6,6 +6,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserSessionTest {
+    @Test fun departingPageLookupIgnoresForwardHistoryAndOtherTabs() {
+        val first = BrowserPage.LibraryHome(scrollIndex = 20, scrollOffset = 17)
+        val second = BrowserPage.LibraryHome(query = "second", scrollIndex = 4)
+        val workspace = BrowserWorkspace.initial(first).pushPage(BrowserPage.LibraryBook("book", "Book"))
+            .pushPage(second).goBack().openTab(BrowserPage.LibraryHome(query = "other"), activate = false)
+        assertEquals(first, workspace.currentOrPreviousPage<BrowserPage.LibraryHome>())
+        assertEquals(null, workspace.currentOrPreviousPage<BrowserPage.Search>())
+        val search = BrowserPage.Search(query = "tag:sample", scrollIndex = 8)
+        assertEquals(search, BrowserWorkspace.initial(search).pushPage(BrowserPage.OnlineGallery(1, "Gallery"))
+            .currentOrPreviousPage<BrowserPage.Search>())
+    }
+
     @Test fun nextEpisodeReplacesReaderAndBackReturnsToItsOrigin() {
         val origin = BrowserPage.LibrarySeries("Series", previewPosition = ReaderPosition(14, 27))
         val first = BrowserPage.LibraryReader("first", "Episode 1", 0, position = ReaderPosition(49, 5000))

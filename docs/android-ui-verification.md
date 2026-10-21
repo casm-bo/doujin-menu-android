@@ -334,3 +334,19 @@ the series route toolbar also uses the display title. Group identity is unchange
 The shared browser/gallery tab strip centers its search field and action buttons.
 All 16 episode editor, search editor and full-screen IME regressions passed on
 SM-N986N, including title alignment at 28 sp and selection preservation at 24 sp.
+
+## Departing gallery page identity
+
+The workspace pushed its detail page before NavHost finished leaving the main
+screen. MainTabContent then changed its saveable-state key to the detail key,
+while LibraryTabContent lost its LibraryHome and initialized an empty-key list
+at index zero. The outgoing gallery therefore briefly displayed its first card.
+Both browser and gallery now look up their current-or-previous page within the
+active tab's reachable history. Forward history and other tabs are excluded.
+The existing page key and scroll callbacks remain bound to that page throughout
+the route transition.
+
+The real-app route test reproduced the flash before the fix. It now checks 12
+individual transition frames after opening a card from index 20, the saved home
+anchor/index/offset, and the returning card's Y coordinate within 2 px. Both
+route/navigation device tests and BrowserSessionTest passed after the fix.
