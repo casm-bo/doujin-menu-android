@@ -374,3 +374,28 @@ selection before UI access. It also verifies the selected gallery navigation tab
 The eight startup/search/download/profile/refresh/route regressions passed; the
 updated startup UI case passed separately as well. Existing direct ViewModel tests
 now wait for restored state, matching the production UI readiness gate.
+
+## Gallery restoration after delayed data
+
+Actual debug-app gestures exposed a second, independent failure: the saved gallery
+index/offset stayed unchanged while the visible list moved. Restoration awaited
+scrollToItem on both Grid and List states, but only one had a layout. The inactive
+state suspended indefinitely, so scrollRestored never enabled subsequent saves.
+The filter-reset path had the same inactive-layout dependency.
+
+Restoration now enqueues requestScrollToItem before the first populated layout;
+filter resets enqueue positions without awaiting hidden views. The persistence
+observer includes the measured anchor key, so a completed first layout is observed
+even when its numeric index/offset is unchanged.
+
+LibraryScrollRestoreTest mounts an empty scanning library, then supplies 60 books.
+Both list and grid cases restore book 20 at offset 37, save a later move to book 30,
+and reset to book zero after a query change. Both cases fail against the original
+LibraryScreen (no position saved) and pass with the fix on SM-N986N.
+
+The final combined run also passed SeriesRouteTest and SeriesNavigationTest
+(four cases total). In the actual debug app, a swipe changed the saved position
+from index 11/offset 169 to index 13/offset 476; a force-stop/restart restored
+the same anchor/index/offset. No app data was cleared. Debug/uitest builds, all
+217 enabled JVM tests (two opt-in skips), and Lint (zero errors, 108 warnings,
+three hints) passed on the final source.

@@ -86,6 +86,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
 import kotlinx.coroutines.flow.filter
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -374,21 +375,23 @@ fun LibraryScreen(
 
     LaunchedEffect(filterSignature) {
         if (filterSignature != previousFilterSignature) {
-            mainGridState.scrollToItem(0)
-            mainListState.scrollToItem(0)
-            seriesBooksGridState.scrollToItem(0)
-            seriesBooksListState.scrollToItem(0)
-            seriesOverviewGridState.scrollToItem(0)
-            seriesOverviewListState.scrollToItem(0)
+            mainGridState.requestScrollToItem(0)
+            mainListState.requestScrollToItem(0)
+            seriesBooksGridState.requestScrollToItem(0)
+            seriesBooksListState.requestScrollToItem(0)
+            seriesOverviewGridState.requestScrollToItem(0)
+            seriesOverviewListState.requestScrollToItem(0)
+            scrollRestored = true
         }
         previousFilterSignature = filterSignature
     }
 
-    LaunchedEffect(pageKey, mainEntryKeys) {
+    SideEffect {
         if (!scrollRestored && mainEntryKeys.isNotEmpty()) {
             val target = resolveScrollIndex(savedAnchorKey, initialScrollIndex, mainEntryKeys)
-            mainGridState.scrollToItem(target, initialScrollOffset)
-            mainListState.scrollToItem(target, initialScrollOffset)
+            // Inactive views have no first layout: enqueue the position without waiting for one.
+            mainGridState.requestScrollToItem(target, initialScrollOffset)
+            mainListState.requestScrollToItem(target, initialScrollOffset)
             scrollRestored = true
         }
     }
@@ -409,12 +412,17 @@ fun LibraryScreen(
     }
     LaunchedEffect(pageKey, viewMode, seriesMode, selectedSeries, mainEntryKeys, scrollRestored) {
         if (selectedSeries != null || !scrollRestored) return@LaunchedEffect
-        snapshotFlow { if (seriesMode) {
-            if (viewMode == LibraryViewMode.GRID) Triple(seriesOverviewGridState.isScrollInProgress, seriesOverviewGridState.firstVisibleItemIndex, seriesOverviewGridState.firstVisibleItemScrollOffset)
-            else Triple(seriesOverviewListState.isScrollInProgress, seriesOverviewListState.firstVisibleItemIndex, seriesOverviewListState.firstVisibleItemScrollOffset)
-        } else if (viewMode == LibraryViewMode.GRID) Triple(mainGridState.isScrollInProgress, mainGridState.firstVisibleItemIndex, mainGridState.firstVisibleItemScrollOffset)
-        else Triple(mainListState.isScrollInProgress, mainListState.firstVisibleItemIndex, mainListState.firstVisibleItemScrollOffset) }
-            .filter { !it.first }.collect { persistScroll() }
+        snapshotFlow {
+            if (viewMode == LibraryViewMode.GRID) {
+                val grid = if (seriesMode) seriesOverviewGridState else mainGridState
+                Triple(grid.isScrollInProgress, grid.firstVisibleItemIndex, grid.firstVisibleItemScrollOffset) to
+                    grid.layoutInfo.visibleItemsInfo.firstOrNull { it.index == grid.firstVisibleItemIndex }?.key
+            } else {
+                val list = if (seriesMode) seriesOverviewListState else mainListState
+                Triple(list.isScrollInProgress, list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset) to
+                    list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == list.firstVisibleItemIndex }?.key
+            }
+        }.filter { !it.first.first }.collect { persistScroll() }
     }
     DisposableEffect(pageKey, viewMode, seriesMode, selectedSeries, mainEntryKeys, scrollRestored) {
         onDispose { persistScroll() }
