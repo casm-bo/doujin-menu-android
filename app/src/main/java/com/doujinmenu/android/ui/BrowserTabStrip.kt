@@ -44,6 +44,7 @@ fun BrowserTabStrip(
     onShowOverview: () -> Unit,
     previews: BrowserTabPreviewCache,
     onBack: (() -> Unit)? = null,
+    titleOverride: String? = null,
     titleContent: (@Composable () -> Unit)? = null,
     extraActions: @Composable RowScope.() -> Unit = {},
 ) {
@@ -53,12 +54,12 @@ fun BrowserTabStrip(
     fun captureThen(action: () -> Unit) { scope.launch { previews.captureNow(); action() } }
 
     Surface(modifier = if (titleContent == null) Modifier.statusBarsPadding() else Modifier, color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) IconButton(onClick = { captureThen(onBack) },
                 modifier = Modifier.semantics { contentDescription = strings[R.string.ui_back] }) { Text("‹") }
             Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(28.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                if (titleContent != null) titleContent() else Text(workspace.activeTab.currentPage.localizedToolbarTitle(strings),
+                if (titleContent != null) titleContent() else Text(titleOverride ?: workspace.activeTab.currentPage.localizedToolbarTitle(strings),
                     Modifier.padding(horizontal = 16.dp, vertical = 13.dp), maxLines = 1,
                     overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
             }

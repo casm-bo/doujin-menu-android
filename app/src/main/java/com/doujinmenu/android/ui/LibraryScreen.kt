@@ -476,7 +476,8 @@ fun LibraryScreen(
         SeriesOptionsEditor(name, state.libraryBooks, state.customSeriesByBookId, contentPadding,
             onSave = { baseline, ids -> onCommitSeriesEdit(name, baseline, ids) },
             onDone = { editingSeriesName = null; selectionMode = false; seriesSelectionMode = false; selectedIds = emptySet(); selectedSeriesNames = emptySet() },
-            onCancel = { editingSeriesName = null })
+            onCancel = { editingSeriesName = null },
+            displayTitle = state.presentations[seriesPresentationKey(name)]?.value?.title ?: name)
         return
     }
     CompositionLocalProvider(LocalWorkCardSize provides WorkCardSize.fromColumns(gridColumns)) {
@@ -644,10 +645,11 @@ fun LibraryScreen(
 
             }
             if (selectedSeries != null && !selectionMode) {
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { if (showSeriesList) onSeriesListChange(false) else onSelectedSeriesChange(null) },
                         modifier = Modifier.semantics { contentDescription = strings[R.string.ui_back] }) { ActionIcon(ActionSymbol.BACK) }
-                    Text(selectedSeries, Modifier.weight(1f).padding(12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(state.presentations[seriesPresentationKey(selectedSeries)]?.value?.title ?: selectedSeries,
+                        Modifier.weight(1f).padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (showSeriesList) TextButton(onClick = { onSeriesListChange(false) }) { Text(strings[R.string.ui_series_details]) }
 
                 }

@@ -23,12 +23,16 @@ class SeriesOptionsEditorTest {
     @Test fun largeTitleStartsBelowStatusBarOnIndependentSeriesRoute() {
         compose.activityRule.scenario.onActivity { it.enableEdgeToEdge() }
         compose.setContent { DoujinMenuTheme(fontSizeSp = 28f) { SeriesOptionsEditor("Target", books, assignments, PaddingValues(0.dp),
-            onSave = { _, _ -> true }, onDone = {}, onCancel = {}) } }
+            onSave = { _, _ -> true }, onDone = {}, onCancel = {}, displayTitle = "Edited title") } }
         var top = 0
         compose.activityRule.scenario.onActivity {
             top = androidx.core.view.ViewCompat.getRootWindowInsets(it.window.decorView)!!.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
         }
-        assertTrue("Series title must clear the status bar", compose.onNodeWithText("Target").fetchSemanticsNode().boundsInRoot.top >= top)
+        val title = compose.onNodeWithText("Edited title").fetchSemanticsNode().boundsInRoot
+        assertTrue("Series title must clear the status bar", title.top >= top)
+        val save = compose.onNodeWithText(InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.ui_save)).fetchSemanticsNode().boundsInRoot
+        assertEquals("Title and actions share a centered toolbar row", save.center.y, title.center.y, 2f)
+        compose.onNodeWithText("Target").assertDoesNotExist()
     }
     @Test fun addAndExcludeStayInDraftUntilSaveAndKeepFiles() {
         val strings = InstrumentationRegistry.getInstrumentation().targetContext.resources
@@ -88,18 +92,12 @@ class SeriesOptionsEditorTest {
         }
         compose.onNodeWithText(strings.getString(R.string.ui_add_episodes)).performClick()
         compose.onNodeWithText("C").performClick()
-        compose.onNodeWithContentDescription(strings.getString(R.string.ui_search_gallery)).performClick()
-        fun descendants(view: android.view.View): Sequence<android.view.View> = sequence {
-            yield(view)
-            if (view is android.view.ViewGroup) for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))
-        }
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        fun field() = android.view.inspector.WindowInspector.getGlobalWindowViews().asSequence().flatMap(::descendants).filterIsInstance<android.widget.EditText>().singleOrNull()
-        compose.waitUntil(5_000) { var ready = false; instrumentation.runOnMainSync { ready = field()?.hasFocus() == true }; ready }
-        instrumentation.runOnMainSync { field()!!.setText("artist:Alice, tag:full_color") }
+        compose.onNode(hasSetTextAction()).performClick().performTextInput("artist:Alice, tag:full_color")
+        compose.onNodeWithTag("search-editor").assertDoesNotExist()
+        compose.onNodeWithTag("search-history-list").assertDoesNotExist()
         compose.onNodeWithText("Other candidate").assertDoesNotExist()
         compose.onNodeWithText("C").assertDoesNotExist()
-        instrumentation.runOnMainSync { field()!!.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) }
+        compose.onNode(hasSetTextAction()).performImeAction()
         compose.onNodeWithText("Find me").performClick()
         compose.onNodeWithText(strings.getString(R.string.ui_confirm)).performClick()
         compose.onNodeWithText(strings.getString(R.string.ui_save)).performClick()

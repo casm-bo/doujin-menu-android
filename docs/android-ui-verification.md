@@ -323,3 +323,14 @@ are excluded from frame-time comparisons.
 
 Final combined follow-up run: all 44 device cases passed. Debug/uitest builds,
 Lint (zero errors), and all 216 enabled JVM cases passed; two opt-in cases skipped.
+
+## Lightweight episode search and alignment
+
+SeriesOptionsEditor uses a single-line OutlinedTextField, with no history,
+suggestion panel or expansion transition. It retains the common gallery query
+parser and pending selections hidden by filtering. IME Search hides the keyboard.
+The edited display title and save/cancel actions share a centered header row;
+the series route toolbar also uses the display title. Group identity is unchanged.
+The shared browser/gallery tab strip centers its search field and action buttons.
+All 16 episode editor, search editor and full-screen IME regressions passed on
+SM-N986N, including title alignment at 28 sp and selection preservation at 24 sp.

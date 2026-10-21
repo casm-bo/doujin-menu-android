@@ -4,12 +4,16 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -132,8 +136,10 @@ internal fun SeriesDetailContent(name: String, books: List<LibraryBook>, state: 
 
 @Composable
 internal fun SeriesOptionsEditor(name: String, books: List<LibraryBook>, assignments: Map<String, CustomSeriesAssignment>, contentPadding: PaddingValues,
-    onSave: (Map<String, CustomSeriesAssignment>, List<String>) -> Boolean, onDone: () -> Unit, onCancel: () -> Unit) {
+    onSave: (Map<String, CustomSeriesAssignment>, List<String>) -> Boolean, onDone: () -> Unit, onCancel: () -> Unit,
+    displayTitle: String = name) {
     val strings = androidx.compose.ui.platform.LocalResources.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val baselineJson = rememberSaveable(name) { JSONObject().apply { assignments.forEach { (id, entry) ->
         put(id, JSONObject().put("name", entry.name).put("order", entry.order).put("modifiedAt", entry.modifiedAt))
     } }.toString() }
@@ -149,11 +155,11 @@ internal fun SeriesOptionsEditor(name: String, books: List<LibraryBook>, assignm
     val byId = remember(books) { books.associateBy { it.id } }
     BackHandler { if (adding) { adding = false; chosen = emptySet() } else onCancel() }
     Column(Modifier.fillMaxSize().padding(contentPadding).consumeWindowInsets(contentPadding)
-        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))) {
+        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)).imePadding()) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-            Column(Modifier.fillMaxWidth().padding(8.dp)) {
-                Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(displayTitle, Modifier.weight(1f).padding(end = 8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                     TextButton(onClick = onCancel) { Text(strings[R.string.ui_cancel]) }
                     Button(onClick = { failed = !onSave(baseline, order); if (!failed) onDone() }, enabled = !adding && order.all { it in byId }) { Text(strings[R.string.ui_save]) }
                 }
@@ -170,12 +176,21 @@ internal fun SeriesOptionsEditor(name: String, books: List<LibraryBook>, assignm
             }
         }
         if (failed) Text(strings[R.string.ui_series_edit_conflict], Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
-        if (adding) InlineSearchLayout(remember(name) { InlineSearchState() }, Modifier.weight(1f)) {
+        if (adding) {
             val candidates = remember(books, order, query, assignments) {
                 filterLibraryBooksByQuery(books.filter { it.id !in order }, query, assignments)
             }
-            Column(Modifier.fillMaxSize()) {
-                UnifiedSearchField(query, { query = it }, strings[R.string.ui_search_gallery], {}, {})
+            Column(Modifier.weight(1f)) {
+                OutlinedTextField(query, { query = it }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    placeholder = { Text(strings[R.string.ui_search_gallery]) },
+                    leadingIcon = { ActionIcon(ActionSymbol.SEARCH) },
+                    trailingIcon = if (query.isEmpty()) null else ({ IconButton(onClick = { query = "" },
+                        modifier = Modifier.semantics { contentDescription = strings[R.string.ui_clear_search] }) {
+                        ActionIcon(ActionSymbol.CLEAR)
+                    } }),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }))
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(candidates, key = { it.id }) { book ->
                 LibraryWorkCard(book, 0, grid = false, favorite = false, read = false,

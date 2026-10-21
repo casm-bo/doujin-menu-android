@@ -3,6 +3,7 @@ package com.doujinmenu.android.ui
 import com.doujinmenu.android.R
 import com.doujinmenu.android.model.presentation
 import com.doujinmenu.android.model.presentationKey
+import com.doujinmenu.android.model.seriesPresentationKey
 
 import android.content.Intent
 import android.net.Uri
@@ -558,12 +559,14 @@ private fun AppSearchTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = 
 @Composable
 private fun AppGalleryTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null, showSync: Boolean = false, titleContent: (@Composable () -> Unit)? = null, actions: @Composable () -> Unit = {}) {
     val strings = androidx.compose.ui.platform.LocalResources.current
+    val series = viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibrarySeries
     BrowserTabStrip(
         workspace = viewModel.uiState.galleryWorkspace,
         onNew = viewModel::newGalleryTab,
         onShowOverview = { viewModel.showTabOverview(isGallery = true) },
         previews = viewModel.tabPreviews,
         onBack = onBack,
+        titleOverride = series?.let { viewModel.uiState.presentations[seriesPresentationKey(it.name)]?.value?.title },
         titleContent = titleContent,
         extraActions = {
             actions()
