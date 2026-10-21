@@ -240,3 +240,18 @@ Deferred request scope: series-level metadata/cover editing (internal and extern
 images), Amber minimal dark-mode text contrast, occasional scroll-restore offsets,
 the clipped series-editor title and search in the episode-add picker. This change
 addresses the shared search bar first.
+
+## Full-screen search insets follow-up
+
+The persistent blank band above the IME came from applying Scaffold's bottom
+padding again as keyboard space. `InlineSearchLayout` now owns and consumes the
+Scaffold padding in both BrowserScreen and LibraryScreen. It reserves the IME
+animation target once, respecting previously consumed insets; the search toolbar
+no longer animates its width and the panel uses one 180 ms height transition.
+
+`SearchScreenInsetsTest` runs both full screens with edge-to-edge, native IME,
+and an 80 dp bottom navigation area. It checks the scrolling viewport's bottom
+against the keyboard edge and verifies history gestures retain native focus.
+These two cases and all nine SearchEditorTest cases passed on SM-N986N.
+Controlled debug transition timing still includes long frames (p95 about 59 ms
+in one final run); this is not evidence of consistently smooth release timing.

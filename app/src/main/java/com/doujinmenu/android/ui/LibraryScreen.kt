@@ -477,12 +477,12 @@ fun LibraryScreen(
             PullToRefreshDefaults.Indicator(
                 isRefreshing = state.isLibraryPullRefreshing,
                 state = pullToRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = contentPadding.calculateTopPadding()),
             )
         },
-        modifier = Modifier.fillMaxSize().padding(contentPadding),
+        modifier = Modifier.fillMaxSize(),
     ) {
-        InlineSearchLayout(searchExpansion) {
+        InlineSearchLayout(searchExpansion, contentPadding = contentPadding) {
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             CollapsingToolbar(scrollBehavior) {
             tabHeader({

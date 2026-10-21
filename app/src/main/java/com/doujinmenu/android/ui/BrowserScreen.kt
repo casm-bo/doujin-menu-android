@@ -276,7 +276,7 @@ fun BrowserScreen(
         if (!canCollapse) scrollBehavior.state.heightOffset = 0f
     }
     CompositionLocalProvider(LocalWorkCardSize provides WorkCardSize.fromColumns(gridColumns)) {
-    InlineSearchLayout(searchExpansion, Modifier.fillMaxSize().padding(contentPadding)) {
+    InlineSearchLayout(searchExpansion, contentPadding = contentPadding) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
         CollapsingToolbar(scrollBehavior) {
         Column {

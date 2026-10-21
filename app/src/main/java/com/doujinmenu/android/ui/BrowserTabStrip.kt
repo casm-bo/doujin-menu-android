@@ -9,11 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.Box
-import androidx.compose.ui.layout.layout
-import kotlin.math.roundToInt
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,7 +49,6 @@ fun BrowserTabStrip(
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val search = LocalInlineSearch.current
-    val expansion = animateFloatAsState(if (search?.expanded == true) 1f else 0f, tween(220), label = "search toolbar width")
     val scope = rememberCoroutineScope()
     fun captureThen(action: () -> Unit) { scope.launch { previews.captureNow(); action() } }
 
@@ -68,10 +62,7 @@ fun BrowserTabStrip(
                     Modifier.padding(horizontal = 16.dp, vertical = 13.dp), maxLines = 1,
                     overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
             }
-            Box(Modifier.clipToBounds().layout { measurable, constraints ->
-                val child = measurable.measure(constraints)
-                layout((child.width * (1f - expansion.value)).roundToInt(), child.height) { child.placeRelative(0, 0) }
-            }) {
+            if (search?.expanded != true) {
             Row {
             IconButton(onClick = { captureThen(onNew) }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_new_tab] }) {
                 Text("+", style = MaterialTheme.typography.headlineMedium)

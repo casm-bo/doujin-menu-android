@@ -5,8 +5,13 @@ import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imeAnimationTarget
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -28,15 +33,19 @@ internal class InlineSearchState {
 internal val LocalInlineSearch = staticCompositionLocalOf<InlineSearchState?> { null }
 
 /** The existing toolbar grows in the same layout/window; no dialog or navigation entry. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun InlineSearchLayout(
     state: InlineSearchState,
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
     content: @Composable () -> Unit,
 ) {
     var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     val view = LocalView.current
-    BoxWithConstraints(modifier.fillMaxSize().imePadding().onGloballyPositioned { origin = it.positionInRoot() }
+    BoxWithConstraints(modifier.fillMaxSize().padding(contentPadding).consumeWindowInsets(contentPadding)
+        .windowInsetsPadding(WindowInsets.imeAnimationTarget)
+        .onGloballyPositioned { origin = it.positionInRoot() }
         .pointerInput(state, view) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -62,7 +71,7 @@ internal fun InlineSearchLayout(
                 } while (event.changes.any { it.pressed })
             }
         }) {
-        // Give history more room while retaining browsing space, including with the IME open.
+        // Measure at the IME destination once instead of resizing the results on every IME frame.
         SideEffect { state.panelMaxHeight = ((maxHeight - 56.dp) * .65f).coerceIn(0.dp, 320.dp) }
         CompositionLocalProvider(LocalInlineSearch provides state, content = content)
     }

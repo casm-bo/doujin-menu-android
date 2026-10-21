@@ -69,7 +69,7 @@ internal fun UnifiedSearchField(
         }
     }
     BackHandler(state.expanded) { close() }
-    Column(Modifier.fillMaxWidth().animateContentSize(tween(220)).clipToBounds()
+    Column(Modifier.fillMaxWidth().animateContentSize(tween(180)).clipToBounds()
         .onGloballyPositioned { state.editorBounds = it.boundsInRoot() }
         .testTag(if (state.expanded) "search-editor" else "search-collapsed")) {
         Row(Modifier.fillMaxWidth().height(56.dp).onGloballyPositioned { state.inputBounds = it.boundsInRoot() },
