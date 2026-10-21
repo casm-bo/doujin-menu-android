@@ -399,3 +399,23 @@ from index 11/offset 169 to index 13/offset 476; a force-stop/restart restored
 the same anchor/index/offset. No app data was cleared. Debug/uitest builds, all
 217 enabled JVM tests (two opt-in skips), and Lint (zero errors, 108 warnings,
 three hints) passed on the final source.
+
+## Remaining cold-start frame cost
+
+With the final debug APK on SM-N986N, gallery scroll persistence allowed the test
+to normalize to index zero/offset zero. One untraced run used four upward and
+four downward 350 ms gestures, first four seconds after launch, then after an
+eight-second idle and normalization to the same start position. The cold capture
+(including startup frames) reported 559 frames, median 14 ms and p95 53 ms; the
+warm capture reported 359 frames, median 12 ms and p95 36 ms. This is a single
+cold/warm diagnostic, not a controlled old/new or v0.10.0 release comparison.
+It confirms remaining long frames rather than uniform smoothness.
+
+Sampled traces separately identify first-card composition/text layout and
+accessibility/semantics processing in long frames. These are additional costs
+beyond the removed main-thread progress/series decoding. The enabled Phone Link
+accessibility service was retained during measurements; no causal comparison
+with the service disabled was performed. A shared tag-text cache experiment
+did not consistently improve the first scrolling pass and was discarded.
+Further first-card/accessibility optimization remains unverified; the state
+restoration improvement must not be described as a complete cold-start fix.
