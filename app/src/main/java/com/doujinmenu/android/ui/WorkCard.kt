@@ -1,14 +1,26 @@
 package com.doujinmenu.android.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -48,26 +60,55 @@ internal fun packTags(widths: List<Int>, width: Int, rows: Int, gap: Int, overfl
 @Composable
 private fun WorkTags(tags: List<CardTag>, rows: Int, modifier: Modifier) {
     val style = MaterialTheme.typography.bodyMedium
-    SubcomposeLayout(modifier = modifier) { constraints ->
-        val overflow = subcompose("overflow") { Text("…", style = style) }.single().measure(Constraints(maxWidth = constraints.maxWidth))
-        val children = mutableListOf<androidx.compose.ui.layout.Placeable>()
-        var row = 0
-        var x = 0
-        val gap = 4.dp.roundToPx()
-        for ((index, tag) in tags.withIndex()) {
-            val child = subcompose(index) {
-                TagPill(tag.info, large = true, modifier = if (tag.onClick != null) Modifier.clickable(onClick = tag.onClick) else Modifier)
-            }.single().measure(Constraints(maxWidth = constraints.maxWidth))
-            children += child
-            if (x > 0 && x + child.width > constraints.maxWidth) { row++; x = 0 }
-            if (row >= rows) break
-            x += child.width + gap
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer(cacheSize = 32)
+    val colors = TagStyle.entries.associateWith { tagColors(it) }
+    val overflowColor = LocalContentColor.current
+    BoxWithConstraints(modifier) {
+        val width = constraints.maxWidth
+        val padding = with(density) { 9.dp.roundToPx() }
+        val gap = with(density) { 4.dp.roundToPx() }
+        val verticalGap = with(density) { 3.dp.roundToPx() }
+        // Measure text once and draw it directly. Avoid a Surface/Text subcomposition per pill per layout.
+        val measured = remember(tags, width, rows, style, measurer, padding, gap) {
+            buildList {
+                var row = 0
+                var x = 0
+                for (tag in tags) {
+                    val text = measurer.measure(AnnotatedString(tag.info.text), style, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, constraints = Constraints(maxWidth = (width - padding * 2).coerceAtLeast(0)))
+                    add(text)
+                    val tagWidth = (text.size.width + padding * 2).coerceAtMost(width)
+                    if (x > 0 && x + tagWidth > width) { row++; x = 0 }
+                    if (row >= rows) break
+                    x += tagWidth + gap
+                }
+            }
         }
-        val rowHeight = ((constraints.maxHeight - (rows - 1) * 3.dp.roundToPx()) / rows).coerceAtLeast(1)
-        val packed = packTags(children.map { it.width }, constraints.maxWidth, rows, gap, overflow.width, children.size < tags.size)
-        layout(constraints.maxWidth, constraints.maxHeight) {
-            packed.tags.forEach { item -> children[item.index].placeRelative(item.x, item.row * (rowHeight + 3.dp.roundToPx())) }
-            packed.overflow?.let { overflow.placeRelative(it.x, it.row * (rowHeight + 3.dp.roundToPx())) }
+        val overflow = measurer.measure(AnnotatedString("…"), style, maxLines = 1, constraints = Constraints(maxWidth = width))
+        val widths = measured.map { (it.size.width + padding * 2).coerceAtMost(width) }
+        val packed = remember(widths, width, rows, gap, overflow.size.width, tags.size) {
+            packTags(widths, width, rows, gap, overflow.size.width, measured.size < tags.size)
+        }
+        Layout(modifier = Modifier.fillMaxSize(), content = {
+            packed.tags.forEach { item ->
+                val tag = tags[item.index]
+                val (background, foreground) = colors.getValue(tag.info.style)
+                Canvas(Modifier.semantics { text = AnnotatedString(tag.info.text); if (tag.onClick != null) role = Role.Button }
+                    .then(if (tag.onClick != null) Modifier.clip(RoundedCornerShape(50)).clickable(onClick = tag.onClick) else Modifier)) {
+                    drawRoundRect(background, cornerRadius = CornerRadius(size.height / 2))
+                    drawText(measured[item.index], foreground, topLeft = Offset(padding.toFloat(), 4.dp.toPx()))
+                }
+            }
+            if (packed.overflow != null) Canvas(Modifier.semantics { text = AnnotatedString("…") }) { drawText(overflow, overflowColor) }
+        }) { measurables, bounds ->
+            val rowHeight = ((bounds.maxHeight - (rows - 1) * verticalGap) / rows).coerceAtLeast(1)
+            val children = packed.tags.mapIndexed { index, item -> measurables[index].measure(Constraints.fixed(widths[item.index], rowHeight)) }
+            val ellipsis = packed.overflow?.let { measurables.last().measure(Constraints.fixed(overflow.size.width, rowHeight)) }
+            layout(bounds.maxWidth, bounds.maxHeight) {
+                packed.tags.forEachIndexed { index, item -> children[index].placeRelative(item.x, item.row * (rowHeight + verticalGap)) }
+                packed.overflow?.let { ellipsis?.placeRelative(it.x, it.row * (rowHeight + verticalGap)) }
+            }
         }
     }
 }

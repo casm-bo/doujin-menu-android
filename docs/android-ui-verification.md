@@ -109,3 +109,48 @@ See [testing.md](testing.md) for commands that avoid targeting installed user ap
 Metadata/cover protocol and storage are documented in [metadata-sync.md](metadata-sync.md).
 Real successful biometric scans and transfer against the user's installed PC build
 were not automated. The PC requires the updated Companion API build.
+# Search expansion and jank follow-up (2026-10-20)
+
+- Search expands only through its rules/history/suggestions panel. The panel wraps
+  short content, caps at 260 dp and at half the usable space below the input, and
+  leaves the browsing results and main navigation visible with the keyboard open.
+  Touching or scrolling the results collapses it without submitting the draft.
+- Startup sampling identified library refresh work on the main thread, including
+  repeated whole-collection copies for individual remote book states. Refresh and
+  state-sync merging now mutate private working copies once; refresh preparation
+  runs on Default. Preference snapshots and the presentation/profile identity are
+  checked before publication so concurrent edits and PC changes cannot be replaced
+  by an older result.
+- Window/security/system-bar effects run only when their inputs change. Root
+  appearance reads use derived state, and theme colors are remembered. App locking
+  still removes the protected app content; it does not keep an interactive hidden
+  screen behind the lock screen.
+- Search's downloaded-book index is built in one pass instead of scanning the
+  library once per gallery. Local-copy preference and hidden-copy rules remain.
+- Steady scrolling sampling identified packed card tags as the largest app-level
+  UI cost. Packed tags reuse measured text and draw pills directly instead of
+  creating a Surface/Text subcomposition for each tag during measurement. Each
+  visible tag retains its own accessibility text and optional click action.
+
+Measurements on SM-N986N, debug builds:
+
+| Controlled local-image scroll workload | Before | After, two runs |
+| --- | --- | --- |
+| Frames | 539 | 574 / 592 |
+| Median frame, ms | 10.91 | 10.77 / 10.07 |
+| 95th percentile, ms | 34.77 | 31.15 / 22.98 |
+| Frames above 16.67 ms | 76 (14.1%) | 64 (11.1%) / 49 (8.3%) |
+| Scroll-state writes | 9 | 9 / 9 |
+
+The scroll workload uses 600 synthetic books, cached local images, two columns,
+light mode, 16 sp, native timed input and no network. Long frames remain; these
+debug measurements do not establish consistently smooth release-frame timing.
+Separate method-sampling captures on the installed debug app showed aggregate
+main-thread CPU under `refreshLibrary` fall from about 1783 ms to 143 ms. Sampling
+and ART warm-up affect those captures; they are not app-launch-duration figures.
+
+Device regression coverage includes real-activity PIN unlock/relock, FLAG_SECURE,
+reader position, profile-switch races, presentation sync, draft preservation,
+search expansion, tag clicks, overflow, selection and fonts through 28 sp. Lock
+tests use the isolated `.uitest` package and synthetic credentials; the installed
+debug application's credentials are unchanged.

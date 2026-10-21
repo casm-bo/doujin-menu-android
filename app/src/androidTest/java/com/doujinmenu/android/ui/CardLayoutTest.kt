@@ -7,6 +7,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -20,6 +21,28 @@ import org.junit.Test
 
 class CardLayoutTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun packedTagsKeepTheirOwnClickAndAccessibleTextAcrossFontChanges() {
+        var font by mutableFloatStateOf(16f)
+        var opened = 0
+        var filtered = 0
+        compose.setContent { DoujinMenuTheme(fontSizeSp = font) {
+            Box(Modifier.width(190.dp)) {
+                WorkCard("Tagged card", "Artist", "Pages", listOf(CardTag(tagDisplayInfo("filter-tag")) { filtered++ }) +
+                    List(40) { CardTag(tagDisplayInfo("overflow-tag-$it")) }, "", grid = true, onClick = { opened++ }) { Text("Cover") }
+            }
+        } }
+        for (size in listOf(16f, 20f, 28f)) {
+            compose.runOnIdle { font = size }
+            compose.onNodeWithText("filter-tag", useUnmergedTree = true).assertExists().performClick()
+            compose.onNodeWithText("overflow-tag-39", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithText("…", useUnmergedTree = true).assertExists()
+            if (size == 16f) java.io.File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "card-tags-preview.png").outputStream().use {
+                compose.onRoot().captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
+        compose.runOnIdle { assertEquals(3, filtered); assertEquals(0, opened) }
+    }
 
     @Test fun selectionIsAccessibleAndDoesNotChangeCardGeometry() {
         var selected by mutableStateOf(false)
