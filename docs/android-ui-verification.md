@@ -350,3 +350,27 @@ The real-app route test reproduced the flash before the fix. It now checks 12
 individual transition frames after opening a card from index 20, the saved home
 anchor/index/offset, and the returning card's Y coordinate within 2 px. Both
 route/navigation device tests and BrowserSessionTest passed after the fix.
+
+## Cold-start state restoration
+
+An actual-debug-app sampled trace located saved-state decoding inside the first
+Choreographer frame: MainViewModel construction used about 195 ms of main-thread
+CPU, including about 78 ms reading progress and 56 ms decoding custom series.
+These are diagnostic sampled CPU times, not uninstrumented launch duration.
+State restoration now runs on Dispatchers.IO. Appearance is available immediately;
+the workspace mounts only after the full restored state/navigation page is ready.
+This avoids exposing a default empty workspace or accepting edits before restore.
+Download observation, library refresh and update checks start after restoration.
+
+The follow-up trace sampled about 20 ms in MainViewModel construction and no
+progress/custom-series load methods on main. Overall before/after frame statistics
+from those initial runs are not used: the browsing screens differed between runs.
+Separate long frames in first card creation, text layout and accessibility remain
+visible in the trace and must be assessed independently of saved-state restoration.
+
+StartupRestoreTest verifies asynchronous construction, restoration of 2,000 progress
+values and 2,000 series assignments, recent reading position and gallery workspace
+selection before UI access. It also verifies the selected gallery navigation tab.
+The eight startup/search/download/profile/refresh/route regressions passed; the
+updated startup UI case passed separately as well. Existing direct ViewModel tests
+now wait for restored state, matching the production UI readiness gate.

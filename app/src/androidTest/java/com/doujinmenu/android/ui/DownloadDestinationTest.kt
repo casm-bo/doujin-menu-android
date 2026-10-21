@@ -32,6 +32,9 @@ class DownloadDestinationTest {
             preferences.suppressDesktopDownloadAlert(false)
             instrumentation.runOnMainSync {
                 model = ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory(context.applicationContext as Application))[MainViewModel::class.java]
+            }
+            model.awaitStarted()
+            instrumentation.runOnMainSync {
                 model.downloadGallery(fixture)
                 assertEquals(fixture, model.uiState.pendingDownloadGallery)
                 assertEquals(before, requests.requests.value)

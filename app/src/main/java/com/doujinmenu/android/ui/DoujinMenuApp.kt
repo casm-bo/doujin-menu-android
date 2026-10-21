@@ -105,6 +105,12 @@ internal enum class MainDestination(
 
 @Composable
 fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
+    if (viewModel.uiState.isStarting) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
     val strings = androidx.compose.ui.platform.LocalResources.current
     val navController = rememberNavController()
     val context = LocalContext.current

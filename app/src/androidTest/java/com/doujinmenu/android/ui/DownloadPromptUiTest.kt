@@ -30,6 +30,7 @@ class DownloadPromptUiTest {
             preferences.saveDownloadDestination(DownloadDestination.ASK)
             preferences.saveBrowserWorkspace(BrowserWorkspace.initial())
             instrumentation.runOnMainSync { model = ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory(context.applicationContext as Application))[MainViewModel::class.java] }
+            model.awaitStarted()
             compose.setContent { DoujinMenuTheme { DoujinMenuApp(model) } }
             compose.runOnIdle { model.downloadGallery(GallerySummary(9_900_002, "Chooser fixture", emptyList(), emptyList(), null, emptyList(), null, 1, null)) }
             compose.onNodeWithText(strings.getString(R.string.ui_choose_download_destination)).assertExists()

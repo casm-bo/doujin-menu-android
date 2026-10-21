@@ -18,6 +18,9 @@ class SearchDraftStateTest {
         try {
             instrumentation.runOnMainSync {
                 model = ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory(context.applicationContext as Application))[MainViewModel::class.java]
+            }
+            model.awaitStarted()
+            instrumentation.runOnMainSync {
                 model.clearLibrarySearchHistory()
                 model.setLibraryQuery("tag:old")
                 model.setLibraryQuery("tag:full_color, artist:sample")
@@ -48,9 +51,13 @@ class SearchDraftStateTest {
         preferences.saveBrowserWorkspace(BrowserWorkspace.initial(committed))
         preferences.saveGalleryWorkspace(BrowserWorkspace.initial(BrowserPage.LibraryHome(query = "tag:hi")))
         val store = ViewModelStore()
+        lateinit var model: MainViewModel
         try {
             instrumentation.runOnMainSync {
-                val model = ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory(context.applicationContext as Application))[MainViewModel::class.java]
+                model = ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory(context.applicationContext as Application))[MainViewModel::class.java]
+            }
+            model.awaitStarted()
+            instrumentation.runOnMainSync {
                 model.setSearchQuery("tag:hello")
                 model.togglePreferredLanguage("english")
                 model.setLibraryQuery("tag:hello")

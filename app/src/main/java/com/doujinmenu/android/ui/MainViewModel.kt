@@ -149,6 +149,7 @@ private data class PreparedLibraryRefresh(
 )
 
 data class MainUiState(
+    val isStarting: Boolean = false,
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val appStyle: com.doujinmenu.android.model.AppStyle = com.doujinmenu.android.model.AppStyle(),
     val fontSizeSp: Float = com.doujinmenu.android.model.DEFAULT_FONT_SIZE_SP,
@@ -315,11 +316,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val bookStateChangeMutex = Mutex()
     private val librarySyncFlushMutex = Mutex()
 
-    var uiState by mutableStateOf(MainUiState())
+    var uiState by mutableStateOf(MainUiState(isStarting = true,
+        themeMode = browserPreferenceStore.loadThemeMode(),
+        galleryBorders = appearancePreferenceStore.loadBorders(),
+        fontSizeSp = appearancePreferenceStore.loadFontSize(),
+        appStyle = appearancePreferenceStore.loadStyle()))
         private set
     private var navigationPage: BrowserPage = BrowserPage.Search()
 
-    init {
+    private fun readInitialState(): Pair<MainUiState, BrowserPage> {
         val profiles = profileStore.load()
         val savedLanguages = browserPreferenceStore.loadPreferredLanguages()
         val loadedWorkspace = browserPreferenceStore.loadBrowserWorkspace()
@@ -332,7 +337,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 preferredLanguages = if (search.preferredLanguages.isEmpty()) activeLanguages else search.preferredLanguages)
         }
         val activeSearch = browserWorkspace.activeTab.currentPage as? BrowserPage.Search
-        uiState = uiState.copy(
+        val initial = uiState.copy(
+            isStarting = false,
             themeMode = browserPreferenceStore.loadThemeMode(),
             galleryBorders = appearancePreferenceStore.loadBorders(),
             fontSizeSp = appearancePreferenceStore.loadFontSize(),
@@ -371,22 +377,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
             downloadDestination = browserPreferenceStore.loadDownloadDestination(),
         )
-        viewModelScope.launch { runOperation { reloadPresentations() } }
+        val page = if (browserPreferenceStore.loadActiveGalleryWorkspace()) galleryWorkspace.activeTab.currentPage
+            else browserWorkspace.activeTab.currentPage
+        return initial to page
+    }
+
+    init {
         viewModelScope.launch {
-            requestStore.requests.collect { requests ->
-                val completed = requests.any { request -> request.status == RequestStatus.COMPLETED &&
-                    uiState.downloadRequests.none { it.id == request.id && it.status == RequestStatus.COMPLETED } }
-                uiState = uiState.copy(downloadRequests = requests)
-                if (completed) requestImportantLibraryRefresh()
+            val (initial, page) = withContext(Dispatchers.IO) { readInitialState() }
+            uiState = initial
+            navigationPage = page
+            viewModelScope.launch { runOperation { reloadPresentations() } }
+            viewModelScope.launch {
+                requestStore.requests.collect { requests ->
+                    val completed = requests.any { request -> request.status == RequestStatus.COMPLETED &&
+                        uiState.downloadRequests.none { it.id == request.id && it.status == RequestStatus.COMPLETED } }
+                    uiState = uiState.copy(downloadRequests = requests)
+                    if (completed) requestImportantLibraryRefresh()
+                }
             }
+            requestStore.readError?.let { uiState = uiState.copy(downloadQueueError = it) }
+            val activeSearch = initial.browserWorkspace.activeTab.currentPage as? BrowserPage.Search
+            if (activeSearch?.resultIds.isNullOrEmpty() && (activeSearch?.currentPage ?: 0) > 0) {
+                restoreBrowserSearch()
+            }
+            refreshLibrarySilently()
+            checkForUpdates(manual = false)
         }
-        requestStore.readError?.let { uiState = uiState.copy(downloadQueueError = it) }
-        navigationPage = if (browserPreferenceStore.loadActiveGalleryWorkspace()) galleryWorkspace.activeTab.currentPage else browserWorkspace.activeTab.currentPage
-        if (activeSearch?.resultIds.isNullOrEmpty() && (activeSearch?.currentPage ?: 0) > 0) {
-            restoreBrowserSearch()
-        }
-        refreshLibrarySilently()
-        checkForUpdates(manual = false)
     }
 
     fun setHost(value: String) = update { copy(host = value) }
