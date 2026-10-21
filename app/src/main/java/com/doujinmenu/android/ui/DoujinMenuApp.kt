@@ -52,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -581,6 +582,7 @@ private fun MainShell(
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var selectedRoute by rememberSaveable(initialDestinationRoute) { mutableStateOf(initialDestinationRoute) }
+    val inlineSearch = remember(selectedRoute) { InlineSearchState() }
     val selected = MainDestination.entries.firstOrNull { it.route == selectedRoute }
         ?: MainDestination.Browser
     LaunchedEffect(selectedRoute) {
@@ -636,10 +638,11 @@ private fun MainShell(
         }
     }
 
+    CompositionLocalProvider(LocalInlineSearch provides inlineSearch) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth >= 700.dp) {
             Row(modifier = Modifier.fillMaxSize()) {
-                NavigationRail {
+                if (!inlineSearch.expanded) NavigationRail {
                     MainDestination.entries.forEach { destination ->
                         NavigationRailItem(
                             selected = destination == selected,
@@ -658,10 +661,11 @@ private fun MainShell(
             Scaffold(
                 topBar = topBar,
                 bottomBar = {
-                    MainBottomNavigation(selected, navigate)
+                    if (!inlineSearch.expanded) MainBottomNavigation(selected, navigate)
                 },
             ) { padding -> content(padding) }
         }
+    }
     }
 }
 

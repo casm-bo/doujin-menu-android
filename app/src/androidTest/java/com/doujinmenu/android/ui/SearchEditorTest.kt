@@ -26,7 +26,9 @@ class SearchEditorTest {
     @Composable private fun AppTheme(content: @Composable () -> Unit) {
         val context = androidx.compose.ui.platform.LocalContext.current
         val themed = remember(context) { android.view.ContextThemeWrapper(context, R.style.Theme_DoujinMenu) }
-        CompositionLocalProvider(androidx.compose.ui.platform.LocalContext provides themed) { DoujinMenuTheme { content() } }
+        CompositionLocalProvider(androidx.compose.ui.platform.LocalContext provides themed) { DoujinMenuTheme {
+            InlineSearchLayout(remember { InlineSearchState() }) { content() }
+        } }
     }
     private fun descendants(view: View): Sequence<View> = sequence {
         yield(view)
@@ -140,7 +142,60 @@ class SearchEditorTest {
         compose.onNodeWithText("tag:full_color, tag:multi-work_series").assertExists()
         compose.onNodeWithText(strings.getString(R.string.ui_clear_history)).performClick()
         compose.onNodeWithText(strings.getString(R.string.ui_no_recent_searches)).assertExists()
-        compose.onNode(hasContentDescription(strings.getString(R.string.ui_run_search)) and hasAnyAncestor(isDialog())).performClick()
+        compose.onAllNodes(isDialog()).assertCountEquals(0)
+        compose.onNodeWithContentDescription(strings.getString(R.string.ui_run_search)).performClick()
         assertTrue(submitted)
+    }
+
+    @Test fun expandedFieldCollapsesOnBlankTapAndScrollWithoutSubmittingOrLosingDraft() {
+        var query by mutableStateOf("tag:draft")
+        var submitted = 0
+        compose.setContent { AppTheme { UnifiedSearchField(query, { query = it }, "Inline query", {}, { submitted++ }) } }
+        compose.onNodeWithContentDescription("Inline query").performClick()
+        waitForInput()
+        compose.onAllNodes(isDialog()).assertCountEquals(0)
+        field { it.text.append(", artist:sample") }
+        compose.onNodeWithTag("search-editor").performTouchInput { click(androidx.compose.ui.geometry.Offset(center.x, height * .85f)) }
+        compose.onNodeWithTag("search-collapsed").assertExists()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Inline query").performClick()
+        waitForInput()
+        field { assertEquals(query.length, it.selectionStart) }
+        compose.onNodeWithTag("search-editor").performTouchInput {
+            swipe(androidx.compose.ui.geometry.Offset(center.x, height * .9f), androidx.compose.ui.geometry.Offset(center.x, height * .6f))
+        }
+        compose.onNodeWithTag("search-collapsed").assertExists()
+        compose.runOnIdle { assertEquals("tag:draft, artist:sample", query); assertEquals(0, submitted) }
+        fieldIfPresentHasNoFocus()
+    }
+
+    private fun fieldIfPresentHasNoFocus() {
+        instrumentation.runOnMainSync { views().filterIsInstance<EditText>().forEach { assertFalse(it.hasFocus()) } }
+    }
+
+    @Test fun toolbarFieldExpandsInItsOriginalWindowAndRestoresTabActions() {
+        val context = instrumentation.targetContext
+        val strings = context.resources
+        var query by mutableStateOf("tag:sample")
+        compose.setContent { AppTheme {
+            BrowserTabStrip(BrowserWorkspace.initial(), {}, {}, remember { BrowserTabPreviewCache(context) },
+                titleContent = { UnifiedSearchField(query, { query = it }, "Toolbar query", {}, {}) },
+                extraActions = { androidx.compose.material3.Text("Options") })
+        } }
+        val before = compose.onNodeWithTag("search-collapsed").getUnclippedBoundsInRoot()
+        var windowCount = 0
+        instrumentation.runOnMainSync { windowCount = WindowInspector.getGlobalWindowViews().size }
+        compose.onNodeWithContentDescription("Toolbar query").performClick()
+        waitForInput()
+        val after = compose.onNodeWithTag("search-editor").getUnclippedBoundsInRoot()
+        assertTrue(after.right - after.left > before.right - before.left)
+        assertTrue(after.bottom - after.top > (before.bottom - before.top) * 2)
+        instrumentation.runOnMainSync { assertEquals(windowCount, WindowInspector.getGlobalWindowViews().size) }
+        compose.onNodeWithContentDescription(strings.getString(R.string.ui_new_tab)).assertIsNotDisplayed()
+        compose.onNodeWithContentDescription(strings.getString(R.string.ui_return)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription(strings.getString(R.string.ui_new_tab)).assertIsDisplayed()
+        val restored = compose.onNodeWithTag("search-collapsed").getUnclippedBoundsInRoot()
+        assertEquals((before.right - before.left).value, (restored.right - restored.left).value, .5f)
     }
 }

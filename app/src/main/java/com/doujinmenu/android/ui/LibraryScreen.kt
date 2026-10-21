@@ -416,7 +416,8 @@ fun LibraryScreen(
     var options by remember { mutableStateOf<String?>(null) }
     var filterMenuOpen by remember { mutableStateOf(false) }
     var sortMenuOpen by remember { mutableStateOf(false) }
-    val canCollapse = books.isNotEmpty() && options == null && !filterMenuOpen && !sortMenuOpen &&
+    val searchExpansion = LocalInlineSearch.current ?: remember(pageKey) { InlineSearchState() }
+    val canCollapse = books.isNotEmpty() && !searchExpansion.expanded && options == null && !filterMenuOpen && !sortMenuOpen &&
         !selectionMode && !seriesSelectionMode && editingSeriesName == null && !seriesDialog && !existingSeriesDialog
     val collapseEnabled by rememberUpdatedState(canCollapse)
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { collapseEnabled })
@@ -456,6 +457,7 @@ fun LibraryScreen(
         },
         modifier = Modifier.fillMaxSize().padding(contentPadding),
     ) {
+        InlineSearchLayout(searchExpansion) {
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             CollapsingToolbar(scrollBehavior) {
             tabHeader({
@@ -504,6 +506,7 @@ fun LibraryScreen(
                     }
                 }
             })
+            if (!searchExpansion.expanded) {
             if (seriesSelectionMode && seriesMode && selectedSeries == null) {
                 LibrarySelectionToolbar(
                     selectedCount = selectedSeriesNames.size,
@@ -615,6 +618,7 @@ fun LibraryScreen(
             }
 
             }
+            }
             when {
                 selectedSeries != null && !selectionMode && !showSeriesList -> SeriesDetailContent(
                     selectedSeries, state.libraryBooks.filter { state.customSeriesByBookId[it.id]?.name == selectedSeries }, state,
@@ -715,6 +719,7 @@ fun LibraryScreen(
         }
     }
 
+    }
     }
     if (seriesDialog) {
         AlertDialog(

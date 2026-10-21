@@ -271,14 +271,16 @@ fun BrowserScreen(
     var gridColumns by rememberSaveable { mutableIntStateOf(viewPreferences.loadSearchGridColumns()) }
     var pageDialog by rememberSaveable { mutableStateOf(false) }
     var pageInput by rememberSaveable { mutableStateOf("") }
-    val canCollapse = resultIds.isNotEmpty() && !editing && menu == null && !pageDialog
+    val searchExpansion = LocalInlineSearch.current ?: remember(pageKey) { InlineSearchState() }
+    val canCollapse = resultIds.isNotEmpty() && !editing && !searchExpansion.expanded && menu == null && !pageDialog
     val collapseEnabled by rememberUpdatedState(canCollapse)
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { collapseEnabled })
     LaunchedEffect(pageKey, canCollapse) {
         if (!canCollapse) scrollBehavior.state.heightOffset = 0f
     }
     CompositionLocalProvider(LocalWorkCardSize provides WorkCardSize.fromColumns(gridColumns)) {
-    Column(Modifier.fillMaxSize().padding(contentPadding).background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+    InlineSearchLayout(searchExpansion, Modifier.fillMaxSize().padding(contentPadding)) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
         CollapsingToolbar(scrollBehavior) {
         Column {
         tabHeader({
@@ -304,6 +306,7 @@ fun BrowserScreen(
                 }
             }
         })
+        if (!searchExpansion.expanded) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = { togglePanel("languages") }, contentPadding = PaddingValues(horizontal = 10.dp),
                 colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "languages") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
@@ -442,6 +445,7 @@ fun BrowserScreen(
         }
         }
         }
+        }
     PullToRefreshBox(
         isRefreshing = state.isRefreshing,
         onRefresh = onRefresh,
@@ -529,6 +533,7 @@ fun BrowserScreen(
         }
     }
 
+    }
     }
     }
     if (pageDialog) AlertDialog(
