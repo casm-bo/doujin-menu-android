@@ -207,13 +207,14 @@ fun BrowserScreen(
     fun persistScroll() {
         if (state.searchResultWindow?.index?.pages.isNullOrEmpty()) return
         val index = listState.firstVisibleItemIndex
-        val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key?.toString()
+        val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }?.key?.toString() ?: return
         onScrollChange(anchor, index, listState.firstVisibleItemScrollOffset, visibleSearchPage(index, state.searchResultWindow.index))
     }
     // Keep per-frame list offsets out of MainUiState; save when the gesture settles.
     LaunchedEffect(pageKey, listState, scrollRestored, state.searchResultWindow?.index) {
         if (!scrollRestored) return@LaunchedEffect
-        snapshotFlow { listState.isScrollInProgress }.filter { !it }.collect { persistScroll() }
+        snapshotFlow { Triple(listState.isScrollInProgress, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) }
+            .filter { !it.first }.collect { persistScroll() }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(pageKey, listState, scrollRestored, lifecycleOwner, state.searchResultWindow?.index) {

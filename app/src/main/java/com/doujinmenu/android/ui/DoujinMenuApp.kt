@@ -59,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -790,6 +791,7 @@ private fun MainTabContent(
     onBackToOrigin: (() -> Unit)? = null,
 ) {
     var connectionSettingsRequested by rememberSaveable { mutableStateOf(false) }
+    val pageStates = rememberSaveableStateHolder()
     val openConnectionSettings: () -> Unit = {
         connectionSettingsRequested = true
         onNavigate(MainDestination.Settings)
@@ -807,6 +809,12 @@ private fun MainTabContent(
         },
         label = "mainFragmentTransition",
     ) { current ->
+        val pageStateKey = when (current) {
+            MainDestination.Browser -> "browser:${viewModel.uiState.browserWorkspace.activeTab.currentPage.key}"
+            MainDestination.Library -> "library:${viewModel.uiState.galleryWorkspace.activeTab.currentPage.key}"
+            else -> current.route
+        }
+        pageStates.SaveableStateProvider(pageStateKey) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (current) {
         MainDestination.Browser -> {
@@ -909,6 +917,7 @@ private fun MainTabContent(
                 requestedSection = viewModel.uiState.settingsSectionRequest,
                 onSectionRequestHandled = viewModel::consumeSettingsSectionRequest,
             )
+        }
         }
         }
         }

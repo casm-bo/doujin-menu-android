@@ -255,3 +255,20 @@ against the keyboard edge and verifies history gestures retain native focus.
 These two cases and all nine SearchEditorTest cases passed on SM-N986N.
 Controlled debug transition timing still includes long frames (p95 about 59 ms
 in one final run); this is not evidence of consistently smooth release timing.
+
+## Theme, series editor and scroll restoration
+
+- The theme now provides its background foreground through LocalContentColor,
+  including text outside Material Surfaces. All four presets passed root/surface
+  contrast checks in light and dark modes, including Amber minimal.
+- The series editor consumes caller padding and remaining system bars/cutouts,
+  including on its independent route. Five tests passed: large title under the
+  status bar, shared gallery facet search, hidden selections, draft reorder and
+  cancellation without saving.
+- Main destination pages retain saveable UI state by workspace page identity,
+  including the collapsing toolbar. Scroll persistence reads the anchor and offset
+  from the same measured item; stopped-layout changes are observed as well as
+  gesture completion. This prevents stale list keys during refresh from being
+  paired with a new index. Two navigation tests passed, including the real app's
+  series/next-episode return and the same card's screen Y coordinate after a main
+  destination round trip (2 px tolerance).

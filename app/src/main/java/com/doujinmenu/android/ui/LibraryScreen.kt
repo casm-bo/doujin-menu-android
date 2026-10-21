@@ -396,14 +396,18 @@ fun LibraryScreen(
         }
         val index = if (viewMode == LibraryViewMode.GRID) mainGridState.firstVisibleItemIndex else mainListState.firstVisibleItemIndex
         val offset = if (viewMode == LibraryViewMode.GRID) mainGridState.firstVisibleItemScrollOffset else mainListState.firstVisibleItemScrollOffset
-        onScrollChange(mainEntryKeys.getOrNull(index), index, offset)
+        val anchor = if (viewMode == LibraryViewMode.GRID) mainGridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }?.key
+            else mainListState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }?.key
+        if (anchor != null) onScrollChange(anchor.toString(), index, offset)
     }
     LaunchedEffect(pageKey, viewMode, seriesMode, selectedSeries, mainEntryKeys, scrollRestored) {
         if (selectedSeries != null || !scrollRestored) return@LaunchedEffect
         snapshotFlow { if (seriesMode) {
-            if (viewMode == LibraryViewMode.GRID) seriesOverviewGridState.isScrollInProgress else seriesOverviewListState.isScrollInProgress
-        } else if (viewMode == LibraryViewMode.GRID) mainGridState.isScrollInProgress else mainListState.isScrollInProgress }
-            .filter { !it }.collect { persistScroll() }
+            if (viewMode == LibraryViewMode.GRID) Triple(seriesOverviewGridState.isScrollInProgress, seriesOverviewGridState.firstVisibleItemIndex, seriesOverviewGridState.firstVisibleItemScrollOffset)
+            else Triple(seriesOverviewListState.isScrollInProgress, seriesOverviewListState.firstVisibleItemIndex, seriesOverviewListState.firstVisibleItemScrollOffset)
+        } else if (viewMode == LibraryViewMode.GRID) Triple(mainGridState.isScrollInProgress, mainGridState.firstVisibleItemIndex, mainGridState.firstVisibleItemScrollOffset)
+        else Triple(mainListState.isScrollInProgress, mainListState.firstVisibleItemIndex, mainListState.firstVisibleItemScrollOffset) }
+            .filter { !it.first }.collect { persistScroll() }
     }
     DisposableEffect(pageKey, viewMode, seriesMode, selectedSeries, mainEntryKeys, scrollRestored) {
         onDispose { persistScroll() }

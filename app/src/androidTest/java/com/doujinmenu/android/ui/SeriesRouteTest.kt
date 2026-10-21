@@ -116,8 +116,19 @@ class SeriesRouteTest {
             compose.runOnIdle {
                 assertTrue(model.activeBrowserPage() is BrowserPage.LibraryHome)
                 assertEquals(12, (model.activeBrowserPage() as BrowserPage.LibraryHome).scrollOffset)
-                assertFalse(model.uiState.librarySeriesMode); model.setLibrarySeriesMode(true)
+                assertFalse(model.uiState.librarySeriesMode)
             }
+            compose.onNode(hasScrollAction()).performTouchInput { swipeUp() }
+            val visible = compose.onAllNodesWithText("Route standalone", substring = true).fetchSemanticsNodes()
+                .filter { it.boundsInRoot.height > 40 }.minBy { it.boundsInRoot.top }
+            val title = visible.config[androidx.compose.ui.semantics.SemanticsProperties.Text].first().text
+            val top = visible.boundsInRoot.top
+            compose.onNodeWithText(context.getString(MainDestination.Settings.labelResource)).performClick()
+            compose.onNodeWithText(context.getString(MainDestination.Library.labelResource)).performClick()
+            compose.onNodeWithText(title).assertIsDisplayed()
+            assertEquals("Tab return must retain both item offset and toolbar position", top,
+                compose.onNodeWithText(title).fetchSemanticsNode().boundsInRoot.top, 2f)
+            compose.runOnIdle { model.setLibrarySeriesMode(true) }
             compose.onNodeWithText(name).performClick()
             compose.runOnIdle { back.onBackPressed() }
             compose.runOnIdle { assertTrue(model.uiState.librarySeriesMode); assertTrue(model.activeBrowserPage() is BrowserPage.LibraryHome) }
