@@ -103,6 +103,19 @@ class ReaderRestoreTest {
         compose.runOnIdle { show = true }
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(3, saved.page); assertTrue(abs(saved.offset - 5000) <= 4) }
+        compose.onNodeWithTag("dynamic-scrollbar").assertIsDisplayed().performTouchInput {
+            down(androidx.compose.ui.geometry.Offset(centerX, height * .98f))
+            advanceEventTime(650)
+            moveTo(androidx.compose.ui.geometry.Offset(centerX, height.toFloat()))
+            up()
+        }
+        compose.waitUntil(10_000) { saved.page > 3 || (saved.page == 3 && saved.offset > 5000) }
+        var draggedPosition = ReaderPosition(0)
+        compose.runOnIdle { draggedPosition = saved; show = false }
+        compose.onNodeWithText("Locked webtoon").assertExists()
+        compose.runOnIdle { show = true }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(draggedPosition.page, saved.page); assertTrue(abs(saved.offset - draggedPosition.offset) <= 4) }
         file.delete()
     }
 }

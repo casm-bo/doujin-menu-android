@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -84,13 +85,13 @@ internal fun scrollbarTarget(pointerY: Float, height: Float, metrics: ScrollbarM
 }
 
 @Composable
-internal fun BoxScope.DynamicVerticalScrollbar(state: LazyListState) {
+internal fun BoxScope.DynamicVerticalScrollbar(state: LazyListState, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     val info = state.layoutInfo
     val visible = info.visibleItemsInfo.size
     val extent = (info.visibleItemsInfo.map { it.size }.average().takeIf { it.isFinite() }?.toFloat() ?: 1f) + info.mainAxisItemSpacing
     DynamicVerticalScrollbar(
         scrollbarMetrics(state.firstVisibleItemIndex, visible, info.totalItemsCount, state.firstVisibleItemScrollOffset / extent.coerceAtLeast(1f)),
-        state.isScrollInProgress, visible, info.totalItemsCount, extent, 1,
+        state.isScrollInProgress, visible, info.totalItemsCount, extent, 1, color,
     ) { target -> state.scrollToItem(target.index, target.offset) }
 }
 
@@ -109,7 +110,7 @@ internal fun BoxScope.DynamicVerticalScrollbar(state: LazyGridState) {
 @Composable
 private fun BoxScope.DynamicVerticalScrollbar(
     metrics: ScrollbarMetrics?, scrolling: Boolean, visibleItemCount: Int, totalItemCount: Int,
-    extent: Float, columns: Int, scrollToItem: suspend (ScrollbarTarget) -> Unit,
+    extent: Float, columns: Int, color: Color = MaterialTheme.colorScheme.onSurfaceVariant, scrollToItem: suspend (ScrollbarTarget) -> Unit,
 ) {
     if (metrics == null) return
     val strings = androidx.compose.ui.platform.LocalResources.current
@@ -133,7 +134,6 @@ private fun BoxScope.DynamicVerticalScrollbar(
     DisposableEffect(targets) { onDispose { targets.close() } }
     var dragging by remember { mutableStateOf(false) }
     val alpha by animateFloatAsState(if (scrolling || dragging) .95f else .35f, label = "scrollbarAlpha")
-    val color = MaterialTheme.colorScheme.onSurfaceVariant
     Canvas(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(28.dp)
         .testTag("dynamic-scrollbar").semantics { contentDescription = strings[R.string.ui_scrollbar] }
         .pointerInput(Unit) {

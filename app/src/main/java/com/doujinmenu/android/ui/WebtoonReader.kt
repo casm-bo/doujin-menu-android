@@ -121,5 +121,6 @@ internal fun WebtoonReader(
                 TextButton(onClick = onNextBook, modifier = Modifier.fillMaxWidth().padding(16.dp)) { Text(strings[R.string.ui_next_book]) }
             }
         }
+        DynamicVerticalScrollbar(state, color = Color.White)
     }
 }
