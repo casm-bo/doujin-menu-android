@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.TypedValue
 import android.view.KeyEvent
 import android.view.ViewGroup
+import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -35,7 +36,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.doujinmenu.android.R
 import com.doujinmenu.android.model.SearchQueryEntry
 import com.doujinmenu.android.network.FilterSuggestion
-import kotlinx.coroutines.delay
 
 @Composable
 internal fun UnifiedSearchField(
@@ -50,15 +50,16 @@ internal fun UnifiedSearchField(
     val boundQuery by rememberUpdatedState(query)
     val submit by rememberUpdatedState(onSubmit)
     var input by remember { mutableStateOf<EditText?>(null) }
+    var inputCreated by remember { mutableStateOf(false) }
     fun close() { state.expanded = false }
     fun focusInput() {
         input?.let { view ->
             view.requestFocus()
-            view.post { (view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(view, 0) }
+            view.post { if (state.expanded && view.hasFocus()) (view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(view, 0) }
         }
     }
     LaunchedEffect(state.expanded, input) {
-        if (state.expanded && input != null) { delay(50); focusInput() }
+        if (state.expanded && input != null) { withFrameNanos { }; focusInput() }
         else if (!state.expanded) {
             input?.let { view ->
                 (view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(view.windowToken, 0)
@@ -78,7 +79,8 @@ internal fun UnifiedSearchField(
             val colors = MaterialTheme.colorScheme
             val textSize = with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.fontSize.toPx() }
             Surface(Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(percent = 50), color = colors.surfaceContainerHigh) {
-                if (state.expanded) {
+                Box(Modifier.fillMaxSize()) {
+                if (state.expanded || inputCreated) {
                     // Keep platform IME/range selection and continuous insertion-handle edge scrolling.
                     AndroidView(factory = { context -> SearchQueryInput(context).apply {
                         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -96,7 +98,10 @@ internal fun UnifiedSearchField(
                             } else false
                         }
                         input = this
+                        inputCreated = true
                     } }, modifier = Modifier.fillMaxWidth().height(56.dp), update = { view ->
+                        view.visibility = if (state.expanded) View.VISIBLE else View.INVISIBLE
+                        view.importantForAccessibility = if (state.expanded) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                         view.hint = placeholder
                         view.setTextColor(colors.onSurface.toArgb())
                         view.caretColor = colors.primary.toArgb()
@@ -104,10 +109,12 @@ internal fun UnifiedSearchField(
                         view.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSize)
                         if (view.text.toString() != query) { view.setText(query); view.setSelection(query.length) }
                     }, onRelease = { if (input === it) input = null })
-                } else {
+                }
+                if (!state.expanded) {
                     Text(query.ifBlank { placeholder }, Modifier.fillMaxWidth().clickable { onFocus(); state.expanded = true }
                         .padding(horizontal = 12.dp, vertical = 16.dp).semantics { contentDescription = placeholder },
                         maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                }
                 }
             }
             IconButton(onClick = { close(); onSubmit() }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_run_search] }) { ActionIcon(ActionSymbol.SEARCH) }

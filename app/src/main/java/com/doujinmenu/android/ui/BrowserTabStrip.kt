@@ -65,15 +65,15 @@ fun BrowserTabStrip(
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val search = LocalInlineSearch.current
-    val expansion by animateFloatAsState(if (search?.expanded == true) 1f else 0f, tween(220), label = "search toolbar width")
+    val expansion = animateFloatAsState(if (search?.expanded == true) 1f else 0f, tween(220), label = "search toolbar width")
     val scope = rememberCoroutineScope()
     fun captureThen(action: () -> Unit) { scope.launch { previews.captureNow(); action() } }
 
     Surface(modifier = if (titleContent == null) Modifier.statusBarsPadding() else Modifier, color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp * (1f - expansion), vertical = 4.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.Top) {
             if (onBack != null) IconButton(onClick = { captureThen(onBack) },
                 modifier = Modifier.semantics { contentDescription = strings[R.string.ui_back] }) { Text("‹") }
-            Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(28.dp * (1f - expansion)),
+            Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(28.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHighest) {
                 if (titleContent != null) titleContent() else Text(workspace.activeTab.currentPage.localizedToolbarTitle(strings),
                     Modifier.padding(horizontal = 16.dp, vertical = 13.dp), maxLines = 1,
@@ -81,7 +81,7 @@ fun BrowserTabStrip(
             }
             Box(Modifier.clipToBounds().layout { measurable, constraints ->
                 val child = measurable.measure(constraints)
-                layout((child.width * (1f - expansion)).roundToInt(), child.height) { child.placeRelative(0, 0) }
+                layout((child.width * (1f - expansion.value)).roundToInt(), child.height) { child.placeRelative(0, 0) }
             }) {
             Row {
             IconButton(onClick = { captureThen(onNew) }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_new_tab] }) {

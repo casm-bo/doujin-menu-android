@@ -77,6 +77,8 @@ class SearchEditorTest {
         compose.setContent { AppTheme { UnifiedSearchField(query, { edits++; query = it }, "Binding query", {}, {}) } }
         compose.onNodeWithContentDescription("Binding query").performClick()
         waitForInput()
+        var originalInput: EditText? = null
+        field { originalInput = it }
         assertEquals(0, edits)
         compose.runOnIdle { query = "artist:external" }
         compose.waitForIdle()
@@ -85,6 +87,7 @@ class SearchEditorTest {
         field { it.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) }
         compose.onNodeWithContentDescription("Binding query").performClick()
         waitForInput()
+        field { assertSame("Reopening must reuse the existing platform editor", originalInput, it) }
         assertEquals(1, edits)
     }
 
