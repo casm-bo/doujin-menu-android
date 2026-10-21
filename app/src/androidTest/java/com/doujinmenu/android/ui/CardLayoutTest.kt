@@ -22,6 +22,21 @@ import org.junit.Test
 class CardLayoutTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun unchangedTagTextUsesTheLatestClickAction() {
+        var action by mutableIntStateOf(1)
+        var clicked = 0
+        compose.setContent { DoujinMenuTheme {
+            val current = action
+            WorkCard("Card", "Artist", "Pages", listOf(CardTag(tagDisplayInfo("same tag")) { clicked = current }),
+                "", grid = true, onClick = {}) { Text("Cover") }
+        } }
+        compose.onNodeWithText("same tag", useUnmergedTree = true).performClick()
+        assertEquals(1, clicked)
+        compose.runOnIdle { action = 2 }
+        compose.onNodeWithText("same tag", useUnmergedTree = true).performClick()
+        assertEquals(2, clicked)
+    }
+
     @Test fun packedTagsKeepTheirOwnClickAndAccessibleTextAcrossFontChanges() {
         var font by mutableFloatStateOf(16f)
         var opened = 0

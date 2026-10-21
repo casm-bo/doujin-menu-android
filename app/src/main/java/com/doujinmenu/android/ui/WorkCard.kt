@@ -62,6 +62,7 @@ private fun WorkTags(tags: List<CardTag>, rows: Int, modifier: Modifier) {
     val style = MaterialTheme.typography.bodyMedium
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer(cacheSize = 32)
+    val labels = tags.map { it.info.text }
     val colors = TagStyle.entries.associateWith { tagColors(it) }
     val overflowColor = LocalContentColor.current
     BoxWithConstraints(modifier) {
@@ -70,12 +71,12 @@ private fun WorkTags(tags: List<CardTag>, rows: Int, modifier: Modifier) {
         val gap = with(density) { 4.dp.roundToPx() }
         val verticalGap = with(density) { 3.dp.roundToPx() }
         // Measure text once and draw it directly. Avoid a Surface/Text subcomposition per pill per layout.
-        val measured = remember(tags, width, rows, style, measurer, padding, gap) {
+        val measured = remember(labels, width, rows, style, measurer, padding, gap) {
             buildList {
                 var row = 0
                 var x = 0
-                for (tag in tags) {
-                    val text = measurer.measure(AnnotatedString(tag.info.text), style, maxLines = 1,
+                for (label in labels) {
+                    val text = measurer.measure(AnnotatedString(label), style, maxLines = 1,
                         overflow = TextOverflow.Ellipsis, constraints = Constraints(maxWidth = (width - padding * 2).coerceAtLeast(0)))
                     add(text)
                     val tagWidth = (text.size.width + padding * 2).coerceAtMost(width)
