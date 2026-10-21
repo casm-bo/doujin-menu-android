@@ -28,6 +28,10 @@ class LibraryRefreshTest {
         val booksRequested = CountDownLatch(1)
         val connected = CountDownLatch(1)
         val releaseBooks = CountDownLatch(1)
+        val thirdRequested = CountDownLatch(1)
+        val releaseThird = CountDownLatch(1)
+        val changedStatus = CountDownLatch(1)
+        val serverGeneration = AtomicInteger(1)
         val bookCalls = AtomicInteger()
         val store = ViewModelStore()
         workers.submit { runCatching { while (!server.isClosed) {
@@ -38,16 +42,18 @@ class LibraryRefreshTest {
                 while (!input.readLine().isNullOrEmpty()) { }
                 val data: Any = when {
                     path.contains("/library/books") -> {
-                        bookCalls.incrementAndGet(); booksRequested.countDown()
+                        val call = bookCalls.incrementAndGet(); booksRequested.countDown()
                         check(releaseBooks.await(10, TimeUnit.SECONDS))
+                        if (call == 3) { thirdRequested.countDown(); check(releaseThird.await(15, TimeUnit.SECONDS)) }
                         JSONArray()
                     }
                     path.contains("/library/presentations") -> JSONObject().put("values", JSONArray()).put("cursor", 0).put("hasMore", false)
-                    path.endsWith("/status") -> { connected.countDown(); JSONObject().put("service", "fixture").put("syncGeneration", 1) }
+                    path.endsWith("/status") -> { connected.countDown(); JSONObject().put("service", "fixture").put("syncGeneration", serverGeneration.get()) }
                     else -> JSONObject().put("path", "C:/Fixture")
                 }
                 val bytes = JSONObject().put("success", true).put("data", data).toString().toByteArray()
                 it.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray() + bytes)
+                if (path.endsWith("/status") && (data as JSONObject).optInt("syncGeneration") == 2) changedStatus.countDown()
             } } }
         } } }
         lateinit var model: MainViewModel
@@ -74,8 +80,19 @@ class LibraryRefreshTest {
             assertEquals("Reconnect must not repeat the successful scan", 1, bookCalls.get())
             instrumentation.runOnMainSync { model.refreshLibrary() }
             waitFor { bookCalls.get() == 2 && !model.uiState.isLibraryScanning }
+            instrumentation.runOnMainSync { model.refreshLibrary() }
+            assertTrue(thirdRequested.await(10, TimeUnit.SECONDS))
+            serverGeneration.set(2)
+            assertTrue(changedStatus.await(10, TimeUnit.SECONDS))
+            // Allow the localhost status response to reach the main-thread monitor before stopping it.
+            Thread.sleep(300)
+            instrumentation.waitForIdleSync()
+            instrumentation.runOnMainSync { model.onAppBackgrounded() }
+            releaseThird.countDown()
+            waitFor { bookCalls.get() == 4 && !model.uiState.isLibraryScanning }
         } finally {
             releaseBooks.countDown()
+            releaseThird.countDown()
             instrumentation.runOnMainSync { store.clear() }
             profiles.save(saved)
             server.close(); workers.shutdownNow()

@@ -297,6 +297,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var downloadRefreshJob: Job? = null
     private var librarySyncDebounceJob: Job? = null
     private var importantLibraryRefreshJob: Job? = null
+    private var pendingRefreshIsReconnect = false
     private var successfulDesktopRefreshes = 0L
     private var activeBookPreparationJob: Job? = null
     private var libraryRefreshJob: Job? = null
@@ -3206,7 +3207,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncActiveSearch(persist = true)
         browserPreferenceStore.saveGalleryWorkspace(uiState.galleryWorkspace)
         stopConnectionMonitoring()
-        importantLibraryRefreshJob?.cancel()
+        if (pendingRefreshIsReconnect) importantLibraryRefreshJob?.cancel()
         librarySyncDebounceJob?.cancel()
         librarySyncDebounceJob = viewModelScope.launch { flushPendingLibrarySync() }
     }
@@ -3219,6 +3220,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // A queued server change is stronger than a reconnect check.
         if (reconnect && importantLibraryRefreshJob?.isActive == true) return
         importantLibraryRefreshJob?.cancel()
+        pendingRefreshIsReconnect = reconnect
         val generation = libraryProfileGeneration
         val completed = successfulDesktopRefreshes
         val inFlight = libraryRefreshJob
