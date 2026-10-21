@@ -40,7 +40,29 @@ fun List<RecentHistoryEntry>.recordHistory(event: RecentHistoryEntry): List<Rece
 }
 
 fun RecentHistoryEntry.findBook(books: List<LibraryBook>): LibraryBook? = books
-    .filter { it.id == bookId || (syncId != null && it.syncId == syncId) ||
-        (galleryId != null && it.metadata.hitomiId?.toLongOrNull() == galleryId) }
-    .sortedBy { it.isCloud }
-    .firstOrNull()
+    .firstOrNull { !it.isCloud && matchesBook(it) } ?: books.firstOrNull { matchesBook(it) }
+
+private fun RecentHistoryEntry.matchesBook(book: LibraryBook): Boolean = book.id == bookId ||
+    (syncId != null && book.syncId == syncId) || (galleryId != null && book.metadata.hitomiId?.toLongOrNull() == galleryId)
+
+/** Preserve device preference and original list order across all three matching identities. */
+internal class HistoryBookIndex(books: List<LibraryBook>) {
+    private val byId = mutableMapOf<String, IndexedValue<LibraryBook>>()
+    private val bySyncId = mutableMapOf<String, IndexedValue<LibraryBook>>()
+    private val byGalleryId = mutableMapOf<Long, IndexedValue<LibraryBook>>()
+    private val preference = compareBy<IndexedValue<LibraryBook>> { it.value.isCloud }.thenBy { it.index }
+    init {
+        fun <K> add(map: MutableMap<K, IndexedValue<LibraryBook>>, key: K, candidate: IndexedValue<LibraryBook>) {
+            val previous = map[key]
+            if (previous == null || preference.compare(candidate, previous) < 0) map[key] = candidate
+        }
+        books.withIndex().forEach { candidate ->
+            add(byId, candidate.value.id, candidate)
+            candidate.value.syncId?.let { add(bySyncId, it, candidate) }
+            candidate.value.metadata.hitomiId?.toLongOrNull()?.let { add(byGalleryId, it, candidate) }
+        }
+    }
+    fun find(entry: RecentHistoryEntry): LibraryBook? = listOfNotNull(
+        entry.bookId?.let(byId::get), entry.syncId?.let(bySyncId::get), entry.galleryId?.let(byGalleryId::get),
+    ).minWithOrNull(preference)?.value
+}

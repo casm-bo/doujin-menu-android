@@ -28,6 +28,8 @@ import com.doujinmenu.android.model.HistorySource
 import com.doujinmenu.android.model.RECENT_HISTORY_LIMIT
 import com.doujinmenu.android.model.RecentHistoryEntry
 import com.doujinmenu.android.model.findBook
+import com.doujinmenu.android.model.HistoryBookIndex
+import com.doujinmenu.android.model.LibraryBook
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -45,6 +47,7 @@ fun RecentHistoryScreen(
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val preferences = remember(context) { com.doujinmenu.android.security.AppearancePreferenceStore(context) }
+    val bookIndex = remember(state.libraryBooks) { HistoryBookIndex(state.libraryBooks) }
     var grid by rememberSaveable { mutableStateOf(preferences.loadHistoryGrid()) }
     var viewMenu by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -90,7 +93,7 @@ fun RecentHistoryScreen(
             Text(if (state.recentHistory.isEmpty()) strings[R.string.ui_galleries_you_open_will_appear_here] else strings[R.string.ui_no_matching_history])
         } else LazyVerticalGrid(columns = GridCells.Fixed(if (grid) 2 else 1), modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(entries, key = { it.key }) { entry ->
-                HistoryCard(entry, state, grid, onLoadMetadata, onOpen = { onOpen(entry, it) }, onRemove = { onRemove(entry.key) })
+                HistoryCard(entry, state, grid, onLoadMetadata, onOpen = { onOpen(entry, it) }, onRemove = { onRemove(entry.key) }, book = bookIndex.find(entry))
             }
         }
     }
@@ -102,15 +105,16 @@ fun RecentHistoryScreen(
     )
 }
 
-internal fun historyTags(entry: RecentHistoryEntry, state: MainUiState): List<CardTag> =
-    entry.findBook(state.libraryBooks)?.metadata?.tags?.map { CardTag(tagDisplayInfo(it)) }
+internal fun historyTags(entry: RecentHistoryEntry, state: MainUiState, book: LibraryBook? = entry.findBook(state.libraryBooks)): List<CardTag> =
+    book?.metadata?.tags?.map { CardTag(tagDisplayInfo(it)) }
         ?: state.galleryCache[entry.galleryId]?.tags?.map { CardTag(tagDisplayInfo(it.name, it.type)) }.orEmpty()
 
 @Composable
-internal fun HistoryCard(entry: RecentHistoryEntry, state: MainUiState, grid: Boolean, onLoadMetadata: suspend (Long) -> Unit, onOpen: (Boolean) -> Unit, onRemove: () -> Unit) {
+internal fun HistoryCard(entry: RecentHistoryEntry, state: MainUiState, grid: Boolean, onLoadMetadata: suspend (Long) -> Unit, onOpen: (Boolean) -> Unit, onRemove: () -> Unit,
+    book: LibraryBook? = entry.findBook(state.libraryBooks)) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
-    val book = remember(entry, state.libraryBooks) { entry.findBook(state.libraryBooks) }
+    val tags = remember(book, state.galleryCache[entry.galleryId]) { historyTags(entry, state, book) }
     LaunchedEffect(entry.key) {
         if (book == null && entry.galleryId != null && entry.galleryId !in state.galleryCache) {
             kotlinx.coroutines.delay(200)
@@ -127,7 +131,7 @@ internal fun HistoryCard(entry: RecentHistoryEntry, state: MainUiState, grid: Bo
     var options by remember { mutableStateOf(false) }
     WorkCard(title = preferredLocalizedTitle(entry.title), artist = entry.artist,
         metadata = "${strings[entry.source.labelResource]} · ${strings[entry.action.labelResource]}",
-        tags = historyTags(entry, state), footer = time + (entry.page?.let { " · ${it + 1}/${entry.pageCount}" } ?: ""),
+        tags = tags, footer = time + (entry.page?.let { " · ${it + 1}/${entry.pageCount}" } ?: ""),
         grid = grid, onClick = { onOpen(false) },
         webtoon = book?.webtoon == true || state.galleryCache[entry.galleryId]?.webtoon == true,
         border = galleryCardBorder(favorite = book?.id in state.libraryFavoriteIds)) {

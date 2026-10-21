@@ -4,6 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RecentHistoryTest {
+    @Test fun indexedLookupPreservesTheOriginalDeviceAndListOrderRules() {
+        val cloud = LibraryBook("pc", "PC", locationUri = "pc", locationName = "PC", folderUri = "pc", pages = emptyList(), modifiedAt = 1,
+            isCloud = true, syncId = "shared", metadata = LibraryMetadata(hitomiId = "42"))
+        val localA = cloud.copy(id = "a", isCloud = false, syncId = "other")
+        val localB = cloud.copy(id = "b", isCloud = false)
+        val books = listOf(cloud, localA, localB)
+        val index = HistoryBookIndex(books)
+        val cases = listOf(event(bookId = "b", syncId = "shared"), event(galleryId = null, syncId = "shared"),
+            event(galleryId = null, bookId = "pc"), event(galleryId = 999))
+        cases.forEach { assertEquals(it.findBook(books), index.find(it)) }
+        assertEquals(localA, index.find(cases.first()))
+        assertNull(HistoryBookIndex(emptyList()).find(cases.first()))
+    }
     private fun event(time: Long = 1, galleryId: Long? = 42, bookId: String? = null, syncId: String? = null,
         page: Int? = null, completed: Boolean = false) = RecentHistoryEntry(
         key = galleryId?.let { "gallery:$it" } ?: "book:$bookId", title = "Title", viewedAt = time,

@@ -1521,11 +1521,14 @@ internal fun SeriesCard(
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
-    WorkCard(title = name, artist = books.flatMap { it.metadata.artists }.distinct().joinToString(),
+    val artists = remember(books) { books.flatMap { it.metadata.artists }.distinct().joinToString() }
+    val tags = remember(books) { books.flatMap { it.metadata.tags }.distinct().map { CardTag(tagDisplayInfo(it)) } }
+    val webtoon = remember(books) { books.any { it.webtoon == true } }
+    WorkCard(title = name, artist = artists,
         metadata = strings[R.string.ui_chapters, books.size, ""],
-        tags = books.flatMap { it.metadata.tags }.distinct().map { CardTag(tagDisplayInfo(it)) },
+        tags = tags,
         footer = strings[R.string.ui_series], grid = !listMode, onClick = onClick, onLongClick = onLongPress, selected = selected,
-        webtoon = books.any { it.webtoon == true },
+        webtoon = webtoon,
         border = galleryCardBorder(series = true, favorite = favorite)) {
         SeriesCover(book = books.firstOrNull(), books = books, context = context, favorite = favorite, read = read,
             onToggleFavorite = onToggleFavorite, selectionMode = selectionMode, selected = selected,
