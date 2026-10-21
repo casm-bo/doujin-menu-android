@@ -8,11 +8,28 @@ import com.doujinmenu.android.model.RecentHistoryEntry
 import org.json.JSONArray
 import org.json.JSONObject
 
-class RecentHistoryStore(context: Context) {
-    private val preferences = context.getSharedPreferences("recent_history", Context.MODE_PRIVATE)
-    fun load(): List<RecentHistoryEntry> = decodeRecentHistory(preferences.getString("entries", null))
+class RecentHistoryStore(context: Context, fileName: String = "recent_history") {
+    private val preferences = context.getSharedPreferences(fileName, Context.MODE_PRIVATE)
+    private var encoded = emptyMap<String, Pair<RecentHistoryEntry, String>>()
+    fun load(): List<RecentHistoryEntry> {
+        val snapshot = preferences.all
+        if (snapshot["records_v2"] != true) return decodeRecentHistory(snapshot["entries"] as? String)
+        encoded = snapshot.asSequence().filter { it.key.startsWith("entry:") }.mapNotNull { (_, raw) ->
+            decodeRecentHistory(raw as? String).singleOrNull()?.let { it.key to (it to raw as String) }
+        }.toMap()
+        return encoded.values.map { it.first }.sortedByDescending { it.viewedAt }.take(RECENT_HISTORY_LIMIT)
+    }
     fun save(entries: List<RecentHistoryEntry>) {
-        preferences.edit().putString("entries", encodeRecentHistory(entries)).apply()
+        val snapshot = preferences.all
+        val editor = preferences.edit().putBoolean("records_v2", true).remove("entries")
+        val next = entries.distinctBy { it.key }.take(RECENT_HISTORY_LIMIT).associate { entry ->
+            val raw = encoded[entry.key]?.takeIf { it.first == entry }?.second ?: encodeRecentHistory(listOf(entry))
+            if (snapshot["entry:${entry.key}"] != raw) editor.putString("entry:${entry.key}", raw)
+            entry.key to (entry to raw)
+        }
+        snapshot.keys.filter { it.startsWith("entry:") && it.removePrefix("entry:") !in next }.forEach(editor::remove)
+        editor.apply()
+        encoded = next
     }
     fun isRecording(): Boolean = preferences.getBoolean("recording", true)
     fun setRecording(enabled: Boolean) { preferences.edit().putBoolean("recording", enabled).apply() }

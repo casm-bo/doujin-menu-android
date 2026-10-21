@@ -2377,7 +2377,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         book?.let { recordLibraryHistory(it, normalizedPage) }
         if (uiState.libraryProgress[bookId] == normalizedPage && readIds == uiState.libraryReadIds) return
         val progress = uiState.libraryProgress + (bookId to normalizedPage)
-        libraryPreferenceStore.saveProgress(progress)
+        libraryPreferenceStore.saveBookProgress(bookId, normalizedPage)
         if (readIds != uiState.libraryReadIds) libraryPreferenceStore.saveReadIds(readIds)
         uiState = uiState.copy(libraryProgress = progress, libraryReadIds = readIds)
         enqueueBookStateSync(setOf(bookId))
@@ -2405,7 +2405,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         (uiState.galleryCache[galleryId] ?: uiState.galleries.firstOrNull { it.id == galleryId })?.let { recordOnlineHistory(it, normalizedPage) }
         if (uiState.onlineReaderProgress[galleryId] == normalizedPage && viewedIds == uiState.viewedGalleryIds) return
         val progress = uiState.onlineReaderProgress + (galleryId to normalizedPage)
-        libraryPreferenceStore.saveOnlineProgress(progress)
+        libraryPreferenceStore.saveOnlinePage(galleryId, normalizedPage)
         uiState = uiState.copy(onlineReaderProgress = progress, viewedGalleryIds = viewedIds)
     }
 

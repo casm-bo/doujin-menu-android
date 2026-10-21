@@ -12,8 +12,8 @@ import com.doujinmenu.android.model.ViewerTapAction
 import com.doujinmenu.android.model.ViewerTapZones
 import org.json.JSONObject
 
-class LibraryPreferenceStore(context: Context) {
-    private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+class LibraryPreferenceStore(context: Context, fileName: String = FILE_NAME) {
+    private val preferences = context.getSharedPreferences(fileName, Context.MODE_PRIVATE)
 
     internal fun snapshot(): Map<String, *> = preferences.all
     internal fun matchesSnapshot(snapshot: Map<String, *>): Boolean = preferences.all == snapshot
@@ -30,18 +30,27 @@ class LibraryPreferenceStore(context: Context) {
     fun loadReadIds(): Set<String> = preferences.getStringSet(KEY_READ, emptySet()).orEmpty()
     fun saveReadIds(ids: Set<String>) = preferences.edit().putStringSet(KEY_READ, ids).apply()
 
-    fun loadProgress(): Map<String, Int> {
-        val json = runCatching { JSONObject(preferences.getString(KEY_PROGRESS, "{}").orEmpty()) }.getOrNull()
-            ?: return emptyMap()
+    fun loadProgress(): Map<String, Int> = readProgress(KEY_PROGRESS, "book_page:")
+
+    private fun readProgress(key: String, prefix: String): Map<String, Int> {
+        val snapshot = preferences.all
+        val json = runCatching { JSONObject(snapshot[key] as? String ?: "{}") }.getOrElse { JSONObject() }
         return buildMap {
             json.keys().forEach { key -> put(key, json.optInt(key, 0)) }
+            snapshot.forEach { (key, value) -> if (key.startsWith(prefix) && value is Int) put(key.removePrefix(prefix), value) }
         }
     }
 
-    fun saveProgress(progress: Map<String, Int>) {
+    fun saveProgress(progress: Map<String, Int>) = replaceProgress(KEY_PROGRESS, "book_page:", progress)
+
+    fun saveBookProgress(bookId: String, page: Int) { preferences.edit().putInt("book_page:$bookId", page).apply() }
+
+    private fun replaceProgress(key: String, prefix: String, progress: Map<String, Int>) {
         val json = JSONObject()
         progress.forEach { (id, page) -> json.put(id, page) }
-        preferences.edit().putString(KEY_PROGRESS, json.toString()).apply()
+        val editor = preferences.edit().putString(key, json.toString())
+        preferences.all.keys.filter { it.startsWith(prefix) }.forEach(editor::remove)
+        editor.apply()
     }
 
     fun loadCustomSeries(): Map<String, CustomSeriesAssignment> {
@@ -209,19 +218,14 @@ class LibraryPreferenceStore(context: Context) {
             .apply()
     }
 
-    fun loadOnlineProgress(): Map<Long, Int> {
-        val json = runCatching { JSONObject(preferences.getString(KEY_ONLINE_PROGRESS, "{}").orEmpty()) }
-            .getOrNull() ?: return emptyMap()
-        return buildMap {
-            json.keys().forEach { key -> key.toLongOrNull()?.let { put(it, json.optInt(key, 0)) } }
-        }
-    }
+    fun loadOnlineProgress(): Map<Long, Int> = readProgress(KEY_ONLINE_PROGRESS, "online_page:")
+        .mapNotNull { (id, page) -> id.toLongOrNull()?.let { it to page } }.toMap()
 
     fun saveOnlineProgress(progress: Map<Long, Int>) {
-        val json = JSONObject()
-        progress.forEach { (id, page) -> json.put(id.toString(), page) }
-        preferences.edit().putString(KEY_ONLINE_PROGRESS, json.toString()).apply()
+        replaceProgress(KEY_ONLINE_PROGRESS, "online_page:", progress.mapKeys { it.key.toString() })
     }
+
+    fun saveOnlinePage(galleryId: Long, page: Int) { preferences.edit().putInt("online_page:$galleryId", page).apply() }
 
     fun loadActiveBookId(): String? =
         preferences.getString(KEY_ACTIVE_BOOK_ID, null)?.takeIf(String::isNotBlank)
