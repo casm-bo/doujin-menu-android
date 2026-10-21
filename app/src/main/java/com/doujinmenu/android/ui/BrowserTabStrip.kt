@@ -13,7 +13,6 @@ import androidx.compose.ui.layout.layout
 import kotlin.math.roundToInt
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
@@ -30,17 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserWorkspace
-import com.doujinmenu.android.model.label
 import kotlinx.coroutines.launch
-
-internal val BrowserPage.toolbarTitle: String
-    get() = if (this is BrowserPage.Search) {
-        (if (currentPage > 0 || submittedQueries.isNotEmpty()) {
-            submittedQuery.ifBlank { submittedQueries.joinToString(" · ") }
-        } else query).ifBlank {
-            preferredLanguages.joinToString(" · ").ifBlank { "새 검색" }
-        }
-    } else label
 
 internal fun BrowserPage.localizedToolbarTitle(strings: android.content.res.Resources): String = when (this) {
     is BrowserPage.Search -> (if (currentPage > 0 || submittedQueries.isNotEmpty()) submittedQuery.ifBlank { submittedQueries.joinToString(" · ") } else query)

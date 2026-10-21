@@ -1814,19 +1814,6 @@ private fun LibraryEmpty(message: String) {
     }
 }
 
-@Composable
-private fun <T> FilterMenu(label: String, options: List<Pair<T, String>>, onSelect: (T) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { expanded = true }) { Text(label, maxLines = 1) }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { (value, text) ->
-                DropdownMenuItem(text = { Text(text) }, onClick = { expanded = false; onSelect(value) })
-            }
-        }
-    }
-}
-
 internal fun visibleLibraryBooks(state: MainUiState): List<LibraryBook> {
     val queryTerms = parseLibraryQuery(state.libraryQuery)
     val filtered = state.libraryBooksInVisibility().asSequence()
