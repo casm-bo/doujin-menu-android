@@ -8,6 +8,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -18,6 +20,8 @@ import com.doujinmenu.android.model.BrowserTab
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -97,17 +101,37 @@ fun BrowserTabPreviewHost(
     content: @Composable () -> Unit,
 ) {
     val layer = rememberGraphicsLayer()
+    var requestedFrame by remember { mutableStateOf<CompletableDeferred<Unit>?>(null) }
     DisposableEffect(cache, previewKey, layer) {
+        var attached = true
         val capture: suspend () -> Unit = {
-            if (previewKey != null && layer.size.width > 0 && layer.size.height > 0) {
-                cache.save(previewKey, layer.toImageBitmap().asAndroidBitmap())
+            if (previewKey != null) {
+                val frame = CompletableDeferred<Unit>()
+                requestedFrame = frame
+                try {
+                    val bitmap = withTimeoutOrNull(500) {
+                        frame.await()
+                        if (attached && layer.size.width > 0 && layer.size.height > 0) layer.toImageBitmap().asAndroidBitmap() else null
+                    }
+                    if (bitmap != null) {
+                        try { cache.save(previewKey, bitmap) } finally { if (!bitmap.isRecycled) bitmap.recycle() }
+                    }
+                } finally { if (requestedFrame === frame) requestedFrame = null }
             }
         }
         cache.capture = capture
-        onDispose { if (cache.capture === capture) cache.capture = null }
+        onDispose {
+            attached = false
+            requestedFrame?.complete(Unit)
+            if (cache.capture === capture) cache.capture = null
+        }
     }
     Box(Modifier.fillMaxSize().drawWithContent {
-        layer.record { this@drawWithContent.drawContent() }
-        drawLayer(layer)
+        val request = requestedFrame
+        if (request != null && !request.isCompleted) {
+            layer.record { this@drawWithContent.drawContent() }
+            drawLayer(layer)
+            request.complete(Unit)
+        } else drawContent()
     }) { content() }
 }
