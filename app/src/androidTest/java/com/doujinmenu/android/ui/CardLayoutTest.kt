@@ -22,6 +22,19 @@ import org.junit.Test
 class CardLayoutTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun noninteractiveTagsRemainReadableWithoutDuplicatePillNodes() {
+        compose.setContent { DoujinMenuTheme {
+            Box(Modifier.width(190.dp)) {
+                WorkCard("Book", "Artist", "Pages", List(40) { CardTag(tagDisplayInfo("tag-$it")) },
+                    "", grid = true, onClick = {}) { Text("Cover") }
+            }
+        } }
+        compose.onAllNodesWithText("tag-0", useUnmergedTree = true).assertCountEquals(1)
+        compose.onNodeWithText("tag-0").assertExists()
+        compose.onNodeWithText("tag-39", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("…", useUnmergedTree = true).assertExists()
+    }
+
     @Test fun unchangedTagTextUsesTheLatestClickAction() {
         var action by mutableIntStateOf(1)
         var clicked = 0

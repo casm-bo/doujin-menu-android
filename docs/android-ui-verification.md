@@ -290,3 +290,36 @@ and its series UI were not exercised by these isolated tests.
 Final combined run on SM-N986N: 38 device tests passed. JVM tests: 218 total,
 216 passed and two opt-in cases skipped; no failures. Debug/uitest APK builds
 and Lint succeeded (zero errors, 109 warnings and three hints).
+
+## Search animation follow-up
+
+Actual debug-app smoke checks confirmed both search and gallery result viewports
+end at the IME edge. The isolated screen tests additionally open/close the editor
+near the end of a 40-item list and verify the same card returns within 2 px.
+History scrolling retains focus/caret and hides only the IME in both tabs.
+
+A sampled CPU trace of five real-clock search/IME expansion cycles found about
+35% of main-thread sampled time in accessibility/semantics processing and about
+9% in text layout. The fixture has cached cards and no network/images to load.
+Cards now form traversal groups; noninteractive tag text is exposed together
+without per-pill semantic nodes. Clickable tags retain individual buttons.
+CardLayoutTest covers readable labels, overflow, latest click actions, selection
+and large-font geometry. These and the search/editor/detail regressions passed
+in a combined 21-case device run.
+
+An A/B/A debug comparison on SM-N986N with 100 two-column cards, 20 clickable
+tags each and five open/close cycles per run measured p95 frame duration of
+65.9–77.4 ms before and 61.8–68.0 ms after. Median ranges overlap (12.3–17.5 vs
+11.8–13.1 ms). This supports a modest reduction in repeated work, not a claim
+of uniformly smooth animation or release performance. Long frames remain.
+The no-action tag fixture measured p95 58.2 ms before vs 57.7 ms after in single
+runs, which is within normal run variance. A temporary frozen-list viewport
+experiment did not improve timing and was removed.
+
+SearchAnimationBenchmarkTest accepts optional `tagActions=true` for actionable
+tags and `traceSearch=true` for a sampling trace in the isolated app's files
+directory. Neither changes production behavior; trace runs are diagnostic and
+are excluded from frame-time comparisons.
+
+Final combined follow-up run: all 44 device cases passed. Debug/uitest builds,
+Lint (zero errors), and all 216 enabled JVM cases passed; two opt-in cases skipped.

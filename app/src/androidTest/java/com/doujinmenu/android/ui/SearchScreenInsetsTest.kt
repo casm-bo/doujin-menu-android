@@ -131,6 +131,11 @@ class SearchScreenInsetsTest {
                 }
             } }
         }
+        compose.onNode(hasScrollAction()).performScrollToIndex(39)
+        val anchor = compose.onAllNodesWithText("Fixture ", substring = true).fetchSemanticsNodes()
+            .filter { it.boundsInRoot.height > 30 }.minBy { it.boundsInRoot.top }
+        val anchorTitle = anchor.config[androidx.compose.ui.semantics.SemanticsProperties.Text].first { it.text.startsWith("Fixture ") }.text
+        val anchorTop = anchor.boundsInRoot.top
         compose.onNodeWithContentDescription(strings.getString(if (gallery) R.string.ui_search_gallery else R.string.ui_search_conditions)).performClick()
         compose.waitUntil(5_000) {
             var ready = false
@@ -164,5 +169,8 @@ class SearchScreenInsetsTest {
         }
         compose.onNodeWithTag("search-editor").assertExists()
         input { assertTrue(it.hasFocus()); assertEquals(0, it.selectionStart) }
+        compose.onNodeWithContentDescription(strings.getString(R.string.ui_return)).performClick()
+        assertEquals("Search expansion near the end must retain the same card position", anchorTop,
+            compose.onNodeWithText(anchorTitle).fetchSemanticsNode().boundsInRoot.top, 2f)
     }
 }

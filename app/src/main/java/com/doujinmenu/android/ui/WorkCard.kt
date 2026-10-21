@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.SemanticsProperties
 
 internal data class CardTag(val info: TagDisplayInfo, val onClick: (() -> Unit)? = null)
 internal data class TagPlacement(val index: Int, val x: Int, val row: Int)
@@ -91,17 +93,23 @@ private fun WorkTags(tags: List<CardTag>, rows: Int, modifier: Modifier) {
         val packed = remember(widths, width, rows, gap, overflow.size.width, tags.size) {
             packTags(widths, width, rows, gap, overflow.size.width, measured.size < tags.size)
         }
-        Layout(modifier = Modifier.fillMaxSize(), content = {
+        val hasTagActions = tags.any { it.onClick != null }
+        // Read noninteractive tags together; actionable tags retain their individual buttons.
+        val tagSemantics = if (hasTagActions) Modifier else Modifier.semantics {
+            this[SemanticsProperties.Text] = packed.tags.map { AnnotatedString(tags[it.index].info.text) } +
+                if (packed.overflow != null) listOf(AnnotatedString("…")) else emptyList()
+        }
+        Layout(modifier = Modifier.fillMaxSize().then(tagSemantics), content = {
             packed.tags.forEach { item ->
                 val tag = tags[item.index]
                 val (background, foreground) = colors.getValue(tag.info.style)
-                Canvas(Modifier.semantics { text = AnnotatedString(tag.info.text); if (tag.onClick != null) role = Role.Button }
+                Canvas((if (hasTagActions) Modifier.semantics { text = AnnotatedString(tag.info.text); if (tag.onClick != null) role = Role.Button } else Modifier)
                     .then(if (tag.onClick != null) Modifier.clip(RoundedCornerShape(50)).clickable(onClick = tag.onClick) else Modifier)) {
                     drawRoundRect(background, cornerRadius = CornerRadius(size.height / 2))
                     drawText(measured[item.index], foreground, topLeft = Offset(padding.toFloat(), 4.dp.toPx()))
                 }
             }
-            if (packed.overflow != null) Canvas(Modifier.semantics { text = AnnotatedString("…") }) { drawText(overflow, overflowColor) }
+            if (packed.overflow != null) Canvas(if (hasTagActions) Modifier.semantics { text = AnnotatedString("…") } else Modifier) { drawText(overflow, overflowColor) }
         }) { measurables, bounds ->
             val rowHeight = ((bounds.maxHeight - (rows - 1) * verticalGap) / rows).coerceAtLeast(1)
             val children = packed.tags.mapIndexed { index, item -> measurables[index].measure(Constraints.fixed(widths[item.index], rowHeight)) }
@@ -158,7 +166,7 @@ internal fun WorkCard(
             if (selected) Box(Modifier.matchParentSize().background(selectionTint))
         }
     }
-    Card(modifier = Modifier.fillMaxWidth().semantics { if (selected) this.selected = true }
+    Card(modifier = Modifier.fillMaxWidth().semantics { isTraversalGroup = true; if (selected) this.selected = true }
         .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = longClickLabel), border = border,
         colors = appCardColors(selected)) {
         if (grid) Column {
