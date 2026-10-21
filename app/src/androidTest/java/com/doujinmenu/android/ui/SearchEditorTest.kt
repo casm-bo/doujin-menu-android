@@ -1,6 +1,12 @@
 package com.doujinmenu.android.ui
 
 import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.InputDevice
@@ -150,22 +156,30 @@ class SearchEditorTest {
     @Test fun expandedFieldCollapsesOnBlankTapAndScrollWithoutSubmittingOrLosingDraft() {
         var query by mutableStateOf("tag:draft")
         var submitted = 0
-        compose.setContent { AppTheme { UnifiedSearchField(query, { query = it }, "Inline query", {}, { submitted++ }) } }
+        lateinit var list: androidx.compose.foundation.lazy.LazyListState
+        compose.setContent { AppTheme { Column(Modifier.fillMaxSize()) {
+            UnifiedSearchField(query, { query = it }, "Inline query", {}, { submitted++ })
+            list = rememberLazyListState()
+            LazyColumn(Modifier.weight(1f).testTag("browsing"), state = list) {
+                items(100) { androidx.compose.material3.Text("Result $it", Modifier.height(80.dp)) }
+            }
+        } } }
         compose.onNodeWithContentDescription("Inline query").performClick()
         waitForInput()
         compose.onAllNodes(isDialog()).assertCountEquals(0)
         field { it.text.append(", artist:sample") }
-        compose.onNodeWithTag("search-editor").performTouchInput { click(androidx.compose.ui.geometry.Offset(center.x, height * .85f)) }
+        compose.onNodeWithTag("search-options").assertIsDisplayed()
+        val results = compose.onNodeWithTag("browsing").assertIsDisplayed().getUnclippedBoundsInRoot()
+        assertTrue("Results must stay visible below search history", results.bottom - results.top >= 100.dp)
+        compose.onNodeWithTag("browsing").performTouchInput { click(center) }
         compose.onNodeWithTag("search-collapsed").assertExists()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Inline query").performClick()
         waitForInput()
         field { assertEquals(query.length, it.selectionStart) }
-        compose.onNodeWithTag("search-editor").performTouchInput {
-            swipe(androidx.compose.ui.geometry.Offset(center.x, height * .9f), androidx.compose.ui.geometry.Offset(center.x, height * .6f))
-        }
+        compose.onNodeWithTag("browsing").performTouchInput { swipeUp() }
         compose.onNodeWithTag("search-collapsed").assertExists()
-        compose.runOnIdle { assertEquals("tag:draft, artist:sample", query); assertEquals(0, submitted) }
+        compose.runOnIdle { assertEquals("tag:draft, artist:sample", query); assertEquals(0, submitted); assertTrue(list.firstVisibleItemIndex > 0) }
         fieldIfPresentHasNoFocus()
     }
 

@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 @Stable
 internal class InlineSearchState {
     var expanded by mutableStateOf(false)
-    var height by mutableStateOf(360.dp)
+    var panelMaxHeight by mutableStateOf(260.dp)
     var inputBounds by mutableStateOf(Rect.Zero)
 }
 
@@ -47,7 +47,8 @@ internal fun InlineSearchLayout(
                 } while (event.changes.any { it.pressed })
             }
         }) {
-        SideEffect { state.height = (maxHeight - 8.dp).coerceAtLeast(56.dp) }
+        // Leave at least half of the usable area below the input for browsing, including with the IME open.
+        SideEffect { state.panelMaxHeight = ((maxHeight - 56.dp) / 2).coerceIn(0.dp, 260.dp) }
         CompositionLocalProvider(LocalInlineSearch provides state, content = content)
     }
 }

@@ -9,7 +9,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.core.widget.doAfterTextChanged
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -48,7 +48,6 @@ internal fun UnifiedSearchField(
     val focus = LocalFocusManager.current
     val changeQuery by rememberUpdatedState(onQueryChange)
     val submit by rememberUpdatedState(onSubmit)
-    val progress by animateFloatAsState(if (state.expanded) 1f else 0f, tween(220), label = "search expansion")
     var input by remember { mutableStateOf<EditText?>(null) }
     fun close() { state.expanded = false }
     fun focusInput() {
@@ -68,17 +67,17 @@ internal fun UnifiedSearchField(
         }
     }
     BackHandler(state.expanded) { close() }
-    Column(Modifier.fillMaxWidth().height(56.dp + (state.height - 56.dp) * progress).clipToBounds()
+    Column(Modifier.fillMaxWidth().animateContentSize(tween(220)).clipToBounds()
         .testTag(if (state.expanded) "search-editor" else "search-collapsed")) {
         Row(Modifier.fillMaxWidth().height(56.dp).onGloballyPositioned { state.inputBounds = it.boundsInRoot() },
             verticalAlignment = Alignment.CenterVertically) {
-            if (progress > 0f) Box(Modifier.width(48.dp * progress).clipToBounds()) {
+            if (state.expanded) Box(Modifier.width(48.dp)) {
                 IconButton(onClick = { close() }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_return] }) { ActionIcon(ActionSymbol.BACK) }
             }
             val colors = MaterialTheme.colorScheme
             val textSize = with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.fontSize.toPx() }
             Surface(Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(percent = 50), color = colors.surfaceContainerHigh) {
-                if (state.expanded || progress > 0f) {
+                if (state.expanded) {
                     // Keep platform IME/range selection and continuous insertion-handle edge scrolling.
                     AndroidView(factory = { context -> SearchQueryInput(context).apply {
                         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -112,14 +111,15 @@ internal fun UnifiedSearchField(
             }
             IconButton(onClick = { close(); onSubmit() }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_run_search] }) { ActionIcon(ActionSymbol.SEARCH) }
         }
-        if (progress > 0f) {
+        if (state.expanded) {
+            Column(Modifier.fillMaxWidth().heightIn(max = state.panelMaxHeight)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(strings[R.string.ui_title_title_artist_artist_tag_tag_series_series_exclude_phrase], Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { input?.setText(""); onQueryChange(""); focusInput() }) { Text(strings[R.string.ui_clear_search]) }
             }
-            HorizontalDivider()
-            Column(Modifier.fillMaxWidth().weight(1f).padding(16.dp)) {
+            OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).testTag("search-options")) {
+            Column(Modifier.fillMaxWidth().padding(12.dp)) {
                 if (query.isBlank() || (suggestions.isEmpty() && !loading)) {
                     RecentSearchHistory(history, { close(); onRecent(it) }, onClearHistory)
                 } else {
@@ -131,6 +131,8 @@ internal fun UnifiedSearchField(
                         if (loading) Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) }
                     }
                 }
+            }
+            }
             }
         }
     }

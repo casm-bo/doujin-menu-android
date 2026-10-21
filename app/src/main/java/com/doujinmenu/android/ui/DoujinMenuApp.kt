@@ -652,7 +652,7 @@ private fun MainShell(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth >= 700.dp) {
             Row(modifier = Modifier.fillMaxSize()) {
-                if (!inlineSearch.expanded) NavigationRail {
+                NavigationRail {
                     MainDestination.entries.forEach { destination ->
                         NavigationRailItem(
                             selected = destination == selected,
@@ -671,7 +671,7 @@ private fun MainShell(
             Scaffold(
                 topBar = topBar,
                 bottomBar = {
-                    if (!inlineSearch.expanded) MainBottomNavigation(selected, navigate)
+                    MainBottomNavigation(selected, navigate)
                 },
             ) { padding -> content(padding) }
         }
