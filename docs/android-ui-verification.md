@@ -1,6 +1,71 @@
-# Android UI verification — 2026-10-19
+# Android UI verification
 
-## Scroll investigation
+## Optimization follow-up — 2026-10-21
+
+All ten audit candidates were addressed in separate commits:
+
+- Programmatic search bindings no longer dispatch input events. Library autocomplete
+  tokens are normalized/indexed on Default and reused for an unchanged library.
+  Query/profile guards discard stale results. The complete Hitomi search still
+  requires submission; gallery filtering retains its debounce.
+- The platform editor is created on first expansion and reused until the search
+  screen leaves composition. Collapsed editors are invisible, unfocused and excluded
+  from accessibility. Focus waits for a frame instead of a fixed 50 ms delay.
+  Toolbar animation reads occur in layout; rounded corners remain rounded.
+- Tag text measurement keys contain labels, not click callbacks. Actions and
+  accessibility still update, and font/width changes still trigger measurement.
+- Reconnect requests share a successful in-flight library refresh. Server-change
+  requests remain stronger and survive backgrounding; manual refresh and failed-scan
+  retries remain available. Profile generation guards remain in place.
+- Presentation SQLite queries and list rebuilding run off Main. Publication checks
+  revision/profile identity and retries against changed browsing collections.
+- Individual reading pages use scalar preference updates over the legacy JSON map.
+  Bulk replacements clear those deltas atomically. History uses bounded individual
+  records and reuses unchanged encodings; the first save migrates legacy history.
+  Original media and info.txt files are not modified.
+- Archive indexes persist in a 32 MiB private cache keyed by URI, modification time
+  and size. Sidecars and identities are still resolved on each scan. Unknown source
+  versions, missing covers and corrupt cache entries cause a rescan. Extracted pages
+  use direct name indexes, atomic writes and source-version validation; complete
+  valid caches can skip ZIP traversal. Natural-sort regexes are reused.
+- Tab previews record a graphics layer only for an explicit capture request, with
+  a bounded wait for drawing. Ordinary frames draw directly. The capture test checks
+  updated pixels and verifies that ordinary content changes do not save previews.
+- History cards share a device-preferred book index. Series cards remember combined
+  artists/tags. Matching identity precedence and list order are covered by tests.
+- Removed the unused FilterMenu and legacy title formatter. Tests now cover the
+  actual localized toolbar formatter. No dependencies were added.
+
+Verification: full unit suite 217 tests, zero failures/errors, two opt-in live-service
+tests skipped; debug/uitest APK builds and Debug Lint passed with no Error/Fatal issues.
+The combined device regression run passed 42 tests. The final background-request
+follow-up separately passed refresh/profile-switch/real-activity lock checks (4 tests).
+One earlier combined lock test timed out during the second unlock; its isolated
+rerun, repeated seven-test reader suite, combined run and final follow-up passed.
+The initial UI run with the system keyguard showing was invalid and is excluded.
+
+SM-N986N, debug builds, real-clock synthetic cached-content workloads:
+
+| Search expansion including IME, five open/close pairs | Before editor reuse | Final quiet run |
+| --- | ---: | ---: |
+| Frames | 242 | 338 |
+| Median frame | 10.69 ms | 10.97 ms |
+| 95th percentile | 139.28 ms | 36.80 ms |
+| Frames above 16.67 ms | 61 (25.2%) | 73 (21.6%) |
+
+The search fixture includes cached browsing cards and a history panel, with no
+network. The baseline already includes the autocomplete/tag fixes; it isolates
+the subsequent editor/toolbar change. No sampling profiler was active. A separate
+post-build run used the existing 600-book local-image scroll fixture: 578 frames,
+median 10.24 ms, 95th percentile 23.54 ms, 48 frames above 16.67 ms (8.3%) and nine
+scroll-state writes. An integration run overlapped host build work and is excluded
+from that final scroll figure. These are diagnostic debug measurements, not a
+release FPS guarantee. Network/SAF latency and fresh-image decoding can still stall.
+
+All instrumentation uses `.uitest`; the actual `.debug` app is updated in place.
+Production installation, actual debug credentials and source media are preserved.
+
+## Earlier scroll investigation — 2026-10-19
 
 Code paths showed three avoidable costs:
 
