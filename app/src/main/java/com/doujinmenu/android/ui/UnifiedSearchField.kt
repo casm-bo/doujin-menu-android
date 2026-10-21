@@ -47,6 +47,7 @@ internal fun UnifiedSearchField(
     val strings = androidx.compose.ui.platform.LocalResources.current
     val focus = LocalFocusManager.current
     val changeQuery by rememberUpdatedState(onQueryChange)
+    val boundQuery by rememberUpdatedState(query)
     val submit by rememberUpdatedState(onSubmit)
     var input by remember { mutableStateOf<EditText?>(null) }
     fun close() { state.expanded = false }
@@ -88,7 +89,7 @@ internal fun UnifiedSearchField(
                         setPadding(padding, padding / 3, padding, padding * 3 / 4)
                         imeOptions = EditorInfo.IME_ACTION_SEARCH or EditorInfo.IME_FLAG_NO_EXTRACT_UI
                         setOnFocusChangeListener { _, focused -> if (focused) setSelection(text?.length ?: 0) }
-                        doAfterTextChanged { changeQuery(it.toString()) }
+                        doAfterTextChanged { if (it.toString() != boundQuery) changeQuery(it.toString()) }
                         setOnEditorActionListener { _, action, event ->
                             if (action == EditorInfo.IME_ACTION_SEARCH || (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
                                 close(); clearFocus(); submit(); true

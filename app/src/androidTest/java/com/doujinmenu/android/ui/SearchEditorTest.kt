@@ -71,6 +71,23 @@ class SearchEditorTest {
         assertTrue(submitted)
     }
 
+    @Test fun bindingAndReopeningDoNotDispatchUserEdits() {
+        var query by mutableStateOf("tag:original")
+        var edits = 0
+        compose.setContent { AppTheme { UnifiedSearchField(query, { edits++; query = it }, "Binding query", {}, {}) } }
+        compose.onNodeWithContentDescription("Binding query").performClick()
+        waitForInput()
+        assertEquals(0, edits)
+        compose.runOnIdle { query = "artist:external" }
+        compose.waitForIdle()
+        field { assertEquals(query, it.text.toString()); it.text.append("x") }
+        assertEquals(1, edits)
+        field { it.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) }
+        compose.onNodeWithContentDescription("Binding query").performClick()
+        waitForInput()
+        assertEquals(1, edits)
+    }
+
     @Test fun cursorHandleKeepsScrollingWhileHeldAtEdge() {
         var query by mutableStateOf(List(100) { "tag:sample_$it" }.joinToString(", "))
         compose.setContent { AppTheme { UnifiedSearchField(query, { query = it }, "Drag query", {}, {}) } }

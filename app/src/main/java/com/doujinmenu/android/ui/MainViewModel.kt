@@ -284,6 +284,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val libraryFileDeleter = LibraryFileDeleter(application)
     private val libraryUploadPreparer = LibraryUploadPreparer(application)
     private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
+    private var librarySuggestionIndex: Pair<List<LibraryBook>, List<String>>? = null
     private var suggestionJob: Job? = null
     private var libraryQueryJob: Job? = null
     private var downloadAfterFolder: GallerySummary? = null
@@ -691,6 +692,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun reloadProfileLibrary() {
         libraryProfileGeneration++
+        librarySuggestionIndex = null
         libraryRefreshJob?.cancel()
         activeBookPreparationJob?.cancel()
         uiState = uiState.copy(libraryBooks = emptyList(), activeLibraryBook = null, isLibraryScanning = false,
@@ -2983,25 +2985,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if ((':' in rawToken && type !in FILTER_TYPES) || partial.isEmpty()) { publish(emptyList(), false); return }
         val untyped = ':' !in rawToken
         val hints = if (untyped) FILTER_TYPES.filter { it.startsWith(partial) }.map { FilterSuggestion("$it:", strings[R.string.msg_filter, it]) } else emptyList()
-        val libraryTokens = uiState.libraryBooks.asSequence().flatMap { book -> sequence {
-            book.metadata.artists.forEach { yield("artist:${filterValue(it)}") }
-            book.metadata.groups.forEach { yield("group:${filterValue(it)}") }
-            book.metadata.series.forEach { yield("series:${filterValue(it)}") }
-            book.metadata.characters.forEach { yield("character:${filterValue(it)}") }
-            book.metadata.tags.forEach { yield(if (it.substringBefore(':') in listOf("male", "female", "tag")) filterValue(it) else "tag:${filterValue(it)}") }
-            book.metadata.language?.let { yield("language:${filterValue(it)}") }
-        } }.filter { if (untyped) it.substringAfter(':').startsWith(partial) else it.startsWith("$type:$partial") }
-            .distinct().take(MAX_FILTER_SUGGESTIONS).map { FilterSuggestion(it, it.substringAfter(':').replace('_', ' ')) }.toList()
-        val local = (if (untyped) localUntypedFilterSuggestions(partial) else localFilterSuggestions(type, partial)) + libraryTokens
+        var local = if (untyped) localUntypedFilterSuggestions(partial) else localFilterSuggestions(type, partial)
         fun merged(remote: List<FilterSuggestion>) = if (untyped) mergeUntypedSuggestions(hints, local, remote, partial) else mergeSuggestions(local, remote, partial)
         val cacheKey = if (untyped) "untyped:$partial" else "$type:${partial.first().let { if (it.isDigit()) "0-9" else it.toString() }}"
-        suggestionCache[cacheKey]?.let { publish(merged(it), false); return }
-        publish(merged(emptyList()), true)
+        val generation = libraryProfileGeneration
+        fun current() = generation == libraryProfileGeneration && (if (library) uiState.libraryQueryDraft else uiState.searchQuery) == query
+        publish(merged(suggestionCache[cacheKey].orEmpty()), true)
         suggestionJob = viewModelScope.launch {
+            val books = uiState.libraryBooks
+            val cached = librarySuggestionIndex?.takeIf { it.first === books }?.second
+            val tokens = withContext(Dispatchers.Default) { cached ?: libraryFilterTokens(books) }
+            if (!current()) return@launch
+            if (books === uiState.libraryBooks) librarySuggestionIndex = books to tokens
+            val libraryTokens = withContext(Dispatchers.Default) {
+                tokens.asSequence().filter { if (untyped) it.substringAfter(':').startsWith(partial) else it.startsWith("$type:$partial") }
+                    .take(MAX_FILTER_SUGGESTIONS).map { FilterSuggestion(it, it.substringAfter(':').replace('_', ' ')) }.toList()
+            }
+            if (!current()) return@launch
+            local = local + libraryTokens
+            suggestionCache[cacheKey]?.let { publish(merged(it), false); return@launch }
+            publish(merged(emptyList()), true)
             delay(SUGGESTION_DEBOUNCE_MS)
             val remote = if (untyped) coroutineScope { UNTYPED_SUGGESTION_TYPES.map { facet -> async {
                 runCatching { suggestionClient.getSuggestions(facet, partial) }.getOrDefault(emptyList())
             } }.awaitAll().flatten() } else runCatching { suggestionClient.getSuggestions(type, partial) }.getOrDefault(emptyList())
+            if (!current()) return@launch
             suggestionCache[cacheKey] = remote
             val known = rememberKnownFilterTokens(remote.mapTo(linkedSetOf()) { it.token })
             if ((if (library) uiState.libraryQueryDraft else uiState.searchQuery) == query) publish(merged(remote), false)
@@ -3059,10 +3067,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .distinctBy { it.token }
         .take(MAX_FILTER_SUGGESTIONS)
 
-    private fun filterValue(value: String): String = value
-        .trim()
-        .lowercase()
-        .replace(Regex("\\s+"), "_")
+    private fun filterValue(value: String): String = normalizeFilterValue(value)
 
     private fun rememberFilterTokens(galleries: List<GallerySummary>): Set<String> {
         val discovered = galleries.asSequence().flatMap { gallery ->
