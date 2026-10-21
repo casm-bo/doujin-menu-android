@@ -73,6 +73,7 @@ import com.doujinmenu.android.model.NewTabReturn
 import com.doujinmenu.android.model.NEW_TAB_RETURN_WINDOW_MS
 import com.doujinmenu.android.model.closeTabReturningTo
 import com.doujinmenu.android.model.pushPage
+import com.doujinmenu.android.model.continueLibraryReader
 import com.doujinmenu.android.model.selectTab
 import com.doujinmenu.android.model.selectSearchTab
 import com.doujinmenu.android.model.searchResultSessionIds
@@ -770,12 +771,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openNextLibraryReaderTab(bookId: String) {
-        val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
-        openLibraryBook(bookId)
         val workspace = uiState.galleryWorkspace
-            .pushPage(BrowserPage.LibraryBook(bookId, book.title))
-            .pushPage(BrowserPage.LibraryReader(bookId, book.title, 0))
-        applyGalleryWorkspace(workspace)
+        val current = workspace.activeTab.currentPage as? BrowserPage.LibraryReader ?: return
+        if (current.bookId == bookId) return
+        val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
+        val series = uiState.customSeriesByBookId[current.bookId]?.name
+        val fromSeries = series != null && uiState.selectedLibrarySeries == series && uiState.customSeriesByBookId[bookId]?.name == series
+        openLibraryBook(bookId)
+        if (fromSeries) uiState = uiState.copy(librarySeriesEpisodeList = false)
+        applyGalleryWorkspace(workspace.continueLibraryReader(BrowserPage.LibraryReader(bookId, book.title, 0), fromSeries))
     }
 
     fun initialMainDestination(): String = browserPreferenceStore.loadMainDestination()

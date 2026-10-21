@@ -215,6 +215,13 @@ fun BrowserWorkspace.pushPage(page: BrowserPage): BrowserWorkspace = updateActiv
     tab.copy(history = history, currentIndex = history.lastIndex)
 }
 
+fun BrowserWorkspace.continueLibraryReader(page: BrowserPage.LibraryReader, fromSeries: Boolean): BrowserWorkspace = updateActiveTab { tab ->
+    val previous = tab.history.take(tab.currentIndex)
+    val seriesOrigin = if (fromSeries) previous.indexOfLast { it is BrowserPage.LibraryHome } else -1
+    val history = (if (seriesOrigin >= 0) previous.take(seriesOrigin + 1) else previous) + page
+    tab.copy(history = history, currentIndex = history.lastIndex)
+}
+
 fun BrowserWorkspace.goBack(): BrowserWorkspace = updateActiveTab { tab ->
     if (tab.canGoBack) tab.copy(currentIndex = tab.currentIndex - 1) else tab
 }

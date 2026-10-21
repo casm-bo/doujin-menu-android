@@ -6,6 +6,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserSessionTest {
+    @Test fun nextEpisodeReplacesReaderAndBackReturnsToItsOrigin() {
+        val origin = BrowserPage.LibraryHome(scrollIndex = 14, scrollOffset = 27)
+        val first = BrowserPage.LibraryReader("first", "Episode 1", 0, position = ReaderPosition(49, 5000))
+        val workspace = BrowserWorkspace.initial(origin).pushPage(first)
+        val next = BrowserPage.LibraryReader("second", "Episode 2", 0)
+        val continued = workspace.continueLibraryReader(next, fromSeries = true)
+        assertEquals(listOf(origin, next), continued.activeTab.history)
+        assertEquals(origin, continued.goBack().activeTab.currentPage)
+        assertEquals(null, next.position)
+        assertEquals(continued, continued.updateReaderPosition(first.key, ReaderPosition(49, 5100)))
+        val third = continued.continueLibraryReader(BrowserPage.LibraryReader("third", "Episode 3", 0), fromSeries = true)
+        assertEquals(2, third.activeTab.history.size)
+        assertEquals(origin, third.goBack().activeTab.currentPage)
+    }
+
+    @Test fun replacingReaderPreservesOtherTabsAndDropsForwardHistory() {
+        val origin = BrowserPage.LibraryBook("first", "Episode 1", previewPosition = ReaderPosition(12, 40))
+        val workspace = BrowserWorkspace.initial(origin).pushPage(BrowserPage.LibraryReader("first", "Episode 1", 12))
+            .pushPage(BrowserPage.LibraryBook("stale", "Old forward page")).goBack()
+        val other = workspace.openTab(BrowserPage.Search(query = "untouched"), activate = false)
+        val replacement = BrowserPage.LibraryReader("second", "Episode 2", 0)
+        val continued = other.continueLibraryReader(replacement, fromSeries = false)
+        assertEquals(listOf(origin, replacement), continued.activeTab.history)
+        assertEquals(other.tabs.last(), continued.tabs.last())
+        assertEquals(origin, continued.goBack().activeTab.currentPage)
+    }
+
+    @Test fun nextEpisodeFromSeriesDropsIntermediateEpisodeDetails() {
+        val home = BrowserPage.LibraryHome(query = "saved filter", scrollIndex = 4)
+        val previous = BrowserWorkspace.initial(home)
+            .pushPage(BrowserPage.LibraryBook("first", "Episode 1", previewPosition = ReaderPosition(49)))
+            .pushPage(BrowserPage.LibraryReader("first", "Episode 1", 49))
+        val next = BrowserPage.LibraryReader("second", "Episode 2", 0)
+        val continued = previous.continueLibraryReader(next, fromSeries = true)
+        assertEquals(listOf(home, next), continued.activeTab.history)
+        assertEquals(home, continued.goBack().activeTab.currentPage)
+    }
+
     @Test
     fun archivedGroupsKeepSearchCacheReferencesUntilExplicitlyDeleted() {
         val original = BrowserWorkspace.initial(BrowserPage.Search(resultSessionId = "saved-search"))
