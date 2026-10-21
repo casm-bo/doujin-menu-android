@@ -157,10 +157,7 @@ fun BrowserScreen(
     var expandedPanel by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteLanguage by rememberSaveable { mutableStateOf<String?>(null) }
     val libraryBookByGalleryId = remember(state.libraryBooks, state.libraryHiddenIds) {
-        val visibleBooks = state.libraryBooks.filterNot { it.id in state.libraryHiddenIds }
-        visibleBooks.mapNotNull { it.metadata.hitomiId?.toLongOrNull() }
-            .distinct()
-            .associateWith { preferredLibraryBookForGalleryId(visibleBooks, it) }
+        preferredLibraryBooksByGalleryId(state.libraryBooks, state.libraryHiddenIds)
     }
     val resultIds = state.searchResultWindow?.index?.let { index -> remember(index) { index.ids } }
         ?: remember(state.galleries) { state.galleries.map { it.id } }

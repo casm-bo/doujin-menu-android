@@ -130,6 +130,24 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
+private data class PreparedLibraryRefresh(
+    val aliases: Map<String, String>,
+    val hiddenIds: Set<String>,
+    val favoriteIds: Set<String>,
+    val readIds: Set<String>,
+    val progress: Map<String, Int>,
+    val pendingBookStateIds: Set<String>,
+    val bookStateModifiedTimes: Map<String, Long>,
+    val pendingSeriesSyncIds: Set<String>,
+    val customSeries: Map<String, CustomSeriesAssignment>,
+    val seriesRemovalTimes: Map<String, Long>,
+    val localSeries: Map<String, CustomSeriesAssignment>,
+    val localSeriesRemovalTimes: Map<String, Long>,
+    val customTitles: Map<String, String>,
+    val favoriteSeriesNames: Set<String>,
+    val allBooks: List<LibraryBook>,
+)
+
 data class MainUiState(
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val appStyle: com.doujinmenu.android.model.AppStyle = com.doujinmenu.android.model.AppStyle(),
@@ -374,8 +392,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         presentationCovers.file(hash).takeIf { it.isFile }?.toURI()?.toString()
     }
     private fun presentedBook(book: LibraryBook): LibraryBook {
+        return presentedBook(book, uiState.presentations)
+    }
+    private fun presentedBook(book: LibraryBook, presentations: Map<String, com.doujinmenu.android.data.PresentationRecord>): LibraryBook {
         val key = runCatching { book.presentationKey() }.getOrNull() ?: return book
-        val value = uiState.presentations[key]?.value
+        val value = presentations[key]?.value
         return book.withPresentation(value, coverUri(value))
     }
     private fun presentedGallery(gallery: GallerySummary): GallerySummary {
@@ -1451,100 +1472,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { client.getDesktopDownloadPath(it) }.getOrNull()
             }
             if (!current()) return@launch
-            val legacyDesktopIdAliases = profile?.let { selected ->
-                cloudBooks.mapNotNull { book ->
-                    val remoteId = book.remoteBookId ?: return@mapNotNull null
-                    val legacyId = "desktop:${selected.id}:$remoteId"
-                    (legacyId to book.id).takeIf { legacyId != book.id }
-                }.toMap()
-            }.orEmpty()
-            val legacyIdAliases = legacyDesktopIdAliases +
-                identityReconciliation.idAliases +
-                legacyLocalLibraryIdAliases(localBooks)
-            var hiddenIds = remapLibraryIds(libraryPreferenceStore.loadHiddenIds(), legacyIdAliases)
-            var favoriteIds = remapLibraryIds(libraryPreferenceStore.loadFavoriteIds(), legacyIdAliases)
-            var readIds = remapLibraryIds(libraryPreferenceStore.loadReadIds(), legacyIdAliases)
-            var progress = remapLibraryIdKeys(libraryPreferenceStore.loadProgress(), legacyIdAliases)
-            var pendingBookStateIds = remapLibraryIds(
-                libraryPreferenceStore.loadPendingBookStateSyncIds(),
-                legacyIdAliases,
-            )
-            var bookStateModifiedTimes = remapLibraryIdKeys(
-                libraryPreferenceStore.loadBookStateModifiedTimes(),
-                legacyIdAliases,
-            )
-            var pendingSeriesSyncIds = remapLibraryIds(
-                libraryPreferenceStore.loadPendingSeriesSyncIds(),
-                legacyIdAliases,
-            )
-            val localSeries = remapLibraryIdKeys(
-                libraryPreferenceStore.loadCustomSeries(),
-                legacyIdAliases,
-            )
-            val localSeriesRemovalTimes = remapLibraryIdKeys(
-                libraryPreferenceStore.loadSeriesRemovalTimes(),
-                legacyIdAliases,
-            )
-            val seriesMerge = mergeSyncedSeries(
-                local = localSeries,
-                removalTimes = localSeriesRemovalTimes,
-                books = cloudBooks,
-                pendingIds = pendingSeriesSyncIds,
-            )
-            val rawBooks = localBooks + cloudBooks
-            val knownSyncableIds = rawBooks.asSequence()
-                .filter { it.syncId != null }
-                .mapTo(hashSetOf(), LibraryBook::id)
-            val librarySnapshotComplete = result.errors.isEmpty() &&
-                (profile == null || cloudResult?.isSuccess == true)
-            val knownBookIds = rawBooks.mapTo(hashSetOf(), LibraryBook::id)
-            val customSeries = if (librarySnapshotComplete) {
-                seriesMerge.assignments.filterKeys { it in knownBookIds }
-            } else {
-                seriesMerge.assignments
-            }
-            val seriesRemovalTimes = if (librarySnapshotComplete) {
-                seriesMerge.removalTimes.filterKeys { it in knownBookIds }
-            } else {
-                seriesMerge.removalTimes
-            }
-            pendingSeriesSyncIds += seriesMerge.localWinnerIds.filter { it in knownSyncableIds }
-            var customTitles = remapLibraryIdKeys(libraryPreferenceStore.loadCustomTitles(), legacyIdAliases)
-            var favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames()
-            if (librarySnapshotComplete) {
-                pendingBookStateIds = pendingBookStateIds.filterTo(linkedSetOf()) {
-                    it in knownSyncableIds
+            val librarySnapshotComplete = result.errors.isEmpty() && (profile == null || cloudResult?.isSuccess == true)
+            var prepared: PreparedLibraryRefresh
+            while (true) {
+                val preferences = libraryPreferenceStore.snapshot()
+                val presentations = uiState.presentations
+                val previousBooks = uiState.libraryBooks
+                prepared = withContext(Dispatchers.Default) {
+                    prepareLibraryRefresh(localBooks, cloudBooks, profile, identityReconciliation.idAliases,
+                        librarySnapshotComplete, presentations, previousBooks.associateBy(LibraryBook::id))
                 }
+                if (!current()) return@launch
+                // A user edit during preparation must win over this older scan snapshot.
+                if (libraryPreferenceStore.matchesSnapshot(preferences) && presentations === uiState.presentations) break
             }
-            pendingSeriesSyncIds = sanitizePendingSeriesSyncIds(
-                pending = pendingSeriesSyncIds,
-                knownSyncableIds = knownSyncableIds,
-                librarySnapshotComplete = librarySnapshotComplete,
-                assignments = customSeries,
-                removalTimes = seriesRemovalTimes,
-            )
-            val remoteBySyncId = cloudBooks.mapNotNull { remote ->
-                remote.syncId?.lowercase()?.let { it to remote }
-            }.toMap()
-            rawBooks.forEach { book ->
-                val remote = book.syncId?.lowercase()?.let(remoteBySyncId::get) ?: return@forEach
-                if (book.id in pendingBookStateIds) return@forEach
-                pendingBookStateIds -= book.id
-                hiddenIds = hiddenIds.withMembership(book.id, remote.syncedHidden)
-                favoriteIds = favoriteIds.withMembership(book.id, remote.syncedFavorite)
-                readIds = readIds.withMembership(book.id, remote.syncedRead)
-                progress = progress + (book.id to remote.syncedProgress)
-                customTitles = if (remote.syncedCustomTitle == null) customTitles - book.id
-                else customTitles + (book.id to remote.syncedCustomTitle)
-                bookStateModifiedTimes = bookStateModifiedTimes +
-                    (book.id to remote.syncedStateModifiedAt)
-                remote.syncedSeries?.name?.let { seriesName ->
-                    favoriteSeriesNames = favoriteSeriesNames.withMembership(
-                        seriesName,
-                        remote.syncedSeriesFavorite,
-                    )
-                }
-            }
+            val legacyIdAliases = prepared.aliases
+            val hiddenIds = prepared.hiddenIds
+            val favoriteIds = prepared.favoriteIds
+            val readIds = prepared.readIds
+            val progress = prepared.progress
+            val pendingBookStateIds = prepared.pendingBookStateIds
+            val bookStateModifiedTimes = prepared.bookStateModifiedTimes
+            val pendingSeriesSyncIds = prepared.pendingSeriesSyncIds
+            val customSeries = prepared.customSeries
+            val seriesRemovalTimes = prepared.seriesRemovalTimes
+            val localSeries = prepared.localSeries
+            val localSeriesRemovalTimes = prepared.localSeriesRemovalTimes
+            val customTitles = prepared.customTitles
+            val favoriteSeriesNames = prepared.favoriteSeriesNames
+            val allBooks = prepared.allBooks
             if (
                 legacyIdAliases.isNotEmpty() ||
                 cloudBooks.any(LibraryBook::hasSyncedSeriesState) ||
@@ -1569,11 +1525,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             libraryPreferenceStore.savePendingSeriesSyncIds(pendingSeriesSyncIds)
             libraryPreferenceStore.savePendingBookStateSyncIds(pendingBookStateIds)
             libraryPreferenceStore.saveBookStateModifiedTimes(bookStateModifiedTimes)
-            val allBooks = (localBooks + cloudBooks).map { book ->
-                    val customTitle = customTitles[book.id]
-                    if (customTitle != null) book.copy(title = customTitle, originalTitle = customTitle)
-                    else book.copy(title = preferredLocalizedTitle(book.originalTitle))
-                }.map(::presentedBook)
             val previousActiveBook = uiState.activeLibraryBook
             val savedActiveBookId = previousActiveBook?.id ?: libraryPreferenceStore.loadActiveBookId()
             val refreshedActiveBook = savedActiveBookId?.let { savedId ->
@@ -1667,6 +1618,112 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (current()) uiState = uiState.copy(isLibraryScanning = false, isLibraryPullRefreshing = false)
             }
         }
+    }
+
+    private fun prepareLibraryRefresh(
+        localBooks: List<LibraryBook>, cloudBooks: List<LibraryBook>, profile: DesktopProfile?,
+        identityAliases: Map<String, String>, librarySnapshotComplete: Boolean,
+        presentations: Map<String, com.doujinmenu.android.data.PresentationRecord>, previousBooks: Map<String, LibraryBook>,
+    ): PreparedLibraryRefresh {
+        val legacyDesktopIdAliases = profile?.let { selected ->
+            cloudBooks.mapNotNull { book ->
+                val remoteId = book.remoteBookId ?: return@mapNotNull null
+                val legacyId = "desktop:${selected.id}:$remoteId"
+                (legacyId to book.id).takeIf { legacyId != book.id }
+            }.toMap()
+        }.orEmpty()
+        val legacyIdAliases = legacyDesktopIdAliases +
+            identityAliases +
+            legacyLocalLibraryIdAliases(localBooks)
+        val hiddenIds = remapLibraryIds(libraryPreferenceStore.loadHiddenIds(), legacyIdAliases).toMutableSet()
+        val favoriteIds = remapLibraryIds(libraryPreferenceStore.loadFavoriteIds(), legacyIdAliases).toMutableSet()
+        val readIds = remapLibraryIds(libraryPreferenceStore.loadReadIds(), legacyIdAliases).toMutableSet()
+        val progress = remapLibraryIdKeys(libraryPreferenceStore.loadProgress(), legacyIdAliases).toMutableMap()
+        var pendingBookStateIds = remapLibraryIds(
+            libraryPreferenceStore.loadPendingBookStateSyncIds(),
+            legacyIdAliases,
+        )
+        val bookStateModifiedTimes = remapLibraryIdKeys(
+            libraryPreferenceStore.loadBookStateModifiedTimes(),
+            legacyIdAliases,
+        ).toMutableMap()
+        var pendingSeriesSyncIds = remapLibraryIds(
+            libraryPreferenceStore.loadPendingSeriesSyncIds(),
+            legacyIdAliases,
+        )
+        val localSeries = remapLibraryIdKeys(
+            libraryPreferenceStore.loadCustomSeries(),
+            legacyIdAliases,
+        )
+        val localSeriesRemovalTimes = remapLibraryIdKeys(
+            libraryPreferenceStore.loadSeriesRemovalTimes(),
+            legacyIdAliases,
+        )
+        val seriesMerge = mergeSyncedSeries(
+            local = localSeries,
+            removalTimes = localSeriesRemovalTimes,
+            books = cloudBooks,
+            pendingIds = pendingSeriesSyncIds,
+        )
+        val rawBooks = localBooks + cloudBooks
+        val knownSyncableIds = rawBooks.asSequence()
+            .filter { it.syncId != null }
+            .mapTo(hashSetOf(), LibraryBook::id)
+        val knownBookIds = rawBooks.mapTo(hashSetOf(), LibraryBook::id)
+        val customSeries = if (librarySnapshotComplete) {
+            seriesMerge.assignments.filterKeys { it in knownBookIds }
+        } else {
+            seriesMerge.assignments
+        }
+        val seriesRemovalTimes = if (librarySnapshotComplete) {
+            seriesMerge.removalTimes.filterKeys { it in knownBookIds }
+        } else {
+            seriesMerge.removalTimes
+        }
+        pendingSeriesSyncIds += seriesMerge.localWinnerIds.filter { it in knownSyncableIds }
+        val customTitles = remapLibraryIdKeys(libraryPreferenceStore.loadCustomTitles(), legacyIdAliases).toMutableMap()
+        val favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames().toMutableSet()
+        if (librarySnapshotComplete) {
+            pendingBookStateIds = pendingBookStateIds.filterTo(linkedSetOf()) {
+                it in knownSyncableIds
+            }
+        }
+        pendingSeriesSyncIds = sanitizePendingSeriesSyncIds(
+            pending = pendingSeriesSyncIds,
+            knownSyncableIds = knownSyncableIds,
+            librarySnapshotComplete = librarySnapshotComplete,
+            assignments = customSeries,
+            removalTimes = seriesRemovalTimes,
+        )
+        val remoteBySyncId = cloudBooks.mapNotNull { remote ->
+            remote.syncId?.lowercase()?.let { it to remote }
+        }.toMap()
+        rawBooks.forEach { book ->
+            val remote = book.syncId?.lowercase()?.let(remoteBySyncId::get) ?: return@forEach
+            if (book.id in pendingBookStateIds) return@forEach
+            hiddenIds.setMembership(book.id, remote.syncedHidden)
+            favoriteIds.setMembership(book.id, remote.syncedFavorite)
+            readIds.setMembership(book.id, remote.syncedRead)
+            progress[book.id] = remote.syncedProgress
+            if (remote.syncedCustomTitle == null) customTitles.remove(book.id)
+            else customTitles[book.id] = remote.syncedCustomTitle
+            bookStateModifiedTimes[book.id] = remote.syncedStateModifiedAt
+            remote.syncedSeries?.name?.let { seriesName ->
+                favoriteSeriesNames.setMembership(
+                    seriesName,
+                    remote.syncedSeriesFavorite,
+                )
+            }
+        }
+        val allBooks = (localBooks + cloudBooks).map { book ->
+                val customTitle = customTitles[book.id]
+                if (customTitle != null) book.copy(title = customTitle, originalTitle = customTitle)
+                else book.copy(title = preferredLocalizedTitle(book.originalTitle))
+            }.map { book ->
+                val presented = presentedBook(book, presentations)
+                previousBooks[presented.id]?.takeIf { it == presented } ?: presented
+            }
+        return PreparedLibraryRefresh(legacyIdAliases, hiddenIds, favoriteIds, readIds, progress, pendingBookStateIds, bookStateModifiedTimes, pendingSeriesSyncIds, customSeries, seriesRemovalTimes, localSeries, localSeriesRemovalTimes, customTitles, favoriteSeriesNames, allBooks)
     }
 
     fun setLibraryQuery(value: String) {
@@ -3367,14 +3424,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ): Set<String> {
         if (remoteStates.isEmpty()) return emptySet()
 
-        var favoriteIds = libraryPreferenceStore.loadFavoriteIds()
-        var readIds = libraryPreferenceStore.loadReadIds()
-        var hiddenIds = libraryPreferenceStore.loadHiddenIds()
-        var progress = libraryPreferenceStore.loadProgress()
-        var customTitles = libraryPreferenceStore.loadCustomTitles()
-        var favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames()
-        var modifiedTimes = libraryPreferenceStore.loadBookStateModifiedTimes()
-        var pendingIds = libraryPreferenceStore.loadPendingBookStateSyncIds()
+        val favoriteIds = libraryPreferenceStore.loadFavoriteIds().toMutableSet()
+        val readIds = libraryPreferenceStore.loadReadIds().toMutableSet()
+        val hiddenIds = libraryPreferenceStore.loadHiddenIds().toMutableSet()
+        val progress = libraryPreferenceStore.loadProgress().toMutableMap()
+        val customTitles = libraryPreferenceStore.loadCustomTitles().toMutableMap()
+        val favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames().toMutableSet()
+        val modifiedTimes = libraryPreferenceStore.loadBookStateModifiedTimes().toMutableMap()
+        val pendingIds = libraryPreferenceStore.loadPendingBookStateSyncIds().toMutableSet()
         val booksBySyncId = books.groupBy { it.syncId?.lowercase() }
         val receivedStatesByBookId = mutableMapOf<String, SyncedBookState>()
         val acceptedStatesByBookId = mutableMapOf<String, SyncedBookState>()
@@ -3390,20 +3447,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         expectedModifiedAtByBookId = expectedModifiedAtByBookId,
                     )
                 ) {
-                    pendingIds += book.id
+                    pendingIds.add(book.id)
                     return@forEach
                 }
-                pendingIds -= book.id
+                pendingIds.remove(book.id)
                 acceptedStatesByBookId[book.id] = state
-                favoriteIds = favoriteIds.withMembership(book.id, state.isFavorite)
-                readIds = readIds.withMembership(book.id, state.isRead)
-                hiddenIds = hiddenIds.withMembership(book.id, state.isHidden)
-                progress = progress + (book.id to state.currentPage)
-                customTitles = if (state.customTitle == null) customTitles - book.id
-                else customTitles + (book.id to state.customTitle)
-                modifiedTimes = modifiedTimes + (book.id to state.modifiedAt)
+                favoriteIds.setMembership(book.id, state.isFavorite)
+                readIds.setMembership(book.id, state.isRead)
+                hiddenIds.setMembership(book.id, state.isHidden)
+                progress[book.id] = state.currentPage
+                if (state.customTitle == null) customTitles.remove(book.id)
+                else customTitles[book.id] = state.customTitle
+                modifiedTimes[book.id] = state.modifiedAt
                 uiState.customSeriesByBookId[book.id]?.name?.let { seriesName ->
-                    favoriteSeriesNames = favoriteSeriesNames.withMembership(
+                    favoriteSeriesNames.setMembership(
                         seriesName,
                         state.seriesFavorite,
                     )
@@ -3924,6 +3981,16 @@ internal fun preferredLibraryBookForGalleryId(
     .sortedBy(LibraryBook::isCloud)
     .firstOrNull()
 
+internal fun preferredLibraryBooksByGalleryId(books: List<LibraryBook>, hiddenIds: Set<String>): Map<Long, LibraryBook> =
+    LinkedHashMap<Long, LibraryBook>().apply {
+        for (book in books) {
+            if (book.id in hiddenIds) continue
+            val id = book.metadata.hitomiId?.toLongOrNull() ?: continue
+            val previous = get(id)
+            if (previous == null || (previous.isCloud && !book.isCloud)) put(id, book)
+        }
+    }
+
 internal fun remapLibraryIds(
     ids: Set<String>,
     aliases: Map<String, String>,
@@ -3932,10 +3999,11 @@ internal fun remapLibraryIds(
 internal fun <T> remapLibraryIdKeys(
     values: Map<String, T>,
     aliases: Map<String, String>,
-): Map<String, T> = buildMap {
-    values.filterKeys { it !in aliases }.forEach(::put)
-    values.filterKeys { it in aliases }.forEach { (id, value) ->
-        putIfAbsent(aliases.getValue(id), value)
+): Map<String, T> {
+    if (aliases.isEmpty()) return values
+    return LinkedHashMap<String, T>(values.size).apply {
+        values.forEach { (id, value) -> if (id !in aliases) put(id, value) }
+        values.forEach { (id, value) -> aliases[id]?.let { putIfAbsent(it, value) } }
     }
 }
 
@@ -3987,8 +4055,9 @@ private fun CustomSeriesAssignment?.sameSeriesStateAs(
     else -> name == expected.name && order == expected.order
 }
 
-private fun Set<String>.withMembership(value: String, included: Boolean): Set<String> =
-    if (included) this + value else this - value
+private fun MutableSet<String>.setMembership(value: String, included: Boolean) {
+    if (included) add(value) else remove(value)
+}
 
 internal data class SeriesMergeResult(
     val assignments: Map<String, CustomSeriesAssignment>,

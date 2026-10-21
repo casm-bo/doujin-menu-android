@@ -8,7 +8,10 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.CompositionLocalProvider
 import com.doujinmenu.android.ui.LocalGalleryBorders
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -55,8 +58,13 @@ class MainActivity : AppCompatActivity() {
         appLock.activeBiometricRequest?.let(::attachBiometric)
         setContent {
             val viewModel: MainViewModel = viewModel()
-            val darkTheme = viewModel.uiState.themeMode.usesDarkTheme(isSystemInDarkTheme())
-            SideEffect {
+            // Reading the whole UI state here reran window/theme work on every search/scroll update.
+            val themeMode by remember(viewModel) { derivedStateOf { viewModel.uiState.themeMode } }
+            val fontSize by remember(viewModel) { derivedStateOf { viewModel.uiState.fontSizeSp } }
+            val style by remember(viewModel) { derivedStateOf { viewModel.uiState.appStyle } }
+            val borders by remember(viewModel) { derivedStateOf { viewModel.uiState.galleryBorders } }
+            val darkTheme = themeMode.usesDarkTheme(isSystemInDarkTheme())
+            DisposableEffect(appLock.enabled, darkTheme) {
                 if (appLock.enabled) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 val transparent = android.graphics.Color.TRANSPARENT
@@ -66,9 +74,10 @@ class MainActivity : AppCompatActivity() {
                     SystemBarStyle.light(transparent, transparent)
                 }
                 enableEdgeToEdge(systemBarStyle, systemBarStyle)
+                onDispose { }
             }
-            DoujinMenuTheme(darkTheme = darkTheme, fontSizeSp = viewModel.uiState.fontSizeSp, style = viewModel.uiState.appStyle) {
-                CompositionLocalProvider(LocalGalleryBorders provides viewModel.uiState.galleryBorders, LocalAppLock provides appLock) {
+            DoujinMenuTheme(darkTheme = darkTheme, fontSizeSp = fontSize, style = style) {
+                CompositionLocalProvider(LocalGalleryBorders provides borders, LocalAppLock provides appLock) {
                     val holder = rememberSaveableStateHolder()
                     if (appLock.locked) AppLockScreen(appLock, ::requestBiometric) { moveTaskToBack(true) }
                     else holder.SaveableStateProvider("app") { DoujinMenuApp(viewModel) }

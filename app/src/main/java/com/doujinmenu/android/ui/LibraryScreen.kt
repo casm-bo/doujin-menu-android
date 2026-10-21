@@ -323,13 +323,15 @@ fun LibraryScreen(
         state.libraryHiddenIds,
         state.libraryVisibilityFilter,
     ) { state.libraryBooksInVisibility() }
-    val shownBooks = (if (selectedSeries == null) books else visibilityBooks).filterBySeries(selectedSeries, state.customSeriesByBookId)
+    val shownBooks = remember(books, visibilityBooks, selectedSeries, state.customSeriesByBookId) {
+        (if (selectedSeries == null) books else visibilityBooks).filterBySeries(selectedSeries, state.customSeriesByBookId)
+    }
     val mainEntries = remember(books, state.customSeriesByBookId, state.librarySort) {
         libraryMainEntries(books, state.customSeriesByBookId, state.librarySort)
     }
     val shownEntries = remember(shownBooks) { shownBooks.map { LibraryMainEntry.Book(it) } }
     val pullToRefreshState = rememberPullToRefreshState()
-    val mainEntryKeys = mainEntries.map(LibraryMainEntry::scrollKey)
+    val mainEntryKeys = remember(mainEntries) { mainEntries.map(LibraryMainEntry::scrollKey) }
     val savedAnchorKey = remember(pageKey) { initialScrollAnchorKey }
     val restoredIndex = resolveScrollIndex(savedAnchorKey, initialScrollIndex, mainEntryKeys)
     val mainGridState = remember(pageKey) { LazyGridState(restoredIndex, initialScrollOffset) }

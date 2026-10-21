@@ -15,6 +15,9 @@ import org.json.JSONObject
 class LibraryPreferenceStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
+    internal fun snapshot(): Map<String, *> = preferences.all
+    internal fun matchesSnapshot(snapshot: Map<String, *>): Boolean = preferences.all == snapshot
+
     fun loadFavoriteIds(): Set<String> = preferences.getStringSet(KEY_FAVORITES, emptySet()).orEmpty()
     fun saveFavoriteIds(ids: Set<String>) = preferences.edit().putStringSet(KEY_FAVORITES, ids).apply()
 
