@@ -19,6 +19,69 @@ import java.io.File
 
 class SeriesDetailTest {
     @get:Rule val compose = createComposeRule()
+    @Test fun seriesSettingsEditIndependentMetadataAndSelectEpisodeOrExternalCover() {
+        val strings = InstrumentationRegistry.getInstrumentation().targetContext.resources
+        val books = listOf("First", "Second").map { LibraryBook(it, it, locationUri = "", locationName = "", folderUri = "",
+            pages = listOf(LibraryPage("file:///fixture-$it.png", "1")), modifiedAt = 1,
+            metadata = LibraryMetadata(artists = listOf("Original artist"), tags = listOf("Episode tag"))) }
+        var state by mutableStateOf(MainUiState())
+        var selected: ReaderImageSource? = null
+        var saved: GalleryPresentation? = null
+        val registry = object : androidx.activity.result.ActivityResultRegistry() {
+            override fun <I, O> onLaunch(requestCode: Int, contract: androidx.activity.result.contract.ActivityResultContract<I, O>, input: I,
+                options: androidx.core.app.ActivityOptionsCompat?) {
+                dispatchResult(requestCode, android.app.Activity.RESULT_OK, android.content.Intent().setData(android.net.Uri.parse("content://fixture/external-cover")))
+            }
+        }
+        val owner = object : androidx.activity.result.ActivityResultRegistryOwner { override val activityResultRegistry = registry }
+        compose.setContent { CompositionLocalProvider(androidx.activity.compose.LocalActivityResultRegistryOwner provides owner) { DoujinMenuTheme {
+            SeriesDetailContent("Fixture series", books, state, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, { _, _ -> }, {}, {}, {},
+                onSavePresentation = { value, _ -> saved = value; state = state.copy(presentations = mapOf(value.key to com.doujinmenu.android.data.PresentationRecord(value))) },
+                onCover = { value, source -> assertEquals(seriesCoverPresentationKey("Fixture series"), value.key); selected = source })
+        } } }
+        fun settings() {
+            compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription(strings.getString(R.string.ui_detail_options)))
+            compose.onNodeWithContentDescription(strings.getString(R.string.ui_detail_options)).performClick()
+        }
+        settings()
+        compose.onNodeWithText(strings.getString(R.string.ui_cover_from_work)).performClick()
+        compose.onNode(hasText("Second") and hasAnyAncestor(isDialog())).performClick()
+        assertEquals(books.last().coverUri, selected!!.uri)
+        settings()
+        compose.onNodeWithText(strings.getString(R.string.ui_cover_from_image)).performClick()
+        compose.runOnIdle { assertEquals("content://fixture/external-cover", selected!!.uri) }
+        settings()
+        compose.onNodeWithText(strings.getString(R.string.ui_edit_metadata)).performClick()
+        compose.onNode(hasText("Fixture series") and hasAnyAncestor(isDialog())).performTextReplacement("Edited series")
+        compose.onNode(hasText("Original artist") and hasAnyAncestor(isDialog())).performTextReplacement("Series artist")
+        compose.onNodeWithText(strings.getString(R.string.ui_save)).performClick()
+        assertEquals("Edited series", saved!!.title)
+        assertEquals(listOf("Series artist"), saved!!.metadata.artists)
+        assertEquals(listOf("Original artist"), books.first().metadata.artists)
+        compose.onNodeWithText("Edited series").assertExists()
+    }
+
+    @Test fun editedSeriesMetadataAppearsOnTheSharedCard() {
+        val value = GalleryPresentation(seriesPresentationKey("Group"), "Edited group", LibraryMetadata(artists = listOf("Group artist"), tags = listOf("Group tag")), webtoon = false)
+        val book = LibraryBook("episode", "Episode", locationUri = "", locationName = "", folderUri = "", pages = emptyList(), modifiedAt = 1, webtoon = true)
+        compose.setContent { DoujinMenuTheme { SeriesCard("Group", listOf(book), true, 1f, false, false, false, false, {}, {}, {}, presentation = value) } }
+        compose.onNodeWithText("Edited group").assertExists()
+        compose.onNodeWithText("Group artist").assertExists()
+        compose.onNodeWithText("Group tag").assertExists()
+        compose.onNodeWithText(InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.ui_webtoon_tag)).assertExists()
+    }
+
+    @Test fun selectingOnlyACoverKeepsAggregatedMetadataLive() {
+        val book = LibraryBook("episode", "Episode", locationUri = "", locationName = "", folderUri = "", pages = emptyList(), modifiedAt = 1,
+            metadata = LibraryMetadata(tags = listOf("Original tag")))
+        var books by mutableStateOf(listOf(book))
+        val value = GalleryPresentation(seriesCoverPresentationKey("Group"), "Group", LibraryMetadata(), coverHash = "a".repeat(64))
+        compose.setContent { DoujinMenuTheme { SeriesDetailContent("Group", books,
+            MainUiState(presentations = mapOf(value.key to com.doujinmenu.android.data.PresentationRecord(value))),
+            {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}) } }
+        compose.runOnIdle { books = listOf(book.copy(metadata = book.metadata.copy(tags = listOf("Original tag", "Fresh tag")))) }
+        compose.onNodeWithText("Fresh tag").assertExists()
+    }
     @Test fun continuingAtEpisodeEndThenBackReturnsToSeriesDetail() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val cover = File(context.cacheDir, "series-navigation.png")

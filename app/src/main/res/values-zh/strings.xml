@@ -526,4 +526,6 @@
     <string name="ui_dont_show_again">"不再显示"</string>
     <string name="ui_desktop_download_offline">"PC未连接。桌面下载请求将保存在待处理列表中，连接后发送。"</string>
     <string name="ui_download_settings">"下载设置"</string>
+    <string name="ui_cover_from_work">选择作品封面</string>
+    <string name="ui_metadata_limits">标题最多500个字符；每个元数据字段最多300项，每项最多200个字符。</string>
 </resources>

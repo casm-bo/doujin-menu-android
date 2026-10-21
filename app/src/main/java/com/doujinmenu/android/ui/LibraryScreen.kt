@@ -122,6 +122,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.doujinmenu.android.model.LibraryBook
+import com.doujinmenu.android.model.GalleryPresentation
+import com.doujinmenu.android.model.ReaderImageSource
+import com.doujinmenu.android.model.seriesPresentationKey
+import com.doujinmenu.android.model.seriesCoverPresentationKey
 import com.doujinmenu.android.model.ReaderPosition
 import com.doujinmenu.android.model.resolveScrollIndex
 import com.doujinmenu.android.model.CustomSeriesAssignment
@@ -272,6 +276,9 @@ fun LibraryScreen(
     seriesPage: com.doujinmenu.android.model.BrowserPage.LibrarySeries? = null,
     onSeriesPreviewPosition: (com.doujinmenu.android.model.ReaderPosition) -> Unit = {},
     onSeriesEpisodePosition: (Int, Int) -> Unit = { _, _ -> },
+    onSaveSeriesPresentation: (GalleryPresentation, Boolean) -> Unit = { _, _ -> },
+    onSeriesCover: (GalleryPresentation, ReaderImageSource) -> Unit = { _, _ -> },
+    onAcceptRemoteSeriesPresentation: (String) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -656,6 +663,7 @@ fun LibraryScreen(
                     onDelete = { onDeleteSeries(setOf(selectedSeries)); onSelectedSeriesChange(null) }, onSearchFacet = onSearchFacet, onSearchLanguage = onSearchLanguage,
                     onLoadPreview = onLoadSeriesPreview,
                     pageKey = pageKey, initialPosition = seriesPage.previewPosition, onPositionChange = onSeriesPreviewPosition,
+                    onSavePresentation = onSaveSeriesPresentation, onCover = onSeriesCover, onAcceptRemote = onAcceptRemoteSeriesPresentation,
                 )
                 state.isLibraryScanning && state.libraryBooks.isEmpty() -> Box(
                     modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center,
@@ -670,6 +678,7 @@ fun LibraryScreen(
                     customSeries = state.customSeriesByBookId,
                     favoriteSeriesNames = state.libraryFavoriteSeriesNames,
                     readBookIds = state.libraryReadIds,
+                    presentations = state.presentations,
                     viewMode = viewMode,
                     columns = gridColumns,
                     sort = state.librarySort,
@@ -1123,6 +1132,8 @@ private fun LibraryGrid(
                         onClick = { if (selectionMode) onToggleSeries(entry.name, ids) else onOpenSeries(entry.name) },
                         onLongPress = { onLongPressSeries(entry.name, entry.books.firstOrNull()?.title.orEmpty()) },
                         onToggleFavorite = { onToggleSeriesFavorite(entry.name) },
+                        presentation = state.presentations[seriesPresentationKey(entry.name)]?.value,
+                        coverPresentation = state.presentations[seriesCoverPresentationKey(entry.name)]?.value,
                     )
                 }
             }
@@ -1184,6 +1195,8 @@ private fun LibraryList(
                         onClick = { if (selectionMode) onToggleSeries(entry.name, ids) else onOpenSeries(entry.name) },
                         onLongPress = { onLongPressSeries(entry.name, entry.books.firstOrNull()?.title.orEmpty()) },
                         onToggleFavorite = { onToggleSeriesFavorite(entry.name) },
+                        presentation = state.presentations[seriesPresentationKey(entry.name)]?.value,
+                        coverPresentation = state.presentations[seriesCoverPresentationKey(entry.name)]?.value,
                     )
                 }
             }
@@ -1422,6 +1435,7 @@ private fun LibrarySeriesOverview(
     onToggleFavorite: (String) -> Unit,
     onToggleSelection: (String) -> Unit,
     onLongPress: (String) -> Unit,
+    presentations: Map<String, com.doujinmenu.android.data.PresentationRecord>,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val groups = remember(books, allBooks, customSeries, sort) {
@@ -1474,6 +1488,8 @@ private fun LibrarySeriesOverview(
                     onClick = { if (selectionMode) onToggleSelection(name) else onOpenSeries(name) },
                     onLongPress = { onLongPress(name) },
                     onToggleFavorite = { onToggleFavorite(name) },
+                    presentation = presentations[seriesPresentationKey(name)]?.value,
+                    coverPresentation = presentations[seriesCoverPresentationKey(name)]?.value,
                 )
             }
         }
@@ -1500,6 +1516,8 @@ private fun LibrarySeriesOverview(
                     onClick = { if (selectionMode) onToggleSelection(name) else onOpenSeries(name) },
                     onLongPress = { onLongPress(name) },
                     onToggleFavorite = { onToggleFavorite(name) },
+                    presentation = presentations[seriesPresentationKey(name)]?.value,
+                    coverPresentation = presentations[seriesCoverPresentationKey(name)]?.value,
                 )
             }
         }
@@ -1522,13 +1540,15 @@ internal fun SeriesCard(
     onClick: () -> Unit,
     onLongPress: () -> Unit,
     onToggleFavorite: () -> Unit,
+    presentation: GalleryPresentation? = null,
+    coverPresentation: GalleryPresentation? = null,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
-    val artists = remember(books) { books.flatMap { it.metadata.artists }.distinct().joinToString() }
-    val tags = remember(books) { books.flatMap { it.metadata.tags }.distinct().map { CardTag(tagDisplayInfo(it)) } }
+    val artists = remember(books, presentation) { (presentation?.metadata?.artists ?: books.flatMap { it.metadata.artists }.distinct()).joinToString() }
+    val tags = remember(books, presentation) { (presentation?.metadata?.tags ?: books.flatMap { it.metadata.tags }.distinct()).map { CardTag(tagDisplayInfo(it)) } }
     val webtoon = remember(books) { books.any { it.webtoon == true } }
-    WorkCard(title = name, artist = artists,
+    WorkCard(title = presentation?.title ?: name, artist = artists,
         metadata = strings[R.string.ui_chapters, books.size, ""],
         tags = tags,
         footer = strings[R.string.ui_series], grid = !listMode, onClick = onClick, onLongClick = onLongPress, selected = selected,
@@ -1536,7 +1556,8 @@ internal fun SeriesCard(
         border = galleryCardBorder(series = true, favorite = favorite)) {
         SeriesCover(book = books.firstOrNull(), books = books, context = context, favorite = favorite, read = read,
             onToggleFavorite = onToggleFavorite, selectionMode = selectionMode, selected = selected,
-            badgeScale = badgeScale, modifier = Modifier.fillMaxSize())
+            badgeScale = badgeScale, modifier = Modifier.fillMaxSize(),
+            coverUri = presentationCoverUri(context, coverPresentation) ?: presentationCoverUri(context, presentation), title = presentation?.title ?: name)
     }
 }
 
@@ -1552,13 +1573,15 @@ private fun SeriesCover(
     selected: Boolean,
     badgeScale: Float,
     modifier: Modifier,
+    coverUri: String?,
+    title: String,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
-        if (book != null) {
+        if (book != null || coverUri != null) {
             AsyncImage(
-                model = libraryImageRequest(context, book.coverUri, book.cloudToken),
-                contentDescription = strings[R.string.ui_series_cover, (book.title)],
+                model = libraryImageRequest(context, coverUri ?: book?.coverUri.orEmpty(), if (coverUri == null) book?.cloudToken else null),
+                contentDescription = strings[R.string.ui_series_cover, title],
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
                 colorFilter = selectionColorFilter(selectionMode),

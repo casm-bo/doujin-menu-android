@@ -2256,6 +2256,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val normalized = newName.trim()
         if (normalized.isEmpty() || oldName == normalized) return
         if (!ensureValidSeriesName(normalized)) return
+        if (seriesPresentationConflict(oldName)) {
+            uiState = uiState.copy(message = getApplication<Application>().getString(com.doujinmenu.android.R.string.ui_metadata_conflict), isError = true)
+            return
+        }
         val modifiedAt = System.currentTimeMillis()
         val renamed = uiState.customSeriesByBookId.mapValues { (_, assignment) ->
             if (assignment.name == oldName) {
@@ -2274,13 +2278,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         val workspace = uiState.galleryWorkspace.renameSeriesPages(oldName, normalized)
         if (workspace != uiState.galleryWorkspace) applyGalleryWorkspace(workspace)
+        copySeriesPresentation(oldName, normalized)
     }
+
+    private fun copySeriesPresentation(oldName: String, newName: String) {
+        if (oldName == newName) return
+        if (uiState.presentations[com.doujinmenu.android.model.seriesPresentationKey(oldName)] == null &&
+            uiState.presentations[com.doujinmenu.android.model.seriesCoverPresentationKey(oldName)] == null) return
+        val profileId = uiState.selectedProfileId
+        viewModelScope.launch { runOperation {
+            withContext(Dispatchers.IO) { presentationStore(profileId).copySeriesOverride(oldName, newName) }
+            if (profileId == uiState.selectedProfileId) { reloadPresentations(); scheduleLibrarySync() }
+        } }
+    }
+
+    private fun seriesPresentationConflict(name: String): Boolean = listOf(com.doujinmenu.android.model.seriesPresentationKey(name),
+        com.doujinmenu.android.model.seriesCoverPresentationKey(name)).any { uiState.presentations[it]?.conflict != null }
 
     fun mergeLibrarySeries(seriesNames: List<String>, mergedName: String) {
         val names = seriesNames.distinct()
         val name = mergedName.trim()
         if (names.size < 2 || name.isEmpty()) return
         if (!ensureValidSeriesName(name)) return
+        if (names.any(::seriesPresentationConflict)) {
+            uiState = uiState.copy(message = getApplication<Application>().getString(com.doujinmenu.android.R.string.ui_metadata_conflict), isError = true)
+            return
+        }
         val modifiedAt = System.currentTimeMillis()
         val selectedEntries = names.flatMap { sourceName ->
             uiState.customSeriesByBookId.entries
@@ -2312,6 +2335,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             customSeriesByBookId = indexed,
             libraryFavoriteSeriesNames = favorites,
         )
+        copySeriesPresentation(names.first(), name)
     }
 
     fun deleteLibrarySeries(names: Set<String>) {

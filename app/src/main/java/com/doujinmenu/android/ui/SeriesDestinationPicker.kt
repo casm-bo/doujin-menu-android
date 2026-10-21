@@ -41,7 +41,9 @@ internal fun SeriesDestinationPicker(
             items(names, key = { it }) { name ->
                 SeriesCard(name, members[name].orEmpty(), list, 1f, favorite = name in state.libraryFavoriteSeriesNames,
                     read = false, selectionMode = true, selected = target == name,
-                    onClick = { target = name }, onLongPress = {}, onToggleFavorite = {})
+                    onClick = { target = name }, onLongPress = {}, onToggleFavorite = {},
+                    presentation = state.presentations[com.doujinmenu.android.model.seriesPresentationKey(name)]?.value,
+                    coverPresentation = state.presentations[com.doujinmenu.android.model.seriesCoverPresentationKey(name)]?.value)
             }
         }
     }

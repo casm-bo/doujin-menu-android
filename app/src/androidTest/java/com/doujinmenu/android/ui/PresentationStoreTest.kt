@@ -7,6 +7,40 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PresentationStoreTest {
+    @Test fun seriesOverridesSurviveRestartRenameAndStaySeparateFromEpisodesAndProfiles() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val databaseName = "series-presentation-${System.nanoTime()}.db"
+        val key = seriesPresentationKey("Original series")
+        val value = GalleryPresentation(key, "Display title", LibraryMetadata(artists = listOf("Series artist"), tags = emptyList()), coverHash = "a".repeat(64))
+        try {
+            LibraryIdentityStore(context, databaseName).use { identity ->
+                val store = PresentationStore(identity, "pc")
+                store.saveLocal(value)
+                store.saveLocal(value.copy(key = seriesCoverPresentationKey("Original series"), metadata = LibraryMetadata()))
+                assertNull(store.get("hitomi:42"))
+                assertNull(PresentationStore(identity, "other").get(key))
+                store.copySeriesOverride("Original series", "Renamed series")
+                assertFalse(store.get(key)!!.dirty)
+                val renamed = store.get(seriesPresentationKey("Renamed series"))!!
+                assertEquals("Renamed series", renamed.value.title)
+                assertEquals(value.coverHash, renamed.value.coverHash)
+                assertEquals(value.metadata, renamed.value.metadata)
+                val renamedCover = store.get(seriesCoverPresentationKey("Renamed series"))!!
+                assertEquals(value.coverHash, renamedCover.value.coverHash)
+                assertEquals(LibraryMetadata(), renamedCover.value.metadata)
+                assertFalse(store.get(seriesCoverPresentationKey("Original series"))!!.dirty)
+                assertEquals(0L, renamed.value.version)
+                assertTrue(renamed.dirty)
+                val destination = renamed.value.copy(title = "Keep destination")
+                store.saveLocal(destination)
+                store.copySeriesOverride("Original series", "Renamed series")
+                assertEquals(destination, store.get(destination.key)!!.value)
+            }
+            LibraryIdentityStore(context, databaseName).use { identity ->
+                assertEquals(value.metadata, PresentationStore(identity, "pc").get(seriesPresentationKey("Renamed series"))!!.value.metadata)
+            }
+        } finally { context.deleteDatabase(databaseName) }
+    }
     @Test fun desktopProfilesHaveIndependentVersionsAndDeviceEditsMoveOnlyOnce() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val name = "profile-presentation-${System.nanoTime()}.db"

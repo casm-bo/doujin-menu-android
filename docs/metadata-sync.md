@@ -8,6 +8,24 @@ desktops leave phone edits pending instead of discarding them.
 ## Stored data
 
 - A presentation uses `hitomi:<id>` or `sync:<UUID>` as its stable resource key.
+- Series overrides use the reserved logical key `sync:series_<SHA-256 of exact
+  series name>`, within the same desktop profile scope. The existing API stores
+  this document without changing any member Book row. Metadata title is a display
+  override; source-series fields and user episode membership remain separate.
+  Rename copies overrides to the new name without overwriting existing destination
+  edits. Names remain logical identities, so a reused series name retains its
+  previous override. An unresolved metadata conflict must be resolved before a
+  rename/merge. The original-name snapshot is retained for recovery.
+- Cover-only series changes use `sync:series_cover_<same hash>` separately. A
+  cover change therefore keeps aggregate episode metadata live, including newly
+  added members, and does not create a metadata override. Each document has its
+  own version/conflict; cover conflicts have explicit keep-phone/use-PC actions.
+  The read-only aggregate has no 300-entry truncation. Metadata editing respects
+  the existing 300 entries/200 characters per entry API limits and explains invalid
+  input instead of constructing an invalid presentation for a large aggregate.
+- Series settings reuse the work metadata editor, conflict handling and cover
+  import. The internal picker offers member artwork covers by episode title;
+  external images use the same system document picker and permanent cover copy.
 - Editable fields are title, artists, groups, source series/parodies, characters,
   tags, type, language and cover. Source series are separate from user episode
   groups. Hitomi upload dates are retained; filesystem times are not upload dates.

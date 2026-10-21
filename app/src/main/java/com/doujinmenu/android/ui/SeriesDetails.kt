@@ -24,16 +24,32 @@ internal fun SeriesDetailContent(name: String, books: List<LibraryBook>, state: 
     onOpenBook: (String) -> Unit, onReadBook: (String, Int) -> Unit, onRename: () -> Unit, onFavorite: () -> Unit,
     onRead: (Set<String>) -> Unit, onUnread: (Set<String>) -> Unit, onHidden: (Set<String>, Boolean) -> Unit, onDelete: () -> Unit,
     onSearchFacet: (String) -> Unit, onSearchLanguage: (String) -> Unit, onLoadPreview: (String) -> Unit = {},
-    pageKey: String = name, initialPosition: ReaderPosition = ReaderPosition(0), onPositionChange: (ReaderPosition) -> Unit = {}) {
+    pageKey: String = name, initialPosition: ReaderPosition = ReaderPosition(0), onPositionChange: (ReaderPosition) -> Unit = {},
+    onSavePresentation: (GalleryPresentation, Boolean) -> Unit = { _, _ -> },
+    onCover: (GalleryPresentation, ReaderImageSource) -> Unit = { _, _ -> }, onAcceptRemote: (String) -> Unit = {}) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val sorted = remember(books, state.customSeriesByBookId) { books.sortedWith(compareBy<LibraryBook> { state.customSeriesByBookId[it.id]?.order ?: Int.MAX_VALUE }.thenBy { it.id }) }
-    val metadata = remember(sorted) { unionSeriesMetadata(sorted) }
+    val key = remember(name) { seriesPresentationKey(name) }
+    val coverKey = remember(name) { seriesCoverPresentationKey(name) }
+    val metadataRecord = state.presentations[key]
+    val coverRecord = state.presentations[coverKey]
+    val aggregate = remember(sorted) { unionSeriesMetadata(sorted) }
+    val presentation = metadataRecord?.value ?: remember(key, name) { GalleryPresentation(key, name, LibraryMetadata()) }
+    val record = remember(metadataRecord, coverRecord, presentation) {
+        metadataRecord?.copy(dirty = metadataRecord.dirty || coverRecord?.dirty == true)
+            ?: com.doujinmenu.android.data.PresentationRecord(presentation, dirty = coverRecord?.dirty == true)
+    }
+    val metadata = metadataRecord?.value?.metadata ?: aggregate
+    val coverValue = coverRecord?.value ?: remember(coverKey, name) { GalleryPresentation(coverKey, name, LibraryMetadata()) }
+    val coverUri = presentationCoverUri(context, coverRecord?.value) ?: presentationCoverUri(context, presentation)
+    val coverBooks = remember(sorted) { sorted.filter { it.coverUri.isNotBlank() } }
+    val sources = remember(coverBooks) { coverBooks.map { ReaderImageSource(it.coverUri,
+        if (it.isCloud && it.cloudToken != null) mapOf("Authorization" to "Bearer ${it.cloudToken}") else emptyMap()) } }
     val ids = sorted.mapTo(linkedSetOf()) { it.id }
     val favorite = name in state.libraryFavoriteSeriesNames
     val read = ids.isNotEmpty() && ids.all { it in state.libraryReadIds }
     val hidden = ids.isNotEmpty() && ids.all { it in state.libraryHiddenIds }
-    var options by remember { mutableStateOf(false) }
     var delete by rememberSaveable(name) { mutableStateOf(false) }
     val list = remember(pageKey) { LazyListState(initialPosition.page, initialPosition.offset) }
     val savePosition by rememberUpdatedState(onPositionChange)
@@ -44,22 +60,21 @@ internal fun SeriesDetailContent(name: String, books: List<LibraryBook>, state: 
     DisposableEffect(pageKey, list, books.isNotEmpty()) { onDispose { persistPosition() } }
     LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            DetailHeader(name, metadata, sorted.firstOrNull()?.let { libraryImageRequest(context, it.coverUri, it.cloudToken) },
+            DetailHeader(presentation.title, metadata, coverUri?.let { libraryImageRequest(context, it, null) } ?: sorted.firstOrNull()?.let { libraryImageRequest(context, it.coverUri, it.cloudToken) },
                 sorted.sumOf { it.pages.size.toLong() }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), information = strings[R.string.ui_series_episode_count, sorted.size],
                 onSearchFacet = onSearchFacet, onSearchLanguage = onSearchLanguage, webtoon = sorted.any { it.webtoon == true }, options = {
-                    Box {
-                        IconButton(onClick = { options = true }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_detail_options] }) { ActionIcon(ActionSymbol.SETTINGS) }
-                        DropdownMenu(expanded = options, onDismissRequest = { options = false }) {
+                    PresentationActions(presentation, record, sources, state.isBusy, state.presentationSyncError,
+                        onSavePresentation, { _, source -> onCover(coverValue, source) }, { onAcceptRemote(key) },
+                            (if (coverRecord?.conflict != null) listOf(
+                                DetailMenuAction("${strings[R.string.ui_cover_from_work]} · ${strings[R.string.ui_keep_phone_edit]}", ActionSymbol.EDIT) { onSavePresentation(coverRecord.value, true) },
+                                DetailMenuAction("${strings[R.string.ui_cover_from_work]} · ${strings[R.string.ui_use_pc_edit]}", ActionSymbol.PC) { onAcceptRemote(coverKey) }) else emptyList()) +
                             listOf(DetailMenuAction(strings[R.string.ui_series_options_edit], ActionSymbol.SORT, onEdit),
                                 DetailMenuAction(strings[R.string.ui_rename_series], ActionSymbol.EDIT, onRename),
                                 DetailMenuAction(strings[if (favorite) R.string.ui_remove_favorite else R.string.ui_add_favorite], ActionSymbol.STAR, onFavorite),
                                 DetailMenuAction(strings[if (read) R.string.ui_mark_unread else R.string.ui_mark_read], ActionSymbol.READ) { if (read) onUnread(ids) else onRead(ids) },
                                 DetailMenuAction(strings[if (hidden) R.string.ui_unhide else R.string.ui_hide], ActionSymbol.HIDE) { onHidden(ids, !hidden) },
-                                DetailMenuAction(strings[R.string.ui_delete_series], ActionSymbol.DELETE) { delete = true }).forEach { action ->
-                                DropdownMenuItem(text = { Text(action.label) }, leadingIcon = { ActionIcon(action.symbol) }, onClick = { options = false; action.onClick() })
-                            }
-                        }
-                    }
+                                DetailMenuAction(strings[R.string.ui_delete_series], ActionSymbol.DELETE) { delete = true }),
+                        coverFromWorks = true, sourceLabels = coverBooks.map { it.title }, metadataSeed = if (metadataRecord == null) aggregate else null)
                 })
         }
         item {

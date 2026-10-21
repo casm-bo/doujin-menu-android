@@ -3,6 +3,8 @@ package com.doujinmenu.android.data
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import com.doujinmenu.android.model.GalleryPresentation
+import com.doujinmenu.android.model.seriesPresentationKey
+import com.doujinmenu.android.model.seriesCoverPresentationKey
 import java.util.UUID
 import org.json.JSONObject
 
@@ -32,6 +34,17 @@ class PresentationStore(private val identity: LibraryIdentityStore, private val 
             dirty = true, conflict = if (resolveConflict) null else previous?.conflict).also(::put)
     }
     fun pending(): List<PresentationRecord> = all().filter { it.dirty && it.conflict == null }
+
+    fun copySeriesOverride(oldName: String, newName: String) = transaction {
+        if (oldName == newName) return@transaction
+        listOf(seriesPresentationKey(oldName) to seriesPresentationKey(newName),
+            seriesCoverPresentationKey(oldName) to seriesCoverPresentationKey(newName)).forEach { (source, destination) ->
+            val previous = get(source) ?: return@forEach
+            if (get(destination) == null) put(PresentationRecord(previous.value.copy(key = destination, title = newName, version = 0, revision = 0), dirty = true))
+            // Keep the old name's snapshot, but do not queue an obsolete rename source.
+            if (previous.conflict == null) put(previous.copy(dirty = false))
+        }
+    }
 
     fun adoptDeviceEdits() = transaction {
         if (profileId == null) return@transaction

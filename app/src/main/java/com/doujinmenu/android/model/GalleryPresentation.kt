@@ -1,5 +1,18 @@
 package com.doujinmenu.android.model
 
+/** Reserved logical sync identity: series edits never replace an episode's presentation. */
+fun seriesPresentationKey(name: String): String {
+    require(name.isNotBlank())
+    val hash = java.security.MessageDigest.getInstance("SHA-256").digest(name.toByteArray(Charsets.UTF_8))
+    val hex = "0123456789abcdef"
+    return buildString {
+        append("sync:series_")
+        hash.forEach { append(hex[(it.toInt() ushr 4) and 15]); append(hex[it.toInt() and 15]) }
+    }
+}
+
+fun seriesCoverPresentationKey(name: String): String = seriesPresentationKey(name).replace("sync:series_", "sync:series_cover_")
+
 data class GalleryPresentation(
     val key: String,
     val title: String,

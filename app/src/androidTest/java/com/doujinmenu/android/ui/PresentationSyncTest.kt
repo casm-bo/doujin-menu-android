@@ -14,13 +14,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PresentationSyncTest {
-    @Test fun lostAcknowledgementRetriesTheSameMutationBeforePullingItsOwnChange() = runBlocking<Unit> {
+    @Test fun lostAcknowledgementRetriesTheSameMutationBeforePullingItsOwnChange() = verifyRecovery(
+        GalleryPresentation("hitomi:42", "Phone edit", LibraryMetadata(hitomiId = "42")))
+    @Test fun seriesOverrideUsesTheExistingAuthenticatedSyncAndAcknowledgementProtocol() = verifyRecovery(
+        GalleryPresentation(seriesPresentationKey("Fixture series"), "Series edit", LibraryMetadata(tags = listOf("series tag"))))
+    @Test fun seriesCoverDocumentUsesTheSameProtocolWithoutReplacingAggregateMetadata() = verifyRecovery(
+        GalleryPresentation(seriesCoverPresentationKey("Fixture series"), "Fixture series", LibraryMetadata()))
+    private fun verifyRecovery(value: GalleryPresentation) = runBlocking<Unit> {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val databaseName = "presentation-recovery-${System.nanoTime()}.db"
         val server = ServerSocket(0).apply { soTimeout = 5000 }
         val executor = Executors.newSingleThreadExecutor()
         val edits = mutableListOf<String>()
-        val value = GalleryPresentation("hitomi:42", "Phone edit", LibraryMetadata(hitomiId = "42"))
         val remote = value.copy(version = 1, revision = 1)
         val fixture = executor.submit {
             repeat(3) { requestIndex -> server.accept().use { socket ->
@@ -37,7 +42,9 @@ class PresentationSyncTest {
                 while (read < length) { val count = input.read(bytes, read, length - read); check(count > 0); read += count }
                 val data = if (requestIndex < 2) {
                     check(first.startsWith("POST "))
-                    edits += JSONObject(String(bytes, Charsets.UTF_8)).getString("mutationId")
+                    val body = JSONObject(String(bytes, Charsets.UTF_8))
+                    check(body.getJSONObject("value").getString("key") == value.key)
+                    edits += body.getString("mutationId")
                     JSONObject().put("status", if (requestIndex == 0) "applied" else "already_applied").put("value", remote.toJson())
                 } else {
                     check(first.startsWith("GET "))

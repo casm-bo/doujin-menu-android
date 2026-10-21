@@ -80,12 +80,14 @@ internal data class DetailMenuAction(val label: String, val symbol: ActionSymbol
 @Composable
 internal fun PresentationActions(value: GalleryPresentation, record: PresentationRecord?, sources: List<ReaderImageSource>,
     busy: Boolean, syncError: String?, onSave: (GalleryPresentation, Boolean) -> Unit, onCover: (GalleryPresentation, ReaderImageSource) -> Unit,
-    onAcceptRemote: () -> Unit, actions: List<DetailMenuAction>, editable: Boolean = true) {
+    onAcceptRemote: () -> Unit, actions: List<DetailMenuAction>, editable: Boolean = true,
+    coverFromWorks: Boolean = false, sourceLabels: List<String> = emptyList(), metadataSeed: LibraryMetadata? = null) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var editor by rememberSaveable(value.key) { mutableStateOf(false) }
     var coverPicker by rememberSaveable(value.key) { mutableStateOf(false) }
+    val coverLabel = strings[if (coverFromWorks) R.string.ui_cover_from_work else R.string.ui_cover_from_page]
     val latestValue by rememberUpdatedState(record?.value ?: value)
     val external = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { onCover(latestValue, ReaderImageSource(it.toString())) }
@@ -95,7 +97,7 @@ internal fun PresentationActions(value: GalleryPresentation, record: Presentatio
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             if (editable) {
             DropdownMenuItem(text = { Text(strings[R.string.ui_edit_metadata]) }, leadingIcon = { ActionIcon(ActionSymbol.EDIT) }, onClick = { menu = false; editor = true })
-            DropdownMenuItem(text = { Text(strings[R.string.ui_cover_from_page]) }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = sources.isNotEmpty(), onClick = { menu = false; coverPicker = true })
+            DropdownMenuItem(text = { Text(coverLabel) }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = sources.isNotEmpty(), onClick = { menu = false; coverPicker = true })
             DropdownMenuItem(text = { Text(strings[R.string.ui_cover_from_image]) }, leadingIcon = { ActionIcon(ActionSymbol.FOLDER) }, onClick = { menu = false; external.launch(arrayOf("image/*")) })
             if (actions.isNotEmpty()) HorizontalDivider()
             }
@@ -111,21 +113,21 @@ internal fun PresentationActions(value: GalleryPresentation, record: Presentatio
             }
         }
     }
-    if (editor) MetadataEditor(latestValue, conflict = record?.conflict, onDismiss = { editor = false }, onSave = {
+    if (editor) MetadataEditor(latestValue, conflict = record?.conflict, initialMetadata = metadataSeed, onDismiss = { editor = false }, onSave = {
         onSave(it, record?.conflict != null); editor = false
     })
     if (coverPicker) Dialog(onDismissRequest = { coverPicker = false }) {
         Surface(shape = MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxWidth().fillMaxHeight(.85f)) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(strings[R.string.ui_cover_from_page], Modifier.weight(1f))
+                    Text(coverLabel, Modifier.weight(1f))
                     TextButton(onClick = { coverPicker = false }) { Text(strings[R.string.ui_cancel]) }
                 }
                 LazyVerticalGrid(columns = GridCells.Fixed(3), contentPadding = PaddingValues(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     itemsIndexed(sources) { index, source ->
                         Column(Modifier.clickable { onCover(latestValue, source); coverPicker = false }) {
-                            DetailImage(readerSourceRequest(context, source), strings[R.string.ui_page_preview, index + 1], Modifier.fillMaxWidth().height(140.dp), ContentScale.Crop)
-                            Text("${index + 1}", Modifier.align(Alignment.CenterHorizontally))
+                            DetailImage(readerSourceRequest(context, source), sourceLabels.getOrNull(index) ?: strings[R.string.ui_page_preview, index + 1], Modifier.fillMaxWidth().height(140.dp), ContentScale.Crop)
+                            Text(sourceLabels.getOrNull(index) ?: "${index + 1}", Modifier.align(Alignment.CenterHorizontally))
                         }
                     }
                 }
@@ -134,10 +136,15 @@ internal fun PresentationActions(value: GalleryPresentation, record: Presentatio
     }
 }
 
+internal fun presentationCoverUri(context: android.content.Context, value: GalleryPresentation?): String? = value?.coverHash?.let {
+    android.net.Uri.fromFile(com.doujinmenu.android.data.PresentationCovers(context).file(it)).toString()
+}
+
 @Composable
-internal fun MetadataEditor(value: GalleryPresentation, conflict: GalleryPresentation?, onDismiss: () -> Unit, onSave: (GalleryPresentation) -> Unit) {
+internal fun MetadataEditor(value: GalleryPresentation, conflict: GalleryPresentation?, onDismiss: () -> Unit, onSave: (GalleryPresentation) -> Unit,
+    initialMetadata: LibraryMetadata? = null) {
     val strings = androidx.compose.ui.platform.LocalResources.current
-    val original = value.metadata
+    val original = initialMetadata ?: value.metadata
     var fields by rememberSaveable(value.key) { mutableStateOf(listOf(value.title, original.artists.joinToString("\n"), original.groups.joinToString("\n"),
         original.series.joinToString("\n"), original.characters.joinToString("\n"), original.tags.joinToString("\n"), original.galleryType.orEmpty(), original.language.orEmpty())) }
     val labels = listOf(R.string.ui_title, R.string.ui_artist, R.string.ui_group, R.string.ui_source_series, R.string.ui_character, R.string.ui_tags, R.string.ui_type, R.string.ui_language)
@@ -150,6 +157,7 @@ internal fun MetadataEditor(value: GalleryPresentation, conflict: GalleryPresent
                 Text(strings[R.string.ui_edit_metadata], style = MaterialTheme.typography.titleLarge)
                 if (conflict != null) Text(strings[R.string.ui_metadata_conflict], color = MaterialTheme.colorScheme.error)
                 Text(strings[R.string.ui_one_facet_per_line], style = MaterialTheme.typography.bodySmall)
+                if (edited == null) Text(strings[R.string.ui_metadata_limits], color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(labels.size) { index -> OutlinedTextField(value = fields[index], onValueChange = { input ->
                         fields = fields.toMutableList().also { it[index] = input.take(if (index == 0) 500 else if (index < 6) 60_000 else 200) }

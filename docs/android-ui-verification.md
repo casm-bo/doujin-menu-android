@@ -236,10 +236,8 @@ debug application's credentials are unchanged.
   selection/edge dragging, autofill, editor reuse and rounded-toolbar bounds at
   24 sp. The debug and isolated uitest APK builds succeeded.
 
-Deferred request scope: series-level metadata/cover editing (internal and external
-images), Amber minimal dark-mode text contrast, occasional scroll-restore offsets,
-the clipped series-editor title and search in the episode-add picker. This change
-addresses the shared search bar first.
+The initial search-only pass was followed by the full-screen inset fix and the
+theme, series-editor, restoration and series-presentation changes below.
 
 ## Full-screen search insets follow-up
 
@@ -272,3 +270,23 @@ in one final run); this is not evidence of consistently smooth release timing.
   paired with a new index. Two navigation tests passed, including the real app's
   series/next-episode return and the same card's screen Y coordinate after a main
   destination round trip (2 px tolerance).
+
+## Series presentation
+
+Series settings now reuse PresentationActions/MetadataEditor and the same SQLite
+store, cover importer and authenticated Companion API. Series records are separate
+from episode records. The aggregate metadata remains the default until edited;
+overrides, including explicit empty lists, also appear in series cards. Cover-only
+changes use a separate versioned document, retaining live aggregate metadata.
+Episode webtoon classification remains live after metadata edits.
+
+Device coverage includes choosing a member cover and a simulated external document
+picker result, editing series metadata without mutating episodes, restart/profile
+isolation, rename preservation, destination-edit protection, and the existing
+binary-cover validation/import checks. A local authenticated server fixture checks
+series mutation retries and acknowledgement handling. The user's paired desktop
+and its series UI were not exercised by these isolated tests.
+
+Final combined run on SM-N986N: 38 device tests passed. JVM tests: 218 total,
+216 passed and two opt-in cases skipped; no failures. Debug/uitest APK builds
+and Lint succeeded (zero errors, 109 warnings and three hints).

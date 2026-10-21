@@ -526,4 +526,6 @@
     <string name="ui_dont_show_again">"Don’t show again"</string>
     <string name="ui_desktop_download_offline">"PC is offline. Desktop requests stay in the pending queue and are sent after connecting."</string>
     <string name="ui_download_settings">"Download settings"</string>
+    <string name="ui_cover_from_work">Choose episode cover</string>
+    <string name="ui_metadata_limits">Enter a title (up to 500 characters). Each metadata field supports up to 300 entries, 200 characters each.</string>
 </resources>
