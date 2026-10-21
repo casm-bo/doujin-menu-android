@@ -14,6 +14,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import android.widget.EditText
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
@@ -29,10 +31,10 @@ class SearchEditorTest {
     @get:Rule val compose = createComposeRule()
     @org.junit.Before fun requiresWindowInspection() { org.junit.Assume.assumeTrue(android.os.Build.VERSION.SDK_INT >= 29) }
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
-    @Composable private fun AppTheme(content: @Composable () -> Unit) {
+    @Composable private fun AppTheme(fontSizeSp: Float = 16f, content: @Composable () -> Unit) {
         val context = androidx.compose.ui.platform.LocalContext.current
         val themed = remember(context) { android.view.ContextThemeWrapper(context, R.style.Theme_DoujinMenu) }
-        CompositionLocalProvider(androidx.compose.ui.platform.LocalContext provides themed) { DoujinMenuTheme {
+        CompositionLocalProvider(androidx.compose.ui.platform.LocalContext provides themed) { DoujinMenuTheme(fontSizeSp = fontSizeSp) {
             InlineSearchLayout(remember { InlineSearchState() }) { content() }
         } }
     }
@@ -49,6 +51,13 @@ class SearchEditorTest {
             var ready = false
             instrumentation.runOnMainSync { ready = views().filterIsInstance<EditText>().singleOrNull()?.hasFocus() == true }
             ready
+        }
+    }
+    private fun waitForKeyboard(visible: Boolean) {
+        compose.waitUntil(5_000) {
+            var matches = false
+            field { matches = ViewCompat.getRootWindowInsets(it)?.isVisible(WindowInsetsCompat.Type.ime()) == visible }
+            matches
         }
     }
     private fun send(downTime: Long, action: Int, x: Float, y: Float) {
@@ -201,6 +210,52 @@ class SearchEditorTest {
         compose.onNodeWithTag("search-collapsed").assertExists()
         compose.runOnIdle { assertEquals("tag:draft, artist:sample", query); assertEquals(0, submitted); assertTrue(list.firstVisibleItemIndex > 0) }
         fieldIfPresentHasNoFocus()
+    }
+
+    @Test fun scrollingHistoryHidesOnlyKeyboardAndKeepsDraftAndCursor() {
+        var query by mutableStateOf("tag:draft")
+        var selected = false
+        val history = List(30) { SearchQueryEntry("artist:fixture_$it", setOf("korean")) }
+        compose.setContent { AppTheme { Column(Modifier.fillMaxSize()) {
+            UnifiedSearchField(query, { query = it }, "History query", {}, {}, history, onRecent = { selected = true })
+            androidx.compose.material3.Text("Browsing results", Modifier.weight(1f).testTag("history-browsing"))
+        } } }
+        compose.onNodeWithContentDescription("History query").performClick()
+        waitForInput()
+        waitForKeyboard(true)
+        field { it.setSelection(4) }
+        val before = compose.onNodeWithTag("search-history-list").getUnclippedBoundsInRoot()
+        compose.onNodeWithTag("search-history-list").performTouchInput { swipeUp() }
+        waitForKeyboard(false)
+        compose.onNodeWithTag("search-editor").assertExists()
+        compose.onNodeWithTag("search-history-list").assertIsDisplayed()
+        val after = compose.onNodeWithTag("search-history-list").getUnclippedBoundsInRoot()
+        assertTrue("Dismissing the keyboard must not shrink history", after.bottom - after.top >= before.bottom - before.top)
+        field { assertTrue(it.hasFocus()); assertEquals(4, it.selectionStart); assertEquals("tag:draft", it.text.toString()) }
+        assertFalse(selected)
+        // The same behavior applies to the gallery search because it uses this shared field/layout.
+        compose.onNodeWithTag("history-browsing").performTouchInput { click(center) }
+        compose.onNodeWithTag("search-collapsed").assertExists()
+        assertEquals("tag:draft", query)
+    }
+
+    @Test fun expandedHistoryClearsRoundedToolbarBottomAndKeepsResultsVisible() {
+        val context = instrumentation.targetContext
+        val history = List(30) { SearchQueryEntry("artist:fixture_$it") }
+        compose.setContent { AppTheme(fontSizeSp = 24f) { Column(Modifier.fillMaxSize()) {
+            BrowserTabStrip(BrowserWorkspace.initial(), {}, {}, remember { BrowserTabPreviewCache(context) },
+                titleContent = { UnifiedSearchField("tag:sample", {}, "Padded query", {}, {}, history) })
+            androidx.compose.material3.Text("Browsing results", Modifier.weight(1f).testTag("padded-browsing"))
+        } } }
+        compose.onNodeWithContentDescription("Padded query").performClick()
+        waitForInput()
+        waitForKeyboard(true)
+        val editor = compose.onNodeWithTag("search-editor").getUnclippedBoundsInRoot()
+        val options = compose.onNodeWithTag("search-options").getUnclippedBoundsInRoot()
+        assertTrue("History card needs space inside the toolbar's rounded bottom", editor.bottom - options.bottom >= 12.dp)
+        compose.onNodeWithTag("search-history-list").assertIsDisplayed()
+        val results = compose.onNodeWithTag("padded-browsing").getUnclippedBoundsInRoot()
+        assertTrue("Browsing must remain visible with the keyboard", results.bottom - results.top >= 80.dp)
     }
 
     private fun fieldIfPresentHasNoFocus() {

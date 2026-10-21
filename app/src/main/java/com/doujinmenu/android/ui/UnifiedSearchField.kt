@@ -70,6 +70,7 @@ internal fun UnifiedSearchField(
     }
     BackHandler(state.expanded) { close() }
     Column(Modifier.fillMaxWidth().animateContentSize(tween(220)).clipToBounds()
+        .onGloballyPositioned { state.editorBounds = it.boundsInRoot() }
         .testTag(if (state.expanded) "search-editor" else "search-collapsed")) {
         Row(Modifier.fillMaxWidth().height(56.dp).onGloballyPositioned { state.inputBounds = it.boundsInRoot() },
             verticalAlignment = Alignment.CenterVertically) {
@@ -120,7 +121,7 @@ internal fun UnifiedSearchField(
             IconButton(onClick = { close(); onSubmit() }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_run_search] }) { ActionIcon(ActionSymbol.SEARCH) }
         }
         if (state.expanded) {
-            Column(Modifier.fillMaxWidth().heightIn(max = state.panelMaxHeight)) {
+            Column(Modifier.fillMaxWidth().heightIn(max = state.panelMaxHeight).padding(bottom = 12.dp)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(strings[R.string.ui_title_title_artist_artist_tag_tag_series_series_exclude_phrase], Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

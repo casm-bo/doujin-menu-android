@@ -219,3 +219,24 @@ reader position, profile-switch races, presentation sync, draft preservation,
 search expansion, tag clicks, overflow, selection and fonts through 28 sp. Lock
 tests use the isolated `.uitest` package and synthetic credentials; the installed
 debug application's credentials are unchanged.
+
+# Search history gestures and clipping (2026-10-21)
+
+- Search and gallery use the same expanded-editor bounds to distinguish search
+  options from browsing results. Dragging history/suggestions hides the native
+  keyboard once per gesture without clearing focus, changing the caret, submitting
+  the draft or collapsing the editor. Tapping/scrolling browsing results still
+  collapses the editor. Buttons in the options remain interactive.
+- The expanded panel now uses up to 65% of the usable area below the input, capped
+  at 320 dp; the history list cap increased from 220 to 280 dp. Short content still
+  wraps, and browsing space remains visible with the keyboard. A 12 dp bottom
+  inset keeps the inner history card clear of the toolbar's rounded bottom.
+- SM-N986N: all nine `SearchEditorTest` cases passed, including native keyboard
+  visibility, history scrolling with draft/caret retention, outside gestures,
+  selection/edge dragging, autofill, editor reuse and rounded-toolbar bounds at
+  24 sp. The debug and isolated uitest APK builds succeeded.
+
+Deferred request scope: series-level metadata/cover editing (internal and external
+images), Amber minimal dark-mode text contrast, occasional scroll-restore offsets,
+the clipped series-editor title and search in the episode-add picker. This change
+addresses the shared search bar first.

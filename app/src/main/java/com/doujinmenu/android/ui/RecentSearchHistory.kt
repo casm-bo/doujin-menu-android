@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.doujinmenu.android.R
@@ -21,7 +22,7 @@ internal fun RecentSearchHistory(entries: List<SearchQueryEntry>, onSelect: (Sea
         TextButton(onClick = onClear, enabled = entries.isNotEmpty()) { Text(strings[R.string.ui_clear_history]) }
     }
     if (entries.isEmpty()) Text(strings[R.string.ui_no_recent_searches], style = MaterialTheme.typography.bodyMedium)
-    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp).testTag("search-history-list")) {
         items(entries) { entry ->
             TextButton(onClick = { onSelect(entry) }, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth()) {
