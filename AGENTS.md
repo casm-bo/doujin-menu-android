@@ -1,5 +1,13 @@
 # Default Behavior
 
+## Repository Content and Privacy
+
+- Keep commits limited to application code and files needed to build, test, run, release, or maintain repository tooling.
+- Do not add plans, investigation reports, measurement logs, screenshots, recordings, or temporary documentation. Keep these outside the repository.
+- Never commit real personal information, local user paths, device identifiers, connection credentials, tokens, or private keys. Use clearly synthetic test fixtures.
+- Inspect staged changes for personal information and secrets before every commit.
+- Work in the current subscription branch for related changes. Do not create a separate branch or worktree unless the user requests one.
+
 ## Task Organization and Commits
 
 Before making changes, divide the requested work into logical, independently verifiable categories.
