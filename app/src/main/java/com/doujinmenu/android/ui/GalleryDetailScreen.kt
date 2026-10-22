@@ -1,5 +1,8 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.model.ReaderPosition
+import com.doujinmenu.android.R
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -47,10 +50,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.doujinmenu.android.model.GallerySummary
+import com.doujinmenu.android.model.presentation
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GalleryDetailScreen(
+    pageKey: String,
+    initialPreviewPosition: ReaderPosition,
+    onPreviewPositionChange: (ReaderPosition) -> Unit,
     gallery: GallerySummary?,
     state: MainUiState,
     onLoadPreview: (Long) -> Unit,
@@ -59,14 +66,17 @@ fun GalleryDetailScreen(
     onSearchFacet: (String) -> Unit,
     onSearchLanguage: (String) -> Unit,
     onDownload: (GallerySummary) -> Unit,
+    options: (@Composable () -> Unit)? = null,
+    webtoon: Boolean = false,
     tabBar: (@Composable () -> Unit)? = null,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             if (tabBar != null) tabBar() else {
                 TopAppBar(
-                    title = { Text("갤러리 상세") },
+                    title = { Text(strings[R.string.ui_gallery_details]) },
                     navigationIcon = { TextButton(onClick = onBack) { Text("<") } },
                 )
             }
@@ -76,7 +86,7 @@ fun GalleryDetailScreen(
             Box(
                 modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
                 contentAlignment = Alignment.Center,
-            ) { Text("갤러리 정보를 찾을 수 없습니다.") }
+            ) { Text(strings[R.string.ui_gallery_not_found]) }
             return@Scaffold
         }
 
@@ -84,7 +94,9 @@ fun GalleryDetailScreen(
         val context = LocalContext.current
         val previewPages = state.readerPagesByGalleryId[gallery.id].orEmpty()
 
+        val gridState = previewGridState(pageKey, initialPreviewPosition, previewPages.size, onPreviewPositionChange)
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Fixed(3),
             modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
             contentPadding = PaddingValues(16.dp),
@@ -93,107 +105,16 @@ fun GalleryDetailScreen(
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    gallery.thumbnailUrl?.let { url ->
-                        AsyncImage(
-                            model = hitomiImageRequest(context, url, gallery.id, crossfade = false),
-                            contentDescription = preferredLocalizedTitle(gallery.title),
-                            modifier = Modifier.fillMaxWidth().height(390.dp),
-                            contentScale = ContentScale.Fit,
-                        )
-                    }
-                    Text(
-                        preferredLocalizedTitle(gallery.title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("작가", fontWeight = FontWeight.SemiBold)
-                        if (gallery.artists.isEmpty()) {
-                            Text("작가 정보 없음", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                gallery.artists.forEach { artist ->
-                                    CopyableFacetChip(
-                                        text = artist,
-                                        onClick = { onSearchFacet("artist:$artist") },
-                                        enabled = artist.isGalleryFacetSearchable(),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Series", fontWeight = FontWeight.SemiBold)
-                        if (gallery.series.isEmpty()) {
-                            Text("시리즈 정보 없음", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                gallery.series.forEach { series ->
-                                    AssistChip(
-                                        onClick = { onSearchFacet("series:$series") },
-                                        enabled = series.isGalleryFacetSearchable(),
-                                        label = { Text(series) },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Type", fontWeight = FontWeight.SemiBold)
-                        gallery.galleryType?.let { type ->
-                            AssistChip(
-                                onClick = { onSearchFacet("type:$type") },
-                                enabled = type.isGalleryFacetSearchable(),
-                                label = { Text(type) },
-                            )
-                        } ?: Text(
-                            "타입 정보 없음",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Text(
-                        listOfNotNull(
-                            "ID ${gallery.id}",
-                            gallery.pageCount.takeIf { it > 0 }?.let { "${it}페이지" },
-                            formatGalleryPublishedDate(gallery.publishedDate)?.let { "업로드 $it" },
-                        ).joinToString(" · "),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    gallery.language?.let { language ->
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("언어", fontWeight = FontWeight.SemiBold)
-                            AssistChip(
-                                onClick = { onSearchLanguage(language) },
-                                enabled = language.isGalleryFacetSearchable(),
-                                label = { Text(language.replace('_', ' ')) },
-                            )
-                        }
-                    }
-                    if (gallery.tags.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("태그", fontWeight = FontWeight.SemiBold)
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                gallery.tags.forEach { tag ->
-                                    val facet = tagSearchFacet(tag.name, tag.type)
-                                    val display = tagDisplayInfo(tag.name, tag.type)
-                                    CopyableFacetChip(
-                                        text = display.text,
-                                        tagStyle = display.style,
-                                        clipboardText = facet,
-                                        onClick = { onSearchFacet(facet) },
-                                        enabled = tag.name.isGalleryFacetSearchable(),
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    DetailHeader(preferredLocalizedTitle(gallery.title), gallery.presentation().metadata,
+                        gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id, crossfade = false) },
+                        gallery.pageCount, onSearchFacet = onSearchFacet, onSearchLanguage = onSearchLanguage, options = options, webtoon = webtoon)
                     val pendingRequest = state.downloadRequests.any { it.galleryId == gallery.id && !it.isFinished }
                     val queuedDownload = state.downloadQueue.firstOrNull {
                         it.galleryId == gallery.id
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = { onOpenReader(0) }, modifier = Modifier.weight(1f)) {
-                            Text("전체화면으로 읽기")
+                            Text(strings[R.string.ui_read_fullscreen])
                         }
                         OutlinedButton(
                             onClick = { onDownload(gallery) },
@@ -202,15 +123,15 @@ fun GalleryDetailScreen(
                         ) {
                             Text(
                                 when {
-                                    gallery.id in state.downloadingGalleryIds -> "요청 중…"
-                                    pendingRequest -> "다운로드 목록에 있음"
-                                    queuedDownload != null -> "다운로드 큐에 있음"
-                                    else -> "다운로드하기"
+                                    gallery.id in state.downloadingGalleryIds -> strings[R.string.ui_requesting]
+                                    pendingRequest -> strings[R.string.ui_already_in_downloads]
+                                    queuedDownload != null -> strings[R.string.ui_already_in_download_queue]
+                                    else -> strings[R.string.ui_download]
                                 },
                             )
                         }
                     }
-                    Text("갤러리 미리보기", style = MaterialTheme.typography.titleMedium)
+                    Text(strings[R.string.ui_gallery_preview], style = MaterialTheme.typography.titleMedium)
                     when {
                         gallery.id in state.readerLoadingGalleryIds -> {
                             Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
@@ -221,7 +142,7 @@ fun GalleryDetailScreen(
                             Text(state.readerErrorsByGalleryId.getValue(gallery.id), color = MaterialTheme.colorScheme.error)
                         }
                         previewPages.isEmpty() -> {
-                            Text("미리보기 이미지가 없습니다.")
+                            Text(strings[R.string.ui_no_preview_images])
                         }
                     }
                 }
@@ -232,12 +153,12 @@ fun GalleryDetailScreen(
                         .fillMaxWidth()
                         .height(160.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .clickable { onOpenReader(index) }
+                        .clickable { onPreviewPositionChange(ReaderPosition(gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset)); onOpenReader(index) }
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("${index + 1}", style = MaterialTheme.typography.labelSmall)
-                    AsyncImage(
+                    DetailImage(
                         model = hitomiImageRequest(
                             context = context,
                             url = url,
@@ -245,7 +166,7 @@ fun GalleryDetailScreen(
                             crossfade = false,
                             preview = true,
                         ),
-                        contentDescription = "${index + 1}페이지 미리보기",
+                        contentDescription = strings[R.string.ui_page_preview, (index + 1)],
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
@@ -264,6 +185,7 @@ internal fun CopyableFacetChip(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val (containerColor, contentColor) = tagColors(tagStyle)
@@ -275,7 +197,7 @@ internal fun CopyableFacetChip(
                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("gallery metadata", clipboardText))
-                Toast.makeText(context, "클립보드에 복사했습니다.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, strings[R.string.ui_copied_to_clipboard], Toast.LENGTH_SHORT).show()
             },
         ),
         shape = RoundedCornerShape(if (tagStyle == TagStyle.DEFAULT) 8.dp else 50.dp),

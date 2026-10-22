@@ -1,5 +1,9 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.model.ReaderImageSource
+import com.doujinmenu.android.model.ReaderPosition
+import com.doujinmenu.android.R
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,19 +24,23 @@ import com.doujinmenu.android.model.ViewerPreferences
 
 @Composable
 fun LocalReaderScreen(
+    sessionKey: String,
     book: LibraryBook?,
     initialPage: Int,
+    initialOffset: Int,
     isLoading: Boolean,
     error: String?,
     favorite: Boolean,
     preferences: ViewerPreferences,
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onProgress: (Int) -> Unit,
+    onProgress: (ReaderPosition) -> Unit,
     nextBookTitle: String?,
     onOpenNextBook: () -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
+    onReadingModeResolved: (com.doujinmenu.android.model.ViewerReadingMode) -> Unit = {},
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     HideSystemBars()
     if (!book.hasReadablePages()) {
         Box(
@@ -42,11 +50,11 @@ fun LocalReaderScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (isLoading) {
                     CircularProgressIndicator()
-                    Text("페이지를 준비하는 중…", color = Color.White, modifier = Modifier.padding(top = 12.dp))
+                    Text(strings[R.string.ui_preparing_pages], color = Color.White, modifier = Modifier.padding(top = 12.dp))
                 } else {
-                    Text(error ?: "책을 열 수 없습니다.", color = Color.White)
+                    Text(error ?: strings[R.string.ui_could_not_open_book], color = Color.White)
                 }
-                Button(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) { Text("돌아가기") }
+                Button(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) { Text(strings[R.string.ui_return]) }
             }
         }
         return
@@ -58,12 +66,15 @@ fun LocalReaderScreen(
         readableBook.pages.mapIndexed { index, page ->
             ReaderPageModel(
                 key = "$index:${page.name}",
+                source = ReaderImageSource(page.uri, readableBook.cloudToken?.let { mapOf("Authorization" to "Bearer $it") }.orEmpty()),
                 model = libraryImageRequest(context, page.uri, readableBook.cloudToken),
             )
         }
     }
     UnifiedReader(
-        readerKey = "local:${readableBook.id}",
+        readerKey = sessionKey,
+        workKey = readableBook.metadata.hitomiId?.let { "gallery:$it" } ?: readableBook.syncId?.let { "sync:$it" } ?: "book:${readableBook.id}",
+        initialOffset = initialOffset,
         title = readableBook.title,
         pages = pages,
         initialPage = initialPage,
@@ -71,6 +82,7 @@ fun LocalReaderScreen(
         onBack = onBack,
         onProgress = onProgress,
         onPreferencesChange = onPreferencesChange,
+        onReadingModeResolved = onReadingModeResolved,
         favorite = favorite,
         onToggleFavorite = onToggleFavorite,
         nextBookTitle = nextBookTitle,

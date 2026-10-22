@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -12,6 +14,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Slider
+import androidx.compose.ui.graphics.Color
+import com.doujinmenu.android.model.GalleryBorderKind
+import com.doujinmenu.android.model.GalleryBorders
+import com.doujinmenu.android.model.GalleryBorderStyle
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,11 +56,15 @@ import com.doujinmenu.android.BuildConfig
 import com.doujinmenu.android.model.AppThemeMode
 import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.StorageLocation
+import com.doujinmenu.android.model.DownloadDestination
+import com.doujinmenu.android.model.readableStoragePath
 import com.doujinmenu.android.model.ViewerPreferences
 
 private enum class SettingsSection {
     HOME,
     APPEARANCE,
+    LANGUAGE,
+    LOCK,
     VIEWER,
     LIBRARY,
     CONNECTION,
@@ -76,10 +90,17 @@ fun SettingsScreen(
     onClearDownloadLocation: () -> Unit,
     onViewerPreferencesChange: (ViewerPreferences) -> Unit,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    onAppStyleChange: (com.doujinmenu.android.model.AppStyle) -> Unit,
+    onFontSizeChange: (Float) -> Unit,
+    onGalleryBorderChange: (GalleryBorderKind, GalleryBorderStyle) -> Unit,
     onCheckForUpdates: () -> Unit,
     openConnectionRequested: Boolean,
     onConnectionRequestHandled: () -> Unit,
+    onDownloadDestinationChange: (DownloadDestination) -> Unit = {},
+    requestedSection: String? = null,
+    onSectionRequestHandled: () -> Unit = {},
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.HOME.name) }
     val section = runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.HOME)
     val openSection: (SettingsSection) -> Unit = { sectionName = it.name }
@@ -95,7 +116,16 @@ fun SettingsScreen(
         }
     }
 
+    LaunchedEffect(requestedSection) {
+        when (requestedSection) {
+            "downloads" -> { openSection(SettingsSection.LIBRARY); onSectionRequestHandled() }
+            "connection" -> { openSection(SettingsSection.CONNECTION); onSectionRequestHandled() }
+        }
+    }
+
     when (section) {
+        SettingsSection.LANGUAGE -> SettingsDetailLayout(strings[R.string.app_language], contentPadding, { openSection(SettingsSection.HOME) }) { SectionCard(strings[R.string.app_language]) { LanguageSettings() } }
+        SettingsSection.LOCK -> SettingsDetailLayout(strings[R.string.ui_app_lock], contentPadding, { openSection(SettingsSection.HOME) }) { SectionCard(strings[R.string.ui_app_lock]) { AppLockSettings() } }
         SettingsSection.HOME -> SettingsHomeScreen(
             state = state,
             contentPadding = contentPadding,
@@ -106,6 +136,12 @@ fun SettingsScreen(
             contentPadding = contentPadding,
             onBack = { openSection(SettingsSection.HOME) },
             onChange = onThemeModeChange,
+            appStyle = state.appStyle,
+            onAppStyleChange = onAppStyleChange,
+            fontSizeSp = state.fontSizeSp,
+            onFontSizeChange = onFontSizeChange,
+            borders = state.galleryBorders,
+            onBorderChange = onGalleryBorderChange,
         )
         SettingsSection.VIEWER -> ViewerSettingsScreen(
             preferences = state.viewerPreferences,
@@ -115,6 +151,7 @@ fun SettingsScreen(
         )
         SettingsSection.LIBRARY -> LibrarySettingsScreen(
             state = state,
+            onDownloadDestinationChange = onDownloadDestinationChange,
             contentPadding = contentPadding,
             onBack = { openSection(SettingsSection.HOME) },
             onAddLibraryLocation = onAddLibraryLocation,
@@ -155,48 +192,55 @@ private fun SettingsHomeScreen(
     contentPadding: PaddingValues,
     onOpenSection: (SettingsSection) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(contentPadding),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
+            SettingsCategoryCard(title = strings[R.string.app_language], description = strings[R.string.language_choices], onClick = { onOpenSection(SettingsSection.LANGUAGE) })
+        }
+        item {
+            SettingsCategoryCard(title = strings[R.string.ui_app_lock], description = strings[R.string.ui_pin_password_pattern_and_biometrics], onClick = { onOpenSection(SettingsSection.LOCK) })
+        }
+        item {
             SettingsCategoryCard(
-                title = "화면 설정",
+                title = strings[R.string.ui_appearance],
                 description = when (state.themeMode) {
-                    AppThemeMode.SYSTEM -> "시스템 설정에 따라 라이트·다크 테마 전환"
-                    AppThemeMode.LIGHT -> "라이트 테마 사용 중"
-                    AppThemeMode.DARK -> "다크 테마 사용 중"
+                    AppThemeMode.SYSTEM -> strings[R.string.ui_light_or_dark_theme_based_on_system_settings]
+                    AppThemeMode.LIGHT -> strings[R.string.ui_using_light_theme]
+                    AppThemeMode.DARK -> strings[R.string.ui_using_dark_theme]
                 },
                 onClick = { onOpenSection(SettingsSection.APPEARANCE) },
             )
         }
         item {
             SettingsCategoryCard(
-                title = "리더 설정",
-                description = "읽기 방향, 페이지 표시, 화면 맞춤과 제스처",
+                title = strings[R.string.ui_reader_settings],
+                description = strings[R.string.ui_reading_direction_page_numbers_scale_and_gestures],
                 onClick = { onOpenSection(SettingsSection.VIEWER) },
             )
         }
         item {
             SettingsCategoryCard(
-                title = "라이브러리 설정",
-                description = "라이브러리 경로 ${state.libraryLocations.size}개 · 다운로드 경로 " +
-                    if (state.downloadLocation == null) "미설정" else "설정됨",
+                title = strings[R.string.ui_library_settings],
+                description = strings[R.string.ui_library_folders_download_folder, (state.libraryLocations.size)] +
+                    if (state.downloadLocation == null) strings[R.string.ui_not_set] else strings[R.string.ui_configured],
                 onClick = { onOpenSection(SettingsSection.LIBRARY) },
             )
         }
         item {
             SettingsCategoryCard(
-                title = "연결 설정",
-                description = "선택적 PC 연결 및 동기화 · 등록된 PC ${state.profiles.size}개",
+                title = strings[R.string.ui_connection_settings],
+                description = strings[R.string.ui_optional_pc_sync_registered_pcs, (state.profiles.size)],
                 onClick = { onOpenSection(SettingsSection.CONNECTION) },
             )
         }
         item {
             SettingsCategoryCard(
-                title = "정보",
-                description = "버전, 업데이트 내역, 진단 및 문제 신고",
+                title = strings[R.string.ui_about],
+                description = strings[R.string.ui_version_changelog_diagnostics_and_issues],
                 onClick = { onOpenSection(SettingsSection.SUPPORT) },
             )
         }
@@ -209,14 +253,67 @@ private fun AppearanceSettingsScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
     onChange: (AppThemeMode) -> Unit,
+    appStyle: com.doujinmenu.android.model.AppStyle,
+    onAppStyleChange: (com.doujinmenu.android.model.AppStyle) -> Unit,
+    fontSizeSp: Float,
+    onFontSizeChange: (Float) -> Unit,
+    borders: GalleryBorders,
+    onBorderChange: (GalleryBorderKind, GalleryBorderStyle) -> Unit,
 ) {
-    SettingsDetailLayout("화면 설정", contentPadding, onBack) {
-        SectionCard("테마") {
-            ThemeModeOption("시스템 설정", "기기의 화면 모드를 따릅니다.", AppThemeMode.SYSTEM, themeMode, onChange)
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    SettingsDetailLayout(strings[R.string.ui_appearance], contentPadding, onBack) {
+        SectionCard(strings[R.string.ui_theme]) {
+            ThemeModeOption(strings[R.string.ui_system_settings], strings[R.string.ui_follow_device_appearance], AppThemeMode.SYSTEM, themeMode, onChange)
             HorizontalDivider()
-            ThemeModeOption("라이트", "항상 밝은 화면을 사용합니다.", AppThemeMode.LIGHT, themeMode, onChange)
+            ThemeModeOption(strings[R.string.ui_light], strings[R.string.ui_always_use_light_theme], AppThemeMode.LIGHT, themeMode, onChange)
             HorizontalDivider()
-            ThemeModeOption("다크", "항상 어두운 화면을 사용합니다.", AppThemeMode.DARK, themeMode, onChange)
+            ThemeModeOption(strings[R.string.ui_dark], strings[R.string.ui_always_use_dark_theme], AppThemeMode.DARK, themeMode, onChange)
+        }
+        StyleSettings(appStyle, onAppStyleChange)
+        FontSizeSettings(fontSizeSp, onFontSizeChange)
+        BorderSettingsCard(strings[R.string.ui_gallery_borders], borders.normal) { onBorderChange(GalleryBorderKind.NORMAL, it) }
+        BorderSettingsCard(strings[R.string.ui_series_borders], borders.series) { onBorderChange(GalleryBorderKind.SERIES, it) }
+        BorderSettingsCard(strings[R.string.ui_favorite_borders], borders.favorite) { onBorderChange(GalleryBorderKind.FAVORITE, it) }
+    }
+}
+
+@Composable
+private fun FontSizeSettings(size: Float, onChange: (Float) -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    var input by rememberSaveable { mutableStateOf(size.toInt().toString()) }
+    SectionCard(strings[R.string.ui_font_size]) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(16f to R.string.ui_font_small, 18f to R.string.ui_font_normal, 20f to R.string.ui_font_large).forEach { (value, label) ->
+                FilterChip(selected = size == value, onClick = { input = value.toInt().toString(); onChange(value) }, label = { Text(strings[label]) })
+            }
+        }
+        HorizontalDivider()
+        OutlinedTextField(value = input, onValueChange = { value ->
+            input = value.take(5)
+            com.doujinmenu.android.model.parseAppFontSize(input)?.let(onChange)
+        }, label = { Text(strings[R.string.ui_custom_font_sp]) },
+            supportingText = { Text("12–28 sp") }, singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            isError = com.doujinmenu.android.model.parseAppFontSize(input) == null)
+        Text(strings[R.string.ui_preview], style = MaterialTheme.typography.titleMedium)
+        Text(strings[R.string.ui_font_preview], style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun BorderSettingsCard(title: String, style: GalleryBorderStyle, onChange: (GalleryBorderStyle) -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    SectionCard(title) {
+        Text(strings[R.string.ui_width_dp_0_disables_border, (style.widthDp.toInt())])
+        Slider(value = style.widthDp, onValueChange = { onChange(style.copy(widthDp = it)) }, valueRange = 0f..6f, steps = 5)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(0xFF6750A4, 0xFFB0A6BC, 0xFF1565C0, 0xFF008577, 0xFFC62828, 0xFFE6A000, 0xFF202020).forEach { color ->
+                FilterChip(selected = style.colorArgb == color, onClick = { onChange(style.copy(colorArgb = color)) },
+                    label = { Text("●", color = Color(color)) })
+            }
+        }
+        Card(colors = appCardColors(), border = if (style.widthDp > 0) BorderStroke(style.widthDp.dp, Color(style.colorArgb)) else null) {
+            Text(strings[R.string.ui_preview], Modifier.padding(20.dp))
         }
     }
 }
@@ -256,39 +353,40 @@ private fun SupportSettingsScreen(
     onCheckForUpdates: () -> Unit,
     onOpenChangelog: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
-    SettingsDetailLayout("정보", contentPadding, onBack) {
-        SectionCard("앱 정보") {
-            Text("버전 ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+    SettingsDetailLayout(strings[R.string.ui_about], contentPadding, onBack) {
+        SectionCard(strings[R.string.ui_app_information]) {
+            Text(strings[R.string.ui_version, (BuildConfig.VERSION_NAME), (BuildConfig.VERSION_CODE)])
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = onCheckForUpdates,
                 enabled = !state.isCheckingForUpdates,
             ) {
-                Text(if (state.isCheckingForUpdates) "확인 중…" else "업데이트 확인")
+                Text(if (state.isCheckingForUpdates) strings[R.string.ui_checking] else strings[R.string.ui_check_for_updates])
             }
         }
-        SectionCard("내역") {
+        SectionCard(strings[R.string.ui_history]) {
             Text(
-                "버전별 새로운 기능과 변경 사항을 확인합니다.",
+                strings[R.string.ui_view_features_and_changes_for_each_version],
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedButton(
                 onClick = onOpenChangelog,
                 modifier = Modifier.padding(top = 8.dp),
-            ) { Text("업데이트 기록") }
+            ) { Text(strings[R.string.ui_changelog]) }
         }
-        SectionCard("문제 해결") {
+        SectionCard(strings[R.string.ui_troubleshooting]) {
             Text(
-                "진단 정보에는 앱·기기 버전과 상태 개수만 포함됩니다. " +
-                    "연결 주소, 인증 정보, 작품명과 파일 경로는 포함하지 않습니다.",
+                strings[R.string.ui_diagnostics_include_only_app_device_versions_and_status_counts] +
+                    strings[R.string.ui_no_connection_addresses_credentials_titles_or_file_paths_are_i],
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Button(
                 onClick = { openGitHubIssue(context, state) },
                 modifier = Modifier.padding(top = 12.dp),
             ) {
-                Text("진단 데이터 보내기")
+                Text(strings[R.string.ui_send_diagnostics])
             }
         }
     }
@@ -296,7 +394,8 @@ private fun SupportSettingsScreen(
 
 @Composable
 private fun ChangelogScreen(contentPadding: PaddingValues, onBack: () -> Unit) {
-    SettingsDetailLayout("업데이트 기록", contentPadding, onBack) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    SettingsDetailLayout(strings[R.string.ui_changelog], contentPadding, onBack) {
         appChangelog.forEach { changelog ->
             SectionCard("v${changelog.version}") {
                 changelog.changes.forEach { change ->
@@ -313,7 +412,7 @@ private fun SettingsCategoryCard(
     description: String,
     onClick: () -> Unit,
 ) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    Card(colors = appCardColors(), onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -338,8 +437,9 @@ private fun ViewerSettingsScreen(
     onBack: () -> Unit,
     onChange: (ViewerPreferences) -> Unit,
 ) {
-    SettingsDetailLayout("리더 설정", contentPadding, onBack) {
-        SectionCard("리더") {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    SettingsDetailLayout(strings[R.string.ui_reader_settings], contentPadding, onBack) {
+        SectionCard(strings[R.string.ui_reader]) {
             ViewerSettingsContent(preferences = preferences, onChange = onChange)
         }
     }
@@ -354,7 +454,9 @@ private fun LibrarySettingsScreen(
     onRemoveLibraryLocation: (String) -> Unit,
     onSetDownloadLocation: (String, String) -> Unit,
     onClearDownloadLocation: () -> Unit,
+    onDownloadDestinationChange: (DownloadDestination) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val libraryPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -373,57 +475,46 @@ private fun LibrarySettingsScreen(
         }
     }
 
-    SettingsDetailLayout("라이브러리 설정", contentPadding, onBack) {
-        SectionCard("라이브러리 경로") {
+    SettingsDetailLayout(strings[R.string.ui_library_settings], contentPadding, onBack) {
+        SectionCard(strings[R.string.ui_library_folders]) {
             Text(
-                "책을 검색할 폴더를 여러 개 등록할 수 있습니다.",
+                strings[R.string.ui_register_multiple_folders_to_scan_for_books],
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(10.dp))
             state.libraryLocations.forEachIndexed { index, location ->
                 if (index > 0) HorizontalDivider()
-                StorageLocationRow(location, "제거") {
+                StorageLocationRow(location, strings[R.string.ui_remove]) {
                     onRemoveLibraryLocation(location.uri)
                 }
             }
             Button(
                 onClick = { libraryPicker.launch(null) },
                 modifier = Modifier.padding(top = 10.dp),
-            ) { Text("라이브러리 경로 추가") }
+            ) { Text(strings[R.string.ui_add_library_folder]) }
         }
 
-        SectionCard("다운로드 경로") {
-            Text(
-                if (state.selectedProfileId != null) {
-                    "데스크톱 연결 중에는 PC 다운로드가 데스크톱 경로에 저장됩니다. " +
-                        "데스크톱 경로는 PC에서만 변경할 수 있으며, 모바일 로컬 경로는 별도로 설정할 수 있습니다."
-                } else {
-                    "데스크톱에 연결되지 않은 상태에서는 모바일 로컬 다운로드 경로만 사용합니다."
-                },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (state.selectedProfileId != null) {
-                Spacer(Modifier.height(10.dp))
-                ReadOnlyPathRow(
-                    title = "데스크톱 다운로드 경로",
-                    path = state.desktopDownloadPath ?: "데스크톱에서 설정되지 않음",
-                )
+        SectionCard(strings[R.string.ui_download_destination]) {
+            listOf(DownloadDestination.DEVICE to R.string.ui_device_d79c45, DownloadDestination.DESKTOP to R.string.ui_desktop, DownloadDestination.ASK to R.string.ui_always_ask).forEach { (value, label) ->
+                ChoiceMenuItem(strings[label], state.downloadDestination == value, onClick = { onDownloadDestinationChange(value) })
             }
-            state.downloadLocation?.let { location ->
-                Spacer(Modifier.height(10.dp))
-                StorageLocationRow(
-                    location = location,
-                    actionLabel = "삭제",
-                    title = "로컬 다운로드 경로",
-                    onAction = onClearDownloadLocation,
-                )
+        }
+        SectionCard(strings[R.string.ui_download_folder]) {
+            ReadOnlyPathRow(title = strings[R.string.ui_desktop_download_folder],
+                path = state.desktopDownloadPath?.let { readableStoragePath(it) } ?: strings[R.string.ui_not_configured_on_desktop])
+            HorizontalDivider()
+            val location = state.downloadLocation
+            if (location != null) StorageLocationRow(location, strings[R.string.ui_delete], strings[R.string.ui_local_download_folder], onClearDownloadLocation)
+            else {
+                Text(strings[R.string.ui_local_download_folder], style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text(strings[R.string.download_folder_unset], Modifier.padding(vertical = 8.dp))
             }
             Row(
                 modifier = Modifier.padding(top = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(onClick = { downloadPicker.launch(null) }) {
-                    Text(if (state.downloadLocation == null) "다운로드 경로 선택" else "경로 변경")
+                    Text(if (state.downloadLocation == null) strings[R.string.ui_choose_download_folder] else strings[R.string.ui_change_folder])
                 }
             }
         }
@@ -447,7 +538,7 @@ private fun StorageLocationRow(
             }
             Text(location.displayName, fontWeight = FontWeight.Medium)
             Text(
-                location.uri,
+                readableStoragePath(location.uri, location.displayName),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -460,11 +551,12 @@ private fun StorageLocationRow(
 
 @Composable
 private fun ReadOnlyPathRow(title: String, path: String) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         Text(path, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(
-            "데스크톱 앱에서만 변경할 수 있습니다.",
+            strings[R.string.ui_can_only_be_changed_in_the_desktop_app],
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -485,11 +577,12 @@ private fun ConnectionSettingsScreen(
     onSelectProfile: (String) -> Unit,
     onRemoveProfile: (String) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val enabled = !state.isBusy && !state.isLoadingPage
-    SettingsDetailLayout("연결 설정", contentPadding, onBack) {
-        SectionCard("연결 및 동기화") {
+    SettingsDetailLayout(strings[R.string.ui_connection_settings], contentPadding, onBack) {
+        SectionCard(strings[R.string.ui_connection_and_sync]) {
             Text(
-                "PC 연결은 선택 사항이며 독립 리더 기능에는 영향을 주지 않습니다.",
+                strings[R.string.ui_pc_connection_is_optional_and_does_not_affect_standalone_readi],
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
@@ -498,7 +591,7 @@ private fun ConnectionSettingsScreen(
                     value = state.host,
                     onValueChange = onHostChange,
                     modifier = Modifier.weight(1f),
-                    label = { Text("IP 또는 호스트") },
+                    label = { Text(strings[R.string.ui_ip_or_host]) },
                     placeholder = { Text("192.168.1.10") },
                     singleLine = true,
                     enabled = enabled,
@@ -508,7 +601,7 @@ private fun ConnectionSettingsScreen(
                     value = state.port,
                     onValueChange = onPortChange,
                     modifier = Modifier.width(112.dp),
-                    label = { Text("포트") },
+                    label = { Text(strings[R.string.ui_port]) },
                     singleLine = true,
                     enabled = enabled,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -519,8 +612,8 @@ private fun ConnectionSettingsScreen(
                 value = state.deviceName,
                 onValueChange = onDeviceNameChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("앱 표시 이름") },
-                placeholder = { Text("예: 내 데스크톱") },
+                label = { Text(strings[R.string.ui_connection_display_name]) },
+                placeholder = { Text(strings[R.string.ui_example_my_desktop]) },
                 singleLine = true,
                 enabled = enabled,
             )
@@ -529,7 +622,7 @@ private fun ConnectionSettingsScreen(
                 value = state.pairingCode,
                 onValueChange = onCodeChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("6자리 페어링 코드") },
+                label = { Text(strings[R.string.ui_6_digit_pairing_code]) },
                 singleLine = true,
                 enabled = enabled,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -538,18 +631,18 @@ private fun ConnectionSettingsScreen(
                 modifier = Modifier.padding(top = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(onClick = onTestConnection, enabled = enabled) { Text("상태 확인") }
+                OutlinedButton(onClick = onTestConnection, enabled = enabled) { Text(strings[R.string.ui_check_status]) }
                 Button(
                     onClick = onPair,
                     enabled = enabled && state.pairingCode.length == 6 && state.deviceName.isNotBlank(),
                 ) {
-                    Text("페어링")
+                    Text(strings[R.string.ui_pair])
                 }
             }
         }
 
         if (state.profiles.isNotEmpty()) {
-            SectionCard("등록된 PC") {
+            SectionCard(strings[R.string.ui_registered_pcs]) {
                 SavedDesktopRows(
                     profiles = state.profiles,
                     selectedProfileId = state.selectedProfileId,
@@ -560,7 +653,7 @@ private fun ConnectionSettingsScreen(
                 )
             }
         }
-        if (state.isBusy) LoadingRow("연결 중…")
+        if (state.isBusy) LoadingRow(strings[R.string.ui_connecting])
     }
 }
 
@@ -600,6 +693,7 @@ private fun SavedDesktopRows(
     onSelect: (String) -> Unit,
     onRemove: (String) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     profiles.forEachIndexed { index, profile ->
         if (index > 0) HorizontalDivider()
         Row(
@@ -620,22 +714,22 @@ private fun SavedDesktopRows(
                 )
                 if (profile.id == selectedProfileId) {
                     val (label, color) = when (connectionState) {
-                        DesktopConnectionState.CONNECTING -> "연결 중…" to MaterialTheme.colorScheme.primary
-                        DesktopConnectionState.CONNECTED -> "연결됨" to MaterialTheme.colorScheme.primary
-                        DesktopConnectionState.DISCONNECTED -> "연결 끊김" to MaterialTheme.colorScheme.error
-                        DesktopConnectionState.IDLE -> "등록됨" to MaterialTheme.colorScheme.onSurfaceVariant
+                        DesktopConnectionState.CONNECTING -> strings[R.string.ui_connecting] to MaterialTheme.colorScheme.primary
+                        DesktopConnectionState.CONNECTED -> strings[R.string.ui_connected] to MaterialTheme.colorScheme.primary
+                        DesktopConnectionState.DISCONNECTED -> strings[R.string.ui_disconnected] to MaterialTheme.colorScheme.error
+                        DesktopConnectionState.IDLE -> strings[R.string.ui_registered] to MaterialTheme.colorScheme.onSurfaceVariant
                     }
                     Text(label, style = MaterialTheme.typography.labelMedium, color = color)
                 }
             }
-            TextButton(onClick = { onRemove(profile.id) }, enabled = enabled) { Text("삭제") }
+            TextButton(onClick = { onRemove(profile.id) }, enabled = enabled) { Text(strings[R.string.ui_delete]) }
         }
     }
 }
 
 @Composable
 private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
@@ -659,5 +753,5 @@ private fun treeDisplayName(context: Context, uri: Uri): String {
     return fromProvider?.takeIf { it.isNotBlank() }
         ?: runCatching { DocumentsContract.getTreeDocumentId(uri).substringAfterLast(':') }.getOrNull()
         ?.takeIf { it.isNotBlank() }
-        ?: "선택한 폴더"
+        ?: context.getString(R.string.ui_selected_folder)
 }

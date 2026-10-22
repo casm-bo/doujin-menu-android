@@ -1,9 +1,45 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import android.content.Context
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import kotlinx.coroutines.delay
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
+import com.doujinmenu.android.data.SearchResultIndex
+import kotlin.math.roundToInt
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,14 +52,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -31,7 +71,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
+import com.doujinmenu.android.security.LibraryPreferenceStore
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.flow.filter
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,16 +90,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.network.NetworkHeaders
@@ -62,14 +107,19 @@ import coil3.size.Precision
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.SearchFavorite
+import com.doujinmenu.android.model.SearchQueryEntry
 import com.doujinmenu.android.model.resolveScrollIndex
+import com.doujinmenu.android.model.isSearchPageInRange
+import com.doujinmenu.android.network.parseHitomiSearchOrder
 import com.doujinmenu.android.network.FilterSuggestion
+import com.doujinmenu.android.network.AvailableLanguage
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserScreen(
     state: MainUiState,
+    tabHeader: @Composable (@Composable () -> Unit, @Composable () -> Unit) -> Unit,
     contentPadding: PaddingValues,
     onQueryChange: (String) -> Unit,
     onFavoriteNameChange: (String) -> Unit,
@@ -77,12 +127,17 @@ fun BrowserScreen(
     onSaveFavorite: () -> Unit,
     onRemoveFavorite: (String) -> Unit,
     onFavoriteSearch: (SearchFavorite) -> Unit,
+    onRecentSearch: (SearchQueryEntry) -> Unit,
+    onClearSearchHistory: () -> Unit,
     onToggleLanguage: (String) -> Unit,
-    onAddCustomLanguage: (String) -> Unit,
+    onLoadLanguages: () -> Unit,
+    onSelectAnyLanguage: () -> Unit,
     onRemoveCustomLanguage: (String) -> Unit,
     onSelectSuggestion: (FilterSuggestion) -> Unit,
     onRefresh: () -> Unit,
     onLoadNextPage: () -> Unit,
+    onLoadPreviousPage: () -> Unit,
+    onJumpToPage: (Int) -> Unit,
     onGalleryClick: (Long) -> Unit,
     onGalleryLongClick: (Long) -> Unit,
     onSearchFacet: (String) -> Unit,
@@ -92,40 +147,32 @@ fun BrowserScreen(
     initialScrollAnchorKey: String?,
     initialScrollIndex: Int,
     initialScrollOffset: Int,
-    onScrollChange: (String?, Int, Int) -> Unit,
+    onScrollChange: (String?, Int, Int, Int) -> Unit,
     onEnsureResults: () -> Unit,
     onVisibleResultsChange: (Int, Int) -> Unit,
+    onUnhideGallery: (Long) -> Unit = {},
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
-    val hapticFeedback = LocalHapticFeedback.current
     var expandedPanel by rememberSaveable { mutableStateOf<String?>(null) }
-    var addLanguageDialog by rememberSaveable { mutableStateOf(false) }
-    var languageInput by rememberSaveable { mutableStateOf("") }
     var deleteLanguage by rememberSaveable { mutableStateOf<String?>(null) }
     val libraryBookByGalleryId = remember(state.libraryBooks, state.libraryHiddenIds) {
-        val visibleBooks = state.libraryBooks.filterNot { it.id in state.libraryHiddenIds }
-        visibleBooks.mapNotNull { it.metadata.hitomiId?.toLongOrNull() }
-            .distinct()
-            .associateWith { preferredLibraryBookForGalleryId(visibleBooks, it) }
-    }
-    var queryFieldValue by remember {
-        mutableStateOf(
-            TextFieldValue(
-                text = state.searchQuery,
-                selection = TextRange(state.searchQuery.length),
-            ),
-        )
+        preferredLibraryBooksByGalleryId(state.libraryBooks, state.libraryHiddenIds)
     }
     val resultIds = state.searchResultWindow?.index?.let { index -> remember(index) { index.ids } }
         ?: remember(state.galleries) { state.galleries.map { it.id } }
+    val galleryPositions = remember(resultIds) { resultIds.withIndex().associate { "gallery:${it.value}" to it.index } }
+    val totalCount = state.searchResultWindow?.index?.totalCount
+    val maxPage = state.searchResultWindow?.index?.maxPage
     val galleriesById = remember(state.galleries) { state.galleries.associateBy { it.id } }
     val canRestoreResults = state.searchResultWindow == null && state.currentPage > 0 &&
         !state.isLoadingPage && !state.isRestoringSearch
-    val contentKeys = remember(resultIds, state.isLoadingPage, state.currentPage, state.hasNextPage, canRestoreResults) { buildList {
+    val contentKeys = remember(resultIds, totalCount, state.isLoadingPage, state.currentPage, state.hasNextPage, canRestoreResults) { buildList {
         add("search-controls")
+        if (resultIds.isEmpty() && !state.isLoadingPage && !canRestoreResults) add("empty-results")
         if (state.isLoadingPage && resultIds.isEmpty()) add("initial-loader")
         if (canRestoreResults) add("restore-results")
-        if (resultIds.isNotEmpty()) {
+        if (resultIds.isNotEmpty() || totalCount != null) {
             add("result-count")
             resultIds.forEach { add("gallery:$it") }
         }
@@ -137,7 +184,7 @@ fun BrowserScreen(
     val savedAnchorKey = remember(pageKey) { initialScrollAnchorKey }
     val restoredIndex = resolveScrollIndex(savedAnchorKey, initialScrollIndex, contentKeys)
     val listState = remember(pageKey) {
-        LazyListState(
+        LazyGridState(
             firstVisibleItemIndex = restoredIndex,
             firstVisibleItemScrollOffset = initialScrollOffset,
         )
@@ -157,170 +204,198 @@ fun BrowserScreen(
             }
         }
     }
-    LaunchedEffect(pageKey, listState, scrollRestored) {
+    fun persistScroll() {
+        if (state.searchResultWindow?.index?.pages.isNullOrEmpty()) return
+        val index = listState.firstVisibleItemIndex
+        val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }?.key?.toString() ?: return
+        onScrollChange(anchor, index, listState.firstVisibleItemScrollOffset, visibleSearchPage(index, state.searchResultWindow.index))
+    }
+    // Keep per-frame list offsets out of MainUiState; save when the gesture settles.
+    LaunchedEffect(pageKey, listState, scrollRestored, state.searchResultWindow?.index) {
         if (!scrollRestored) return@LaunchedEffect
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .distinctUntilChanged()
-            .collect { (index, offset) ->
-                val anchorKey = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key?.toString()
-                onScrollChange(anchorKey, index, offset)
-            }
+        snapshotFlow { Triple(listState.isScrollInProgress, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) }
+            .filter { !it.first }.collect { persistScroll() }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(pageKey, listState, scrollRestored, lifecycleOwner, state.searchResultWindow?.index) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && scrollRestored) persistScroll()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            if (scrollRestored && listState.layoutInfo.totalItemsCount > 0) persistScroll()
+        }
     }
     LaunchedEffect(pageKey, listState, scrollRestored, resultIds.size) {
         if (!scrollRestored || resultIds.isEmpty()) return@LaunchedEffect
         snapshotFlow {
             val visible = listState.layoutInfo.visibleItemsInfo.filter { it.key.toString().startsWith("gallery:") }
-            val first = visible.firstOrNull()?.index?.minus(2)?.coerceAtLeast(0) ?: 0
-            val last = visible.lastOrNull()?.index?.minus(2)?.coerceAtLeast(first) ?: first
-            first to last
-        }.distinctUntilChanged().collect { (first, last) -> onVisibleResultsChange(first, last) }
-    }
-    val queryFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(state.searchQuery) {
-        if (queryFieldValue.text != state.searchQuery) {
-            queryFieldValue = TextFieldValue(
-                text = state.searchQuery,
-                selection = TextRange(state.searchQuery.length),
-            )
+            val first = visible.firstOrNull()?.key?.toString()?.let(galleryPositions::get) ?: 0
+            val last = visible.lastOrNull()?.key?.toString()?.let(galleryPositions::get) ?: first
+            Triple(first, last, listState.isScrollInProgress)
+        }.distinctUntilChanged().collect { (first, last, scrolling) ->
+            onVisibleResultsChange(first, last)
+            val index = state.searchResultWindow?.index
+            if (scrolling && index != null && index.firstPage > 1 && index.pageAt(first) == index.firstPage) onLoadPreviousPage()
         }
     }
-
-    PullToRefreshBox(
-        isRefreshing = state.isRefreshing,
-        onRefresh = onRefresh,
-        modifier = Modifier.fillMaxSize().padding(contentPadding),
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            state = listState,
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-        item(key = "search-controls") {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        "Hitomi 직접 검색",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = queryFieldValue,
-                        onValueChange = { value ->
-                            queryFieldValue = value
-                            onQueryChange(value.text)
-                        },
-                        modifier = Modifier.fillMaxWidth().focusRequester(queryFocusRequester),
-                        label = { Text("검색 조건") },
-                        placeholder = { Text("tag:full_color artist:sample_artist") },
-                        trailingIcon = {
-                            if (state.searchQuery.isNotEmpty()) {
-                                TextButton(onClick = { onQueryChange("") }) { Text("×") }
-                            }
-                        },
-                        singleLine = true,
-                        enabled = !state.isLoadingPage,
-                    )
-                    if (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                            state.filterSuggestions.forEach { suggestion ->
-                                TextButton(
-                                    onClick = {
-                                        onSelectSuggestion(suggestion)
-                                        queryFocusRequester.requestFocus()
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        Text(suggestion.token, fontWeight = FontWeight.SemiBold)
-                                        Text(
-                                            suggestion.displayName,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            }
-                            if (state.isLoadingFilterSuggestions) {
-                                Text(
-                                    "필터 목록 불러오는 중…",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+    var editing by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(editing, expandedPanel) {
+        if (editing && expandedPanel == "languages") onLoadLanguages()
+    }
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.filter { it }.collect {
+            focusManager.clearFocus(); editing = false; expandedPanel = null
+        }
+    }
+    fun submitSearch() {
+        focusManager.clearFocus()
+        editing = false
+        expandedPanel = null
+        onSearch()
+    }
+    fun togglePanel(name: String) {
+        val close = editing && expandedPanel == name
+        expandedPanel = if (close) null else name
+        editing = !close
+        focusManager.clearFocus()
+    }
+    BackHandler(editing) { editing = false; focusManager.clearFocus() }
+    var menu by remember { mutableStateOf<String?>(null) }
+    val viewPreferences = remember(context) { LibraryPreferenceStore(context) }
+    var gridView by rememberSaveable { mutableStateOf(viewPreferences.loadSearchGridView()) }
+    var gridColumns by rememberSaveable { mutableIntStateOf(viewPreferences.loadSearchGridColumns()) }
+    var pageDialog by rememberSaveable { mutableStateOf(false) }
+    var pageInput by rememberSaveable { mutableStateOf("") }
+    val searchExpansion = LocalInlineSearch.current ?: remember(pageKey) { InlineSearchState() }
+    val canCollapse = resultIds.isNotEmpty() && !editing && !searchExpansion.expanded && menu == null && !pageDialog
+    val collapseEnabled by rememberUpdatedState(canCollapse)
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(canScroll = { collapseEnabled })
+    LaunchedEffect(pageKey, canCollapse) {
+        if (!canCollapse) scrollBehavior.state.heightOffset = 0f
+    }
+    CompositionLocalProvider(LocalWorkCardSize provides WorkCardSize.fromColumns(gridColumns)) {
+    InlineSearchLayout(searchExpansion, contentPadding = contentPadding) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        CollapsingToolbar(scrollBehavior) {
+        Column {
+        tabHeader({
+            UnifiedSearchField(state.searchQuery, { expandedPanel = null; onQueryChange(it) }, strings[R.string.ui_search_conditions], { editing = false; expandedPanel = null }, { submitSearch() },
+                state.searchQueryHistory, state.filterSuggestions, state.isLoadingFilterSuggestions, onRecentSearch, onClearSearchHistory, onSelectSuggestion)
+        }, {
+            Box {
+                IconButton(onClick = { menu = "root" }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_search_options] }) { Text("⋯") }
+                DropdownMenu(expanded = menu != null, onDismissRequest = { menu = null }) {
+                    if (menu == "view") {
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_search_options]) }, leadingIcon = { ActionIcon(ActionSymbol.BACK) }, onClick = { menu = "root" })
+                        WorkViewOptions(gridView, gridColumns,
+                            onMode = { gridView = it; viewPreferences.saveSearchGridView(it); menu = null },
+                            onSize = { gridColumns = it; viewPreferences.saveSearchGridColumns(it) })
+                    } else {
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_favorite_this_search]) }, leadingIcon = { ActionIcon(ActionSymbol.STAR) }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_go_to_page]) }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_view]) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, onClick = { menu = "view" })
+                        HorizontalDivider()
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_refresh]) }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { menu = null; onRefresh() })
+                        DropdownMenuItem(text = { Text(strings[R.string.ui_clear_search]) }, leadingIcon = { ActionIcon(ActionSymbol.CLEAR) }, onClick = { onQueryChange(""); menu = null; editing = true })
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(
-                            onClick = {
-                                expandedPanel = if (expandedPanel == "favorites") null else "favorites"
-                            },
-                        ) { Text("☆ 즐겨찾기 ${state.searchFavorites.size}") }
-                        TextButton(
-                            onClick = {
-                                expandedPanel = if (expandedPanel == "languages") null else "languages"
-                            },
-                        ) { Text("언어 ${state.preferredLanguages.size}") }
-                        Spacer(Modifier.weight(1f))
-                        Button(
-                            onClick = onSearch,
-                            enabled = !state.isLoadingPage &&
-                                (state.searchQuery.isNotBlank() || state.preferredLanguages.isNotEmpty()),
-                        ) { Text("검색") }
+                }
+            }
+        })
+        if (!searchExpansion.expanded) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = { togglePanel("languages") }, contentPadding = PaddingValues(horizontal = 10.dp),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "languages") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
+                ActionIcon(ActionSymbol.LANGUAGE); Spacer(Modifier.width(4.dp))
+                val selected = state.preferredLanguages.singleOrNull()
+                Text(selected?.let { code -> state.availableLanguages.firstOrNull { it.code == code }?.label
+                    ?: mapOf("korean" to strings[R.string.ui_], "japanese" to "日本語", "english" to "English", "chinese" to "中文")[code]
+                    ?: code.replace('_', ' ') } ?: strings[R.string.ui_language])
+            }
+            OutlinedButton(onClick = { togglePanel("favorites") }, contentPadding = PaddingValues(horizontal = 10.dp),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "favorites") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
+                ActionIcon(ActionSymbol.STAR); Spacer(Modifier.width(4.dp)); Text(strings[R.string.ui_favorites])
+            }
+            Spacer(Modifier.weight(1f))
+            SearchSortMenu(state.searchQuery, enabled = !state.isLoadingPage) { oldest ->
+                val query = state.searchQuery.replace(Regex("(?i)(^|\\s)sort:(oldest|newest)(?=\\s|$)"), " ").trim()
+                onQueryChange(listOf(query, if (oldest) "sort:oldest" else "sort:newest").filter { it.isNotBlank() }.joinToString(" "))
+                onSearch()
+            }
+        }
+        AnimatedVisibility(visible = editing && (expandedPanel != null || state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions), enter = expandVertically(expandFrom = Alignment.Top), exit = shrinkVertically(shrinkTowards = Alignment.Top)) {
+            OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            val editorScroll = rememberScrollState()
+            Column(Modifier.fillMaxWidth().heightIn(max = 300.dp)
+                .then(if (expandedPanel == "languages" || expandedPanel == "history") Modifier else Modifier.verticalScroll(editorScroll)).padding(12.dp)) {
+                if (expandedPanel == "history") {
+                    RecentSearchHistory(state.searchQueryHistory, { entry ->
+                        focusManager.clearFocus(); editing = false; expandedPanel = null; onRecentSearch(entry)
+                    }, onClearSearchHistory)
+                }
+                if (expandedPanel == null && (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions)) {
+                    state.filterSuggestions.forEach { suggestion ->
+                        TextButton(onClick = { onSelectSuggestion(suggestion) }) { Text(suggestion.token) }
                     }
+                    if (state.isLoadingFilterSuggestions) Text(strings[R.string.ui_loading_filters])
+                }
 
                     if (expandedPanel == "languages") {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(strings[R.string.ui_language], Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            TextButton(onClick = { submitSearch() }, enabled = !state.isLoadingPage,
+                                modifier = Modifier.semantics { contentDescription = strings[R.string.ui_confirm_languages_and_search] }) {
+                                ActionIcon(ActionSymbol.SEARCH)
+                                Spacer(Modifier.width(4.dp))
+                                Text(strings[R.string.ui_confirm])
+                            }
+                        }
                         Text(
                             if (state.preferredLanguages.isEmpty())
-                                "선택하지 않으면 언어 필터를 적용하지 않습니다."
-                            else "선택한 언어를 각각 검색해 결과를 합칩니다.",
+                                strings[R.string.ui_any_search_all_languages]
+                            else strings[R.string.ui_search_each_selected_language_and_merge_results],
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            PREFERRED_LANGUAGES.forEach { (value, label) ->
-                                FilterChip(
-                                    selected = value in state.preferredLanguages,
-                                    onClick = { onToggleLanguage(value) },
-                                    label = { Text(label) },
-                                )
+                        Text(strings[R.string.ui_available_selected_multiple_selection, (state.availableLanguages.size), (state.preferredLanguages.size)], style = MaterialTheme.typography.labelMedium)
+                        if (state.isLoadingLanguages) LoadingRow(strings[R.string.ui_loading_all_languages])
+                        state.languageLoadError?.let { error ->
+                            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = onLoadLanguages) { Text(strings[R.string.ui_try_again]) }
+                        }
+                        val languages = remember(state.availableLanguages, state.customLanguages, state.preferredLanguages) {
+                            val known = state.availableLanguages.mapTo(hashSetOf()) { it.code }
+                            state.availableLanguages + (state.customLanguages + state.preferredLanguages - known).sorted().map {
+                                AvailableLanguage(it, it.replace('_', ' ').replaceFirstChar { char -> char.uppercase() })
                             }
-                            (state.customLanguages + (state.preferredLanguages -
-                                PREFERRED_LANGUAGES.mapTo(linkedSetOf()) { it.first }))
-                                .sorted().forEach { language ->
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (language in state.preferredLanguages)
-                                        MaterialTheme.colorScheme.secondaryContainer
-                                    else MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.combinedClickable(
-                                        onClick = { onToggleLanguage(language) },
-                                        onLongClick = {
-                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            deleteLanguage = language
-                                        },
-                                    ),
-                                ) {
-                                    Text(
-                                        language.replaceFirstChar { it.uppercase() },
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                                    )
+                        }
+                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+                            item(key = "any") {
+                                Row(Modifier.fillMaxWidth().toggleable(value = state.preferredLanguages.isEmpty(), role = Role.Checkbox,
+                                    onValueChange = { onSelectAnyLanguage() }), verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = state.preferredLanguages.isEmpty(), onCheckedChange = null, modifier = Modifier.padding(12.dp))
+                                    Text(strings[R.string.ui_any_all_languages], style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
-                            FilterChip(
-                                selected = false,
-                                onClick = { addLanguageDialog = true },
-                                label = { Text("+") },
-                            )
+                            items(languages, key = { it.code }) { language ->
+                                val selected = language.code in state.preferredLanguages
+                                Row(Modifier.fillMaxWidth().toggleable(value = selected, role = Role.Checkbox,
+                                    onValueChange = { onToggleLanguage(language.code) }), verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = selected, onCheckedChange = null, modifier = Modifier.padding(12.dp))
+                                    Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+                                        Text(language.label, style = MaterialTheme.typography.bodyMedium)
+                                        Text(language.code, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    if (language.code in state.customLanguages) TextButton(onClick = { deleteLanguage = language.code }) { Text(strings[R.string.ui_delete]) }
+                                }
+                            }
                         }
                     }
 
                     if (expandedPanel == "favorites") {
+                        Text(strings[R.string.ui_saved_searches], style = MaterialTheme.typography.titleSmall)
                         state.searchFavorites.forEach { favorite ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -329,6 +404,8 @@ fun BrowserScreen(
                                 TextButton(
                                     onClick = {
                                         expandedPanel = null
+                                        editing = false
+                                        focusManager.clearFocus()
                                         onFavoriteSearch(favorite)
                                     },
                                     modifier = Modifier.weight(1f),
@@ -344,7 +421,7 @@ fun BrowserScreen(
                                     }
                                 }
                                 TextButton(onClick = { onRemoveFavorite(favorite.id) }) {
-                                    Text("삭제")
+                                    Text(strings[R.string.ui_delete])
                                 }
                             }
                         }
@@ -352,32 +429,56 @@ fun BrowserScreen(
                             value = state.favoriteName,
                             onValueChange = onFavoriteNameChange,
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("현재 조건의 즐겨찾기 이름") },
+                            label = { Text(strings[R.string.ui_name_for_current_search]) },
                             singleLine = true,
                         )
                         Button(
                             onClick = onSaveFavorite,
                             enabled = state.searchQuery.isNotBlank(),
                             modifier = Modifier.padding(top = 8.dp),
-                        ) { Text("현재 조건 저장") }
+                        ) { Text(strings[R.string.ui_save_current_search]) }
                     }
-                }
+            }
+            }
+        }
+        }
+        }
+        }
+    PullToRefreshBox(
+        isRefreshing = state.isRefreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxWidth().weight(1f),
+    ) {
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(if (gridView) gridColumns else 1),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+        item(key = "search-controls", span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(0.dp)) }
+        if (resultIds.isEmpty() && !state.isLoadingPage && !canRestoreResults) {
+            item(key = "empty-results", span = { GridItemSpan(maxLineSpan) }) {
+                Text(if (state.currentPage > 0) strings[R.string.ui_no_search_results_try_different_conditions] else strings[R.string.ui_enter_a_query_in_the_search_bar_above_you_can_also_select_lang],
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
         }
 
         if (state.isLoadingPage && resultIds.isEmpty()) {
-            item(key = "initial-loader") { LoadingRow("불러오는 중…") }
+            item(key = "initial-loader", span = { GridItemSpan(maxLineSpan) }) { LoadingRow(strings[R.string.ui_loading]) }
         }
         if (canRestoreResults) {
-            item(key = "restore-results") {
-                TextButton(onClick = onEnsureResults, modifier = Modifier.fillMaxWidth()) { Text("검색 결과 다시 불러오기") }
+            item(key = "restore-results", span = { GridItemSpan(maxLineSpan) }) {
+                TextButton(onClick = onEnsureResults, modifier = Modifier.fillMaxWidth()) { Text(strings[R.string.ui_reload_search_results]) }
             }
         }
 
-        if (resultIds.isNotEmpty()) {
-            item(key = "result-count") {
+        if (resultIds.isNotEmpty() || totalCount != null) {
+            item(key = "result-count", span = { GridItemSpan(maxLineSpan) }) {
                 Text(
-                    "검색 결과 ${resultIds.size}개",
+                    totalCount?.let { strings[R.string.ui_search_results, (java.text.NumberFormat.getIntegerInstance().format(it))] } ?: strings[R.string.ui_search_results_total_unknown],
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -385,20 +486,22 @@ fun BrowserScreen(
             items(count = resultIds.size, key = { "gallery:${resultIds[it]}" }, contentType = { "gallery" }) { index ->
                 val id = resultIds[index]
                 val gallery = galleriesById[id]
-                if (gallery == null) {
-                    Card(Modifier.fillMaxWidth().height(168.dp)) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("#$id · 불러오는 중…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                if ("online:$id" in state.libraryHiddenIds) {
+                    TextButton(onClick = { onUnhideGallery(id) }) { Text("#$id · ${strings[R.string.ui_unhide]}") }
+                } else if (gallery == null) {
+                    WorkCard(title = "#$id", artist = "", metadata = strings[R.string.ui_loading],
+                        tags = emptyList(), footer = "", grid = gridView, onClick = {}) {
+                        CircularProgressIndicator(Modifier.align(Alignment.Center))
                     }
                 } else {
                     val libraryBook = libraryBookByGalleryId[gallery.id]
                     GalleryCard(
                         gallery = gallery,
-                        read = gallery.id in state.viewedGalleryIds || libraryBook?.id in state.libraryReadIds,
+                        gridView = gridView,
+                        read = gallery.id in state.viewedGalleryIds || libraryBook?.id in state.libraryReadIds || "online:$id" in state.libraryReadIds,
                         libraryBook = libraryBook,
-                        favorite = libraryBook?.id?.let { it in state.libraryFavoriteIds } == true,
-                        onToggleFavorite = { libraryBook?.id?.let(onToggleLibraryFavorite) },
+                        favorite = libraryBook?.id?.let { it in state.libraryFavoriteIds } == true || "online:$id" in state.libraryFavoriteIds,
+                        onToggleFavorite = { onToggleLibraryFavorite("online:$id") },
                         onClick = { onGalleryClick(gallery.id) },
                         onLongClick = { onGalleryLongClick(gallery.id) },
                         onSearchFacet = onSearchFacet,
@@ -408,79 +511,63 @@ fun BrowserScreen(
         }
 
         if (resultIds.isNotEmpty() && (state.hasNextPage || state.isLoadingPage)) {
-            item(key = "page-loader-${state.currentPage}") {
-                LaunchedEffect(state.currentPage, state.hasNextPage, state.isLoadingPage, state.isRestoringSearch, state.nextSearchPageError) {
-                    if (state.hasNextPage && !state.isLoadingPage && !state.isRestoringSearch && state.nextSearchPageError == null) onLoadNextPage()
+            item(key = "page-loader-${state.currentPage}", span = { GridItemSpan(maxLineSpan) }) {
+                LaunchedEffect(state.currentPage, state.hasNextPage, state.isLoadingPage, state.isRestoringSearch, state.nextSearchPageError, listState.isScrollInProgress) {
+                    if (listState.isScrollInProgress && state.hasNextPage && !state.isLoadingPage && !state.isRestoringSearch && state.nextSearchPageError == null) onLoadNextPage()
                 }
                 if (state.nextSearchPageError != null) {
-                    TextButton(onClick = onLoadNextPage, modifier = Modifier.fillMaxWidth()) { Text("다음 페이지 다시 불러오기") }
+                    TextButton(onClick = onLoadNextPage, modifier = Modifier.fillMaxWidth()) { Text(strings[R.string.ui_reload_next_page]) }
                 } else LoadingRow(
-                    if (state.isLoadingPage) "${state.currentPage + 1}페이지 불러오는 중…"
-                    else "다음 페이지 준비 중…",
+                    if (state.isLoadingPage) strings[R.string.ui_loading_page, (state.currentPage + 1)]
+                    else strings[R.string.ui_preparing_next_page],
                 )
             }
         }
         }
         DynamicVerticalScrollbar(listState)
+        state.searchResultWindow?.index?.takeIf { resultIds.isNotEmpty() }?.let { index ->
+            SearchPageIndicator(listState, index, onClick = { pageDialog = true })
+        }
         }
     }
 
-    if (addLanguageDialog) {
-        AlertDialog(
-            onDismissRequest = { addLanguageDialog = false },
-            title = { Text("언어 추가") },
-            text = {
-                OutlinedTextField(
-                    value = languageInput,
-                    onValueChange = { languageInput = it },
-                    label = { Text("언어") },
-                    placeholder = { Text("예: french 또는 French") },
-                    singleLine = true,
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onAddCustomLanguage(languageInput)
-                        languageInput = ""
-                        addLanguageDialog = false
-                    },
-                    enabled = languageInput.substringAfter(':').isNotBlank(),
-                ) { Text("추가") }
-            },
-            dismissButton = {
-                TextButton(onClick = { addLanguageDialog = false }) { Text("취소") }
-            },
-        )
     }
+    }
+    }
+    if (pageDialog) AlertDialog(
+        onDismissRequest = { pageDialog = false },
+        title = { Text(strings[R.string.ui_go_to_page]) },
+        text = { OutlinedTextField(value = pageInput, onValueChange = { pageInput = it.filter(Char::isDigit).take(10) }, label = { Text(strings[R.string.ui_page_number]) },
+            placeholder = { Text(maxPage?.let { strings[R.string.ui_up_to_page, (java.text.NumberFormat.getIntegerInstance().format(it))] } ?: strings[R.string.ui_enter_target_page]) },
+            supportingText = { Text(maxPage?.let { strings[R.string.ui_pages_1, (java.text.NumberFormat.getIntegerInstance().format(it))] } ?: strings[R.string.ui_page_number_of_1_or_higher]) },
+            isError = pageInput.isNotEmpty() && !isSearchPageInRange(pageInput.toIntOrNull(), maxPage),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true) },
+        confirmButton = { TextButton(enabled = isSearchPageInRange(pageInput.toIntOrNull(), maxPage), onClick = { onJumpToPage(pageInput.toInt()); pageDialog = false }) { Text(strings[R.string.ui_go]) } },
+        dismissButton = { TextButton(onClick = { pageDialog = false }) { Text(strings[R.string.ui_cancel]) } },
+    )
+
     deleteLanguage?.let { language ->
         AlertDialog(
             onDismissRequest = { deleteLanguage = null },
-            title = { Text("언어 삭제") },
-            text = { Text("${language.replaceFirstChar { it.uppercase() }} 언어를 삭제하시겠습니까?") },
+            title = { Text(strings[R.string.ui_remove_language]) },
+            text = { Text(strings[R.string.ui_remove_language_6332b0, (language.replaceFirstChar { it.uppercase() })]) },
             confirmButton = {
                 TextButton(onClick = {
                     onRemoveCustomLanguage(language)
                     deleteLanguage = null
-                }) { Text("삭제") }
+                }) { Text(strings[R.string.ui_delete]) }
             },
             dismissButton = {
-                TextButton(onClick = { deleteLanguage = null }) { Text("취소") }
+                TextButton(onClick = { deleteLanguage = null }) { Text(strings[R.string.ui_cancel]) }
             },
         )
     }
 }
 
-private val PREFERRED_LANGUAGES = listOf(
-    "korean" to "한국어",
-    "japanese" to "일본어",
-    "english" to "영어",
-    "chinese" to "중국어",
-)
-
 @Composable
 private fun GalleryCard(
     gallery: GallerySummary,
+    gridView: Boolean = false,
     read: Boolean,
     libraryBook: LibraryBook?,
     favorite: Boolean,
@@ -489,94 +576,25 @@ private fun GalleryCard(
     onLongClick: () -> Unit,
     onSearchFacet: (String) -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
-    val request = gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id) }
-
-    Card(modifier = Modifier.fillMaxWidth().combinedClickable(
-        onClick = onClick,
-        onLongClick = onLongClick,
-        onLongClickLabel = "새 탭에서 열기",
-    )) {
-        Row(modifier = Modifier.padding(12.dp)) {
-            Box(
-                modifier = Modifier
-                    .width(104.dp)
-                    .height(144.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("#${gallery.id}", style = MaterialTheme.typography.labelMedium)
-                if (request != null) {
-                    AsyncImage(
-                        model = request,
-                        contentDescription = "${preferredLocalizedTitle(gallery.title)} 썸네일",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                }
-                LibraryThumbnailBadges(
-                    read = read,
-                    isCloud = libraryBook?.isCloud,
-                    favorite = favorite,
-                    showFavorite = libraryBook != null,
-                    onToggleFavorite = onToggleFavorite,
-                    scale = 0.82f,
-                )
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(
-                modifier = Modifier.weight(1f).height(144.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Text(
-                    preferredLocalizedTitle(gallery.title),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    gallery.artists.takeIf { it.isNotEmpty() }?.joinToString() ?: "작가 정보 없음",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    listOfNotNull(
-                        gallery.language,
-                        gallery.pageCount.takeIf { it > 0 }?.let { "${it}페이지" },
-                        formatGalleryPublishedDate(gallery.publishedDate)?.let { "업로드 $it" },
-                    ).joinToString(" · ").ifEmpty { "ID ${gallery.id}" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                gallery.tags.take(3).takeIf { it.isNotEmpty() }?.let { tags ->
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
-                    ) {
-                        tags.forEach { tag ->
-                            TagPill(
-                                info = tagDisplayInfo(tag.name, tag.type),
-                                modifier = Modifier.clickable {
-                                    onSearchFacet(tagSearchFacet(tag.name, tag.type))
-                                },
-                            )
-                        }
-                    }
-                }
-                gallery.loadError?.let { error ->
-                    Text(
-                        error,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 2,
-                    )
-                }
-            }
-        }
+    val request = remember(context, gallery.thumbnailUrl, gallery.id) {
+        gallery.thumbnailUrl?.let { hitomiImageRequest(context, it, gallery.id, crossfade = false, preview = true) }
+    }
+    WorkCard(
+        title = preferredLocalizedTitle(gallery.title),
+        artist = gallery.artists.joinToString().ifBlank { strings[R.string.ui_no_artist_information] },
+        metadata = listOfNotNull(gallery.language, gallery.pageCount.takeIf { it > 0 }?.let { strings[R.string.ui_pages, it] }).joinToString(" · "),
+        tags = gallery.tags.map { tag -> CardTag(tagDisplayInfo(tag.name, tag.type)) { onSearchFacet(tagSearchFacet(tag.name, tag.type)) } },
+        footer = gallery.loadError.orEmpty(), footerError = gallery.loadError != null,
+        longClickLabel = strings[R.string.ui_open_in_new_tab], grid = gridView, onClick = onClick, onLongClick = onLongClick,
+        border = galleryCardBorder(favorite = favorite),
+        webtoon = gallery.webtoon == true,
+    ) {
+        Text("#${gallery.id}", style = MaterialTheme.typography.labelSmall)
+        if (request != null) AsyncImage(request, strings[R.string.ui_thumbnail, preferredLocalizedTitle(gallery.title)], Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        LibraryThumbnailBadges(read, libraryBook?.isCloud, favorite, showFavorite = true,
+            onToggleFavorite = onToggleFavorite, scale = if (gridView) .75f else .82f)
     }
 }
 
@@ -613,5 +631,45 @@ fun LoadingRow(label: String) {
         CircularProgressIndicator(modifier = Modifier.width(28.dp).height(28.dp))
         Spacer(Modifier.width(12.dp))
         Text(label)
+    }
+}
+
+
+internal fun visibleSearchPage(firstVisibleListIndex: Int, index: SearchResultIndex): Int =
+    index.pageAt((firstVisibleListIndex - 2).coerceAtLeast(0))
+
+@Composable
+private fun BoxScope.SearchPageIndicator(listState: LazyGridState, index: SearchResultIndex, onClick: () -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    val page by remember(listState, index) { derivedStateOf { visibleSearchPage(listState.firstVisibleItemIndex, index) } }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) visible = true
+        else { delay(1200); visible = false }
+    }
+    AnimatedVisibility(visible = visible, enter = fadeIn(tween(120)), exit = fadeOut(tween(180)),
+        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 16.dp)) {
+        Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), tonalElevation = 4.dp,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.semantics { contentDescription = strings[R.string.ui_page_tap_to_jump, (page)] }) {
+            Text(strings[R.string.ui_pages, (page)], Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun SearchSortMenu(query: String, enabled: Boolean, onSelect: (Boolean) -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    var expanded by remember { mutableStateOf(false) }
+    val oldest = remember(query) { parseHitomiSearchOrder(query).oldest }
+    Box {
+        TextButton(onClick = { expanded = true }, enabled = enabled, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            ActionIcon(ActionSymbol.SORT); Spacer(Modifier.width(4.dp)); Text(strings[R.string.ui_sort])
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ChoiceMenuItem(strings[R.string.ui_newest_first], !oldest, onClick = { expanded = false; onSelect(false) }, enabled = enabled)
+            ChoiceMenuItem(strings[R.string.ui_oldest_first], oldest, onClick = { expanded = false; onSelect(true) }, enabled = enabled)
+        }
     }
 }

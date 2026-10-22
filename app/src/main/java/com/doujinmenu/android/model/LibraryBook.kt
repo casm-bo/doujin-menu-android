@@ -26,6 +26,7 @@ data class LibraryBook(
     val remoteBookId: Long? = null,
     val coverUriOverride: String? = null,
     val cloudToken: String? = null,
+    val webtoon: Boolean? = null,
 ) {
     val coverUri: String get() = coverUriOverride ?: pages.firstOrNull()?.uri.orEmpty()
 }
@@ -46,6 +47,7 @@ data class LibraryMetadata(
     val characters: List<String> = emptyList(),
     val tags: List<String> = emptyList(),
     val language: String? = null,
+    val publishedDate: String? = null,
 )
 
 data class CustomSeriesAssignment(
@@ -101,6 +103,7 @@ data class ViewerTapZones(
 }
 
 data class ViewerPreferences(
+    val readingMode: ViewerReadingMode = ViewerReadingMode.AUTO,
     val scale: ViewerScale = ViewerScale.FIT_SCREEN,
     val showPageNumber: Boolean = true,
     val hideThumbnails: Boolean = false,

@@ -1,5 +1,7 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import android.app.Application
 import android.os.Build
 import androidx.compose.runtime.getValue
@@ -13,7 +15,22 @@ import com.doujinmenu.android.data.SearchResultCache
 import com.doujinmenu.android.data.SearchResultIndex
 import com.doujinmenu.android.data.SearchResultPager
 import com.doujinmenu.android.data.SearchResultWindow
+import com.doujinmenu.android.model.RecentHistoryEntry
+import com.doujinmenu.android.model.HistorySource
+import com.doujinmenu.android.model.HistoryAction
+import com.doujinmenu.android.model.recordHistory
+import com.doujinmenu.android.model.findBook
+import com.doujinmenu.android.security.RecentHistoryStore
 import com.doujinmenu.android.model.SearchResult
+import com.doujinmenu.android.model.GalleryBorderKind
+import com.doujinmenu.android.model.GalleryBorders
+import com.doujinmenu.android.model.GalleryBorderStyle
+import com.doujinmenu.android.security.AppearancePreferenceStore
+import com.doujinmenu.android.model.SearchQueryEntry
+import com.doujinmenu.android.model.recordQuery
+import com.doujinmenu.android.model.combineLanguageSearchResults
+import com.doujinmenu.android.model.queriesWithPreferredLanguages
+import com.doujinmenu.android.model.isSearchPageInRange
 import com.doujinmenu.android.data.DownloadRequestStore
 import com.doujinmenu.android.data.DownloadTarget
 import com.doujinmenu.android.data.RequestStatus
@@ -27,6 +44,9 @@ import com.doujinmenu.android.model.DesktopProfile
 import com.doujinmenu.android.model.AppThemeMode
 import com.doujinmenu.android.model.DownloadQueueItem
 import com.doujinmenu.android.model.DownloadStatus
+import com.doujinmenu.android.model.ReaderPosition
+import com.doujinmenu.android.model.updatePreviewPosition
+import com.doujinmenu.android.model.updateReaderPosition
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserWorkspace
 import com.doujinmenu.android.model.GallerySummary
@@ -43,16 +63,36 @@ import com.doujinmenu.android.model.closeTab
 import com.doujinmenu.android.model.goBack
 import com.doujinmenu.android.model.moveTab
 import com.doujinmenu.android.model.normalizeSearchSeparators
+import com.doujinmenu.android.model.searchTokenStart
+import com.doujinmenu.android.model.applySearchSuggestion
+import com.doujinmenu.android.model.DownloadDestination
 import com.doujinmenu.android.model.openTab
 import com.doujinmenu.android.model.openGalleryInBackground
 import com.doujinmenu.android.model.BackgroundGalleryTab
+import com.doujinmenu.android.model.NewTabReturn
+import com.doujinmenu.android.model.NEW_TAB_RETURN_WINDOW_MS
+import com.doujinmenu.android.model.closeTabReturningTo
 import com.doujinmenu.android.model.pushPage
+import com.doujinmenu.android.model.continueLibraryReader
+import com.doujinmenu.android.model.openLibraryReader
+import com.doujinmenu.android.model.updateLibrarySeries
+import com.doujinmenu.android.model.renameSeriesPages
 import com.doujinmenu.android.model.selectTab
 import com.doujinmenu.android.model.selectSearchTab
 import com.doujinmenu.android.model.searchResultSessionIds
+import com.doujinmenu.android.model.updateLibraryScroll
+import com.doujinmenu.android.model.updateSearchScroll
 import com.doujinmenu.android.model.updateActiveSearch
 import com.doujinmenu.android.model.updateActiveLibraryHome
 import com.doujinmenu.android.network.CompanionClient
+import com.doujinmenu.android.data.PresentationStore
+import com.doujinmenu.android.data.PresentationCovers
+import com.doujinmenu.android.data.PresentationSync
+import com.doujinmenu.android.data.PresentationRecord
+import com.doujinmenu.android.model.GalleryPresentation
+import com.doujinmenu.android.model.presentationKey
+import com.doujinmenu.android.model.presentation
+import com.doujinmenu.android.model.withPresentation
 import com.doujinmenu.android.network.CompanionApiException
 import com.doujinmenu.android.network.downloadDefinitelyNotSubmitted
 import com.doujinmenu.android.network.BookStateSyncResult
@@ -62,6 +102,7 @@ import com.doujinmenu.android.network.SyncedBookState
 import com.doujinmenu.android.network.EndpointNormalizer
 import com.doujinmenu.android.network.FilterSuggestion
 import com.doujinmenu.android.network.HitomiSuggestionClient
+import com.doujinmenu.android.network.AvailableLanguage
 import com.doujinmenu.android.network.GitHubReleaseChecker
 import com.doujinmenu.android.network.SeriesSyncUpdate
 import com.doujinmenu.android.network.SeriesSyncResult
@@ -89,8 +130,30 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
+private data class PreparedLibraryRefresh(
+    val aliases: Map<String, String>,
+    val hiddenIds: Set<String>,
+    val favoriteIds: Set<String>,
+    val readIds: Set<String>,
+    val progress: Map<String, Int>,
+    val pendingBookStateIds: Set<String>,
+    val bookStateModifiedTimes: Map<String, Long>,
+    val pendingSeriesSyncIds: Set<String>,
+    val customSeries: Map<String, CustomSeriesAssignment>,
+    val seriesRemovalTimes: Map<String, Long>,
+    val localSeries: Map<String, CustomSeriesAssignment>,
+    val localSeriesRemovalTimes: Map<String, Long>,
+    val customTitles: Map<String, String>,
+    val favoriteSeriesNames: Set<String>,
+    val allBooks: List<LibraryBook>,
+)
+
 data class MainUiState(
+    val isStarting: Boolean = false,
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    val appStyle: com.doujinmenu.android.model.AppStyle = com.doujinmenu.android.model.AppStyle(),
+    val fontSizeSp: Float = com.doujinmenu.android.model.DEFAULT_FONT_SIZE_SP,
+    val galleryBorders: GalleryBorders = GalleryBorders(),
     val host: String = "",
     val port: String = EndpointNormalizer.DEFAULT_PORT.toString(),
     val pairingCode: String = "",
@@ -101,18 +164,30 @@ data class MainUiState(
     val galleryWorkspace: BrowserWorkspace = BrowserWorkspace.initial(BrowserPage.LibraryHome()),
     val tabOverviewIsGallery: Boolean? = null,
     val browserNavigationRevision: Long = 0,
+    val newTabNotice: Int = 0,
+    val newTabReturns: Map<String, NewTabReturn> = emptyMap(),
     val searchQuery: String = "",
     val favoriteName: String = "",
     val searchFavorites: List<SearchFavorite> = emptyList(),
+    val searchQueryHistory: List<SearchQueryEntry> = emptyList(),
     val preferredLanguages: Set<String> = emptySet(),
     val customLanguages: Set<String> = emptySet(),
+    val availableLanguages: List<AvailableLanguage> = emptyList(),
+    val isLoadingLanguages: Boolean = false,
+    val languageLoadError: String? = null,
     val filterSuggestions: List<FilterSuggestion> = emptyList(),
     val isLoadingFilterSuggestions: Boolean = false,
+    val libraryFilterSuggestions: List<FilterSuggestion> = emptyList(),
+    val isLoadingLibrarySuggestions: Boolean = false,
     val knownFilterTokens: Set<String> = emptySet(),
     val viewedGalleryIds: Set<Long> = emptySet(),
+    val recentHistory: List<RecentHistoryEntry> = emptyList(),
+    val historyRecording: Boolean = true,
     val libraryLocations: List<StorageLocation> = emptyList(),
     val desktopLibraryLocations: List<StorageLocation> = emptyList(),
     val libraryBooks: List<LibraryBook> = emptyList(),
+    val presentations: Map<String, PresentationRecord> = emptyMap(),
+    val presentationSyncError: String? = null,
     val libraryHiddenIds: Set<String> = emptySet(),
     val activeLibraryBook: LibraryBook? = null,
     val libraryFavoriteIds: Set<String> = emptySet(),
@@ -122,13 +197,15 @@ data class MainUiState(
     val onlineReaderProgress: Map<Long, Int> = emptyMap(),
     val customSeriesByBookId: Map<String, CustomSeriesAssignment> = emptyMap(),
     val libraryQuery: String = "",
+    val libraryQueryDraft: String = "",
+    val libraryQueryHistory: List<SearchQueryEntry> = emptyList(),
     val libraryFavoritesOnly: Boolean = false,
     val libraryReadFilter: LibraryReadFilter = LibraryReadFilter.ALL,
     val libraryVisibilityFilter: LibraryVisibilityFilter = LibraryVisibilityFilter.VISIBLE,
     val librarySort: LibrarySort = LibrarySort.NEWEST,
     val selectedLibraryLocationUris: Set<String>? = null,
     val librarySeriesMode: Boolean = false,
-    val selectedLibrarySeries: String? = null,
+    val libraryExcludeSeries: Boolean = false,
     val isAutoCreatingSeries: Boolean = false,
     val isLibraryScanning: Boolean = false,
     val isLibraryPullRefreshing: Boolean = false,
@@ -138,8 +215,15 @@ data class MainUiState(
     val librarySyncError: String? = null,
     val libraryScanError: String? = null,
     val isLibraryBookLoading: Boolean = false,
+    val seriesPreviewLoadingIds: Set<String> = emptySet(),
+    val seriesPreviewErrors: Map<String, String> = emptyMap(),
     val viewerPreferences: ViewerPreferences = ViewerPreferences(),
     val downloadLocation: StorageLocation? = null,
+    val downloadDestination: DownloadDestination = DownloadDestination.ASK,
+    val pendingDownloadGallery: GallerySummary? = null,
+    val downloadFolderRequired: Boolean = false,
+    val desktopDownloadConnectionPrompt: Boolean = false,
+    val settingsSectionRequest: String? = null,
     val desktopDownloadPath: String? = null,
     val submittedSearchQuery: String = "",
     val submittedSearchQueries: List<String> = emptyList(),
@@ -151,6 +235,7 @@ data class MainUiState(
     val currentPage: Int = 0,
     val hasNextPage: Boolean = false,
     val isLoadingPage: Boolean = false,
+    val searchJumpRevision: Int = 0,
     val isRestoringSearch: Boolean = false,
     val isRefreshing: Boolean = false,
     val readerPagesByGalleryId: Map<Long, List<String>> = emptyMap(),
@@ -175,6 +260,7 @@ data class MainUiState(
 enum class DesktopConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val strings get() = androidx.core.content.ContextCompat.getContextForLanguage(getApplication()).resources
     val tabPreviews = BrowserTabPreviewCache(application)
     private val requestStore = DownloadRequestStore.get(application)
     private val downloadSyncMutex = Mutex()
@@ -187,14 +273,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val updatePreferences = application.getSharedPreferences("updates", Application.MODE_PRIVATE)
     private val profileStore = SecureProfileStore(application)
     private val browserPreferenceStore = BrowserPreferenceStore(application)
+    private val appearancePreferenceStore = AppearancePreferenceStore(application)
     private val libraryPreferenceStore = LibraryPreferenceStore(application)
+    private val recentHistoryStore = RecentHistoryStore(application)
     private val libraryIdentityStore = LibraryIdentityStore(application)
+    private val presentationCovers = PresentationCovers(application)
+    private val presentationSyncMutex = Mutex()
+    private var presentationReloadRevision = 0L
+    private fun presentationStore(profileId: String? = uiState.selectedProfileId) = PresentationStore(libraryIdentityStore, profileId)
     private val libraryScanner = LibraryScanner(application, libraryIdentityStore)
     private val libraryArchiveExtractor = LibraryArchiveExtractor(application)
     private val libraryFileDeleter = LibraryFileDeleter(application)
     private val libraryUploadPreparer = LibraryUploadPreparer(application)
     private val suggestionCache = mutableMapOf<String, List<FilterSuggestion>>()
+    private var librarySuggestionIndex: Pair<List<LibraryBook>, List<String>>? = null
     private var suggestionJob: Job? = null
+    private var libraryQueryJob: Job? = null
+    private var downloadAfterFolder: GallerySummary? = null
     private var browserSearchJob: Job? = null
     private var searchWindowJob: Job? = null
     private var requestedSearchPages: IntRange = IntRange.EMPTY
@@ -203,8 +298,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var downloadRefreshJob: Job? = null
     private var librarySyncDebounceJob: Job? = null
     private var importantLibraryRefreshJob: Job? = null
-    private var reconnectLibraryRefreshJob: Job? = null
+    private var pendingRefreshIsReconnect = false
+    private var successfulDesktopRefreshes = 0L
     private var activeBookPreparationJob: Job? = null
+    private var libraryRefreshJob: Job? = null
+    private var libraryProfileGeneration = 0L
     private var hasEnteredForeground = false
     private var monitoredProfileId: String? = null
     private var wasDesktopConnected = false
@@ -218,38 +316,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val bookStateChangeMutex = Mutex()
     private val librarySyncFlushMutex = Mutex()
 
-    var uiState by mutableStateOf(MainUiState())
+    var uiState by mutableStateOf(MainUiState(isStarting = true,
+        themeMode = browserPreferenceStore.loadThemeMode(),
+        galleryBorders = appearancePreferenceStore.loadBorders(),
+        fontSizeSp = appearancePreferenceStore.loadFontSize(),
+        appStyle = appearancePreferenceStore.loadStyle()))
         private set
     private var navigationPage: BrowserPage = BrowserPage.Search()
 
-    init {
+    private fun readInitialState(): Pair<MainUiState, BrowserPage> {
         val profiles = profileStore.load()
         val savedLanguages = browserPreferenceStore.loadPreferredLanguages()
         val loadedWorkspace = browserPreferenceStore.loadBrowserWorkspace()
         val galleryWorkspace = browserPreferenceStore.loadGalleryWorkspace()
         val loadedSearch = loadedWorkspace.activeTab.currentPage as? BrowserPage.Search
-        val activeLanguages = loadedSearch?.preferredLanguages?.takeIf { it.isNotEmpty() }
-            ?: savedLanguages
+        val activeLanguages = if (loadedSearch != null && (loadedSearch.currentPage > 0 || loadedSearch.resultSessionId != null))
+            loadedSearch.preferredLanguages else loadedSearch?.preferredLanguages?.takeIf { it.isNotEmpty() } ?: savedLanguages
         val browserWorkspace = loadedWorkspace.updateActiveSearch { search ->
-            if (search.preferredLanguages.isEmpty()) search.copy(preferredLanguages = activeLanguages) else search
+            search.copy(query = if (search.submittedQueries.isNotEmpty()) search.submittedQuery else search.query,
+                preferredLanguages = if (search.preferredLanguages.isEmpty()) activeLanguages else search.preferredLanguages)
         }
         val activeSearch = browserWorkspace.activeTab.currentPage as? BrowserPage.Search
-        uiState = uiState.copy(
+        val initial = uiState.copy(
+            isStarting = false,
             themeMode = browserPreferenceStore.loadThemeMode(),
+            galleryBorders = appearancePreferenceStore.loadBorders(),
+            fontSizeSp = appearancePreferenceStore.loadFontSize(),
+            appStyle = appearancePreferenceStore.loadStyle(),
             profiles = profiles,
             selectedProfileId = profiles.firstOrNull()?.id,
             browserWorkspace = browserWorkspace,
             galleryWorkspace = galleryWorkspace,
+            libraryQuery = (galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query.orEmpty(),
+            libraryQueryDraft = (galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query.orEmpty(),
+            libraryQueryHistory = browserPreferenceStore.loadSearchQueryHistory("library_query_history"),
             searchQuery = activeSearch?.query.orEmpty(),
             submittedSearchQuery = activeSearch?.submittedQuery.orEmpty(),
             submittedSearchQueries = activeSearch?.submittedQueries.orEmpty(),
             currentPage = activeSearch?.currentPage ?: 0,
             hasNextPage = activeSearch?.hasNextPage == true,
             searchFavorites = browserPreferenceStore.loadFavorites(),
+            searchQueryHistory = browserPreferenceStore.loadSearchQueryHistory(),
             preferredLanguages = activeLanguages,
             customLanguages = browserPreferenceStore.loadCustomLanguages(),
             knownFilterTokens = browserPreferenceStore.loadKnownFilterTokens(),
             viewedGalleryIds = browserPreferenceStore.loadViewedGalleryIds(),
+            recentHistory = recentHistoryStore.load(),
+            historyRecording = recentHistoryStore.isRecording(),
             libraryLocations = browserPreferenceStore.loadLibraryLocations(),
             libraryFavoriteIds = libraryPreferenceStore.loadFavoriteIds(),
             libraryHiddenIds = libraryPreferenceStore.loadHiddenIds(),
@@ -262,25 +375,142 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             librarySyncPendingCount = pendingLibrarySyncCount(),
             viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
+            downloadDestination = browserPreferenceStore.loadDownloadDestination(),
         )
+        val page = if (browserPreferenceStore.loadActiveGalleryWorkspace()) galleryWorkspace.activeTab.currentPage
+            else browserWorkspace.activeTab.currentPage
+        return initial to page
+    }
+
+    init {
         viewModelScope.launch {
-            requestStore.requests.collect { requests ->
-                val completed = requests.any { request -> request.status == RequestStatus.COMPLETED &&
-                    uiState.downloadRequests.none { it.id == request.id && it.status == RequestStatus.COMPLETED } }
-                uiState = uiState.copy(downloadRequests = requests)
-                if (completed) requestImportantLibraryRefresh()
+            val (initial, page) = withContext(Dispatchers.IO) { readInitialState() }
+            uiState = initial
+            navigationPage = page
+            viewModelScope.launch { runOperation { reloadPresentations() } }
+            viewModelScope.launch {
+                requestStore.requests.collect { requests ->
+                    val completed = requests.any { request -> request.status == RequestStatus.COMPLETED &&
+                        uiState.downloadRequests.none { it.id == request.id && it.status == RequestStatus.COMPLETED } }
+                    uiState = uiState.copy(downloadRequests = requests)
+                    if (completed) requestImportantLibraryRefresh()
+                }
             }
+            requestStore.readError?.let { uiState = uiState.copy(downloadQueueError = it) }
+            val activeSearch = initial.browserWorkspace.activeTab.currentPage as? BrowserPage.Search
+            if (activeSearch?.resultIds.isNullOrEmpty() && (activeSearch?.currentPage ?: 0) > 0) {
+                restoreBrowserSearch()
+            }
+            refreshLibrarySilently()
+            checkForUpdates(manual = false)
         }
-        requestStore.readError?.let { uiState = uiState.copy(downloadQueueError = it) }
-        navigationPage = browserWorkspace.activeTab.currentPage
-        if (activeSearch?.resultIds.isNullOrEmpty() && (activeSearch?.currentPage ?: 0) > 0) {
-            restoreBrowserSearch()
-        }
-        refreshLibrarySilently()
-        checkForUpdates(manual = false)
     }
 
     fun setHost(value: String) = update { copy(host = value) }
+
+    private fun coverUri(value: GalleryPresentation?): String? = value?.coverHash?.let { hash ->
+        presentationCovers.file(hash).takeIf { it.isFile }?.toURI()?.toString()
+    }
+    private fun presentedBook(book: LibraryBook): LibraryBook {
+        return presentedBook(book, uiState.presentations)
+    }
+    private fun presentedBook(book: LibraryBook, presentations: Map<String, com.doujinmenu.android.data.PresentationRecord>): LibraryBook {
+        val key = runCatching { book.presentationKey() }.getOrNull() ?: return book
+        val value = presentations[key]?.value
+        return book.withPresentation(value, coverUri(value))
+    }
+    private fun presentedGallery(gallery: GallerySummary): GallerySummary {
+        val value = uiState.presentations["hitomi:${gallery.id}"]?.value
+        return gallery.withPresentation(value, coverUri(value))
+    }
+    private suspend fun reloadPresentations() {
+        val profileId = uiState.selectedProfileId
+        val generation = libraryProfileGeneration
+        val revision = ++presentationReloadRevision
+        val values = withContext(Dispatchers.IO) { presentationStore(profileId).all().associateBy { it.value.key } }
+        fun current() = revision == presentationReloadRevision && generation == libraryProfileGeneration && profileId == uiState.selectedProfileId
+        while (current()) {
+            val base = uiState
+            val prepared = withContext(Dispatchers.Default) {
+                if (values == base.presentations) return@withContext null
+                fun book(value: LibraryBook) = presentedBook(value, values).let { if (it == value) value else it }
+                fun gallery(value: GallerySummary): GallerySummary {
+                    val presentation = values["hitomi:${value.id}"]?.value
+                    return value.withPresentation(presentation, coverUri(presentation)).let { if (it == value) value else it }
+                }
+                base.copy(presentations = values, libraryBooks = base.libraryBooks.map(::book),
+                    activeLibraryBook = base.activeLibraryBook?.let(::book), galleries = base.galleries.map(::gallery),
+                    activeGallery = base.activeGallery?.let(::gallery), galleryCache = base.galleryCache.mapValues { gallery(it.value) },
+                    librarySyncPendingCount = distinctPendingSyncCount(libraryPreferenceStore.loadPendingSeriesSyncIds(),
+                        libraryPreferenceStore.loadPendingBookStateSyncIds(), base.libraryBooks) + values.values.count { it.dirty })
+            } ?: return
+            if (!current()) return
+            val latest = uiState
+            if (base.libraryBooks !== latest.libraryBooks || base.activeLibraryBook !== latest.activeLibraryBook ||
+                base.galleries !== latest.galleries || base.activeGallery !== latest.activeGallery || base.galleryCache !== latest.galleryCache) continue
+            uiState = latest.copy(presentations = values, libraryBooks = prepared.libraryBooks, activeLibraryBook = prepared.activeLibraryBook,
+                galleries = prepared.galleries, activeGallery = prepared.activeGallery, galleryCache = prepared.galleryCache,
+                librarySyncPendingCount = prepared.librarySyncPendingCount)
+            return
+        }
+    }
+
+    fun saveGalleryPresentation(value: GalleryPresentation, resolveConflict: Boolean = false) {
+        val profileId = uiState.selectedProfileId
+        viewModelScope.launch {
+            runOperation {
+                withContext(Dispatchers.IO) { presentationStore(profileId).saveLocal(value, resolveConflict) }
+                if (uiState.selectedProfileId == profileId) { reloadPresentations(); scheduleLibrarySync() }
+            }
+        }
+    }
+    fun classifyGallery(id: Long, mode: com.doujinmenu.android.model.ViewerReadingMode) {
+        uiState.galleryCache[id]?.presentation()?.let { recordReadingMode(it, mode) }
+    }
+    fun classifyLibraryBook(id: String, mode: com.doujinmenu.android.model.ViewerReadingMode) {
+        uiState.libraryBooks.firstOrNull { it.id == id }?.let { book -> runCatching { book.presentation() }.getOrNull()?.let { recordReadingMode(it, mode) } }
+    }
+    private fun recordReadingMode(value: GalleryPresentation, mode: com.doujinmenu.android.model.ViewerReadingMode) {
+        if (mode == com.doujinmenu.android.model.ViewerReadingMode.AUTO) return
+        val latest = uiState.presentations[value.key]?.value ?: value
+        val webtoon = mode == com.doujinmenu.android.model.ViewerReadingMode.WEBTOON
+        if (latest.webtoon == webtoon || (latest.webtoon == null && !webtoon)) return
+        saveGalleryPresentation(latest.copy(webtoon = webtoon))
+    }
+    fun acceptRemotePresentation(key: String) {
+        val profileId = uiState.selectedProfileId
+        viewModelScope.launch { runOperation {
+            withContext(Dispatchers.IO) { presentationStore(profileId).acceptRemote(key) }
+            if (profileId == uiState.selectedProfileId) reloadPresentations()
+        } }
+    }
+    fun changePresentationCover(value: GalleryPresentation, source: com.doujinmenu.android.model.ReaderImageSource) {
+        val profileId = uiState.selectedProfileId
+        viewModelScope.launch {
+            runOperation {
+                val hash = presentationCovers.import(source)
+                withContext(Dispatchers.IO) {
+                    val store = presentationStore(profileId)
+                    val latest = store.get(value.key)?.value ?: value
+                    store.saveLocal(latest.copy(coverHash = hash))
+                }
+                if (uiState.selectedProfileId == profileId) { reloadPresentations(); scheduleLibrarySync() }
+            }
+        }
+    }
+    private suspend fun syncPresentations(profile: DesktopProfile) = presentationSyncMutex.withLock {
+        try {
+            withContext(Dispatchers.IO) { PresentationSync(client, presentationStore(profile.id), presentationCovers).sync(profile) }
+            if (uiState.selectedProfileId == profile.id) uiState = uiState.copy(presentationSyncError = null)
+        } catch (error: CancellationException) { throw error }
+        catch (error: Exception) {
+            if (uiState.selectedProfileId == profile.id) {
+                val hasEdits = withContext(Dispatchers.IO) { presentationStore(profile.id).all().any { it.dirty } }
+                uiState = uiState.copy(presentationSyncError = if (hasEdits) error.message else null)
+            }
+        }
+        if (uiState.selectedProfileId == profile.id) reloadPresentations()
+    }
     fun setPort(value: String) = update { copy(port = value.filter(Char::isDigit).take(5)) }
     fun setPairingCode(value: String) = update {
         copy(pairingCode = value.filter(Char::isDigit).take(PAIRING_CODE_LENGTH))
@@ -290,30 +520,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         browserPreferenceStore.saveThemeMode(value)
         uiState = uiState.copy(themeMode = value)
     }
+
+    fun setAppStyle(style: com.doujinmenu.android.model.AppStyle) {
+        appearancePreferenceStore.saveStyle(style)
+        uiState = uiState.copy(appStyle = style)
+    }
+
+    fun setFontSize(size: Float) {
+        if (com.doujinmenu.android.model.parseAppFontSize(size.toString()) == null) return
+        appearancePreferenceStore.saveFontSize(size)
+        uiState = uiState.copy(fontSizeSp = size)
+    }
+
+    fun setGalleryBorder(kind: GalleryBorderKind, style: GalleryBorderStyle) {
+        appearancePreferenceStore.saveBorder(kind, style)
+        val borders = uiState.galleryBorders
+        uiState = uiState.copy(galleryBorders = when (kind) {
+            GalleryBorderKind.NORMAL -> borders.copy(normal = style)
+            GalleryBorderKind.SERIES -> borders.copy(series = style)
+            GalleryBorderKind.FAVORITE -> borders.copy(favorite = style)
+        })
+    }
     fun setSearchQuery(value: String) {
         update { copy(searchQuery = value) }
-        syncActiveSearch()
         refreshFilterSuggestions(value)
     }
 
     fun selectFilterSuggestion(suggestion: FilterSuggestion) {
-        val query = uiState.searchQuery
-        val tokenStart = query.indexOfLast { it.isWhitespace() }.let { if (it < 0) 0 else it + 1 }
-        val negative = query.substring(tokenStart).startsWith("-")
-        val replacement = (if (negative) "-" else "") + suggestion.token
-        uiState = uiState.copy(
-            searchQuery = query.substring(0, tokenStart) + replacement + " ",
-            filterSuggestions = emptyList(),
-            isLoadingFilterSuggestions = false,
-        )
-        syncActiveSearch()
+        setSearchQuery(applySearchSuggestion(uiState.searchQuery, suggestion.token))
+    }
+    fun selectLibrarySuggestion(suggestion: FilterSuggestion) {
+        setLibraryQuery(applySearchSuggestion(uiState.libraryQueryDraft, suggestion.token))
     }
     fun setFavoriteName(value: String) = update { copy(favoriteName = value) }
 
     fun saveSearchFavorite() {
         val query = uiState.searchQuery.trim()
         if (query.isEmpty()) {
-            uiState = uiState.copy(message = "저장할 검색 조건을 입력하세요.", isError = true)
+            uiState = uiState.copy(message = strings[R.string.msg_enter_search_conditions_to_save], isError = true)
             return
         }
         val favorite = SearchFavorite(
@@ -326,7 +570,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(
             favoriteName = "",
             searchFavorites = favorites,
-            message = "검색 조건을 즐겨찾기에 저장했습니다.",
+            message = strings[R.string.msg_saved_search_conditions_to_favorites],
             isError = false,
         )
     }
@@ -343,27 +587,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         search()
     }
 
+    fun loadAvailableLanguages() {
+        if (uiState.isLoadingLanguages || uiState.availableLanguages.isNotEmpty()) return
+        uiState = uiState.copy(isLoadingLanguages = true, languageLoadError = null)
+        viewModelScope.launch {
+            try {
+                val languages = suggestionClient.getAvailableLanguages()
+                uiState = uiState.copy(availableLanguages = languages)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                uiState = uiState.copy(languageLoadError = strings[R.string.msg_could_not_load_languages_check_your_connection_and_ret])
+            } finally {
+                uiState = uiState.copy(isLoadingLanguages = false)
+            }
+        }
+    }
+
     fun togglePreferredLanguage(language: String) {
         val normalized = language.trim().lowercase()
         if (normalized.isEmpty()) return
         val languages = uiState.preferredLanguages.toMutableSet().apply {
             if (!add(normalized)) remove(normalized)
         }
-        browserPreferenceStore.savePreferredLanguages(languages)
         uiState = uiState.copy(preferredLanguages = languages)
-        syncActiveSearch(persist = true)
     }
 
-    fun addCustomLanguage(language: String) {
-        val normalized = language.substringAfter(':').trim().lowercase()
-            .replace(Regex("\\s+"), "_")
-        if (normalized.isEmpty()) return
-        val custom = uiState.customLanguages + normalized
-        val selected = uiState.preferredLanguages + normalized
-        browserPreferenceStore.saveCustomLanguages(custom)
-        browserPreferenceStore.savePreferredLanguages(selected)
-        uiState = uiState.copy(customLanguages = custom, preferredLanguages = selected)
-        syncActiveSearch(persist = true)
+    fun selectAnyLanguage() {
+        uiState = uiState.copy(preferredLanguages = emptySet())
     }
 
     fun removeCustomLanguage(language: String) {
@@ -371,9 +622,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val custom = uiState.customLanguages - normalized
         val selected = uiState.preferredLanguages - normalized
         browserPreferenceStore.saveCustomLanguages(custom)
-        browserPreferenceStore.savePreferredLanguages(selected)
         uiState = uiState.copy(customLanguages = custom, preferredLanguages = selected)
-        syncActiveSearch(persist = true)
     }
 
     fun searchFromLanguage(language: String) {
@@ -401,8 +650,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val status = client.getStatus(baseUrl)
                 notifyOnDownloadReconnect = false
                 uiState = uiState.copy(
-                    message = "연결 성공: ${status.service} API v${status.version}" +
-                        if (status.pairingAvailable) " · 페어링 가능" else " · 페어링 코드 없음",
+                    message = strings[R.string.msg_connected_api_v, (status.service), (status.version)] +
+                        if (status.pairingAvailable) strings[R.string.msg_pairing_available] else strings[R.string.msg_no_pairing_code],
                     desktopConnectionState = DesktopConnectionState.CONNECTED,
                     isError = false,
                 )
@@ -414,13 +663,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runOperation {
                 val code = uiState.pairingCode
-                require(code.length == PAIRING_CODE_LENGTH) { "6자리 페어링 코드를 입력하세요." }
+                require(code.length == PAIRING_CODE_LENGTH) { strings[R.string.msg_enter_the_6_digit_pairing_code] }
                 val profileName = uiState.deviceName.trim()
-                require(profileName.isNotEmpty()) { "앱에서 표시할 연결 이름을 입력하세요." }
+                require(profileName.isNotEmpty()) { strings[R.string.msg_enter_a_display_name_for_this_connection] }
                 val phoneDeviceName = Build.MODEL.orEmpty().ifBlank { "Android device" }
                 val baseUrl = EndpointNormalizer.normalize(uiState.host, uiState.port)
                 val status = client.getStatus(baseUrl)
-                require(status.pairingAvailable) { "데스크톱에서 새 페어링 코드를 먼저 생성하세요." }
+                require(status.pairingAvailable) { strings[R.string.msg_generate_a_new_pairing_code_on_desktop_first] }
 
                 val result = client.pair(baseUrl, code, phoneDeviceName)
                 notifyOnDownloadReconnect = false
@@ -438,29 +687,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     pairingCode = "",
                     isDownloadConnectionUnavailable = false,
                     desktopConnectionState = DesktopConnectionState.CONNECTED,
-                    message = "${profile.name} 페어링 완료 · 토큰을 Keystore로 보호해 저장했습니다.",
+                    message = strings[R.string.msg_paired_with_credential_saved_securely, (profile.name)],
                     isError = false,
                 )
-                refreshLibrarySilently()
+                reloadProfileLibrary()
             }
         }
     }
 
     fun selectProfile(id: String) {
         val profile = uiState.profiles.firstOrNull { it.id == id } ?: return
+        if (uiState.selectedProfileId == id) return
         uiState = uiState.copy(
             selectedProfileId = id,
-            message = "${profile.name} 선택됨",
+            message = strings[R.string.msg_selected, (profile.name)],
             isError = false,
             downloadQueue = emptyList(),
             downloadQueueError = null,
             isDownloadConnectionUnavailable = false,
             desktopConnectionState = DesktopConnectionState.CONNECTING,
         )
-        refreshLibrarySilently()
+        reloadProfileLibrary()
+        restoreBrowserSearch()
     }
 
     fun removeProfile(id: String) {
+        val changed = uiState.selectedProfileId == id
         val profiles = uiState.profiles.filterNot { it.id == id }
         profileStore.save(profiles)
         uiState = uiState.copy(
@@ -475,9 +727,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 DesktopConnectionState.CONNECTING
             },
-            message = "저장된 데스크톱을 삭제했습니다.",
+            message = strings[R.string.msg_removed_saved_desktop],
             isError = false,
         )
+        if (changed) reloadProfileLibrary()
+    }
+
+    private fun reloadProfileLibrary() {
+        libraryProfileGeneration++
+        librarySuggestionIndex = null
+        importantLibraryRefreshJob?.cancel()
+        libraryRefreshJob?.cancel()
+        activeBookPreparationJob?.cancel()
+        uiState = uiState.copy(libraryBooks = emptyList(), activeLibraryBook = null, isLibraryScanning = false,
+            isLibraryBookLoading = false, isLibraryPullRefreshing = false, desktopLibraryLocations = emptyList(),
+            desktopDownloadPath = null, galleryCache = emptyMap(), galleries = emptyList(), activeGallery = null,
+            seriesPreviewLoadingIds = emptySet(), seriesPreviewErrors = emptyMap(), presentations = emptyMap(), presentationSyncError = null)
+        viewModelScope.launch { runOperation { reloadPresentations() } }
+        refreshLibrarySilently()
     }
 
     fun search() {
@@ -485,10 +752,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startBrowserSearch(reset = true)
     }
 
+    fun repeatSearch(entry: SearchQueryEntry) {
+        if (uiState.isLoadingPage) return
+        uiState = uiState.copy(searchQuery = entry.query, preferredLanguages = entry.languages)
+        browserPreferenceStore.savePreferredLanguages(entry.languages)
+        search()
+    }
+
+    fun clearSearchQueryHistory() {
+        browserPreferenceStore.saveSearchQueryHistory(emptyList())
+        uiState = uiState.copy(searchQueryHistory = emptyList())
+    }
+
     fun openGalleryBackgroundTab(galleryId: Long): BackgroundGalleryTab? {
+        libraryBookIdForGallery(galleryId)?.let { bookId ->
+            val book = uiState.libraryBooks.first { it.id == bookId }
+            val workspace = uiState.galleryWorkspace
+            workspace.tabs.firstOrNull { it.groupId == workspace.activeTab.groupId &&
+                (it.currentPage as? BrowserPage.LibraryBook)?.bookId == bookId }?.let {
+                return BackgroundGalleryTab(workspace, it.id, alreadyOpen = true, galleryWorkspace = true)
+            }
+            val next = workspace.openTab(BrowserPage.LibraryBook(bookId, book.title), activate = false)
+            val tabId = next.tabs.last().id.takeIf { next != workspace }
+            if (tabId != null) rememberNewTab(tabId, true, uiState.browserWorkspace.activeTabId, false, activate = false)
+            uiState = uiState.copy(galleryWorkspace = next)
+            browserPreferenceStore.saveGalleryWorkspace(next)
+            return BackgroundGalleryTab(next, tabId, galleryWorkspace = true)
+        }
         val gallery = uiState.galleryCache[galleryId]
             ?: uiState.galleries.firstOrNull { it.id == galleryId } ?: return null
         val result = uiState.browserWorkspace.openGalleryInBackground(galleryId, gallery.title)
+        if (!result.alreadyOpen && result.tabId != null) rememberNewTab(
+            result.tabId, false, uiState.browserWorkspace.activeTabId, false, activate = false)
         if (result.workspace != uiState.browserWorkspace) {
             // Do not navigate or cancel the active search when adding a background tab.
             uiState = uiState.copy(browserWorkspace = result.workspace)
@@ -505,7 +800,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             BrowserPage.OnlineGallery(galleryId, gallery.title),
         )
         uiState = uiState.copy(
-            activeGallery = gallery,
+            activeGallery = presentedGallery(gallery),
             galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)),
         )
         applyBrowserWorkspace(workspace)
@@ -535,7 +830,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openLibraryReaderTab(bookId: String, startPage: Int) {
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
         applyGalleryWorkspace(
-            uiState.galleryWorkspace.pushPage(BrowserPage.LibraryReader(
+            uiState.galleryWorkspace.openLibraryReader(BrowserPage.LibraryReader(
                 bookId = bookId,
                 title = book.title,
                 startPage = startPage.coerceAtLeast(0),
@@ -544,29 +839,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openNextLibraryReaderTab(bookId: String) {
+        val workspace = uiState.galleryWorkspace
+        val current = workspace.activeTab.currentPage as? BrowserPage.LibraryReader ?: return
+        if (current.bookId == bookId) return
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
         openLibraryBook(bookId)
-        val workspace = uiState.galleryWorkspace
-            .pushPage(BrowserPage.LibraryBook(bookId, book.title))
-            .pushPage(BrowserPage.LibraryReader(bookId, book.title, 0))
-        applyGalleryWorkspace(workspace)
+        applyGalleryWorkspace(workspace.continueLibraryReader(BrowserPage.LibraryReader(bookId, book.title, 0)))
     }
 
-    fun activeBrowserPage(): BrowserPage = navigationPage
+    fun initialMainDestination(): String = browserPreferenceStore.loadMainDestination()
+    fun rememberMainDestination(route: String) = browserPreferenceStore.saveMainDestination(route)
+    fun activateMainWorkspace(route: String) {
+        if (route == "browser" || route == "library") {
+            val gallery = route == "library"
+            navigationPage = (if (gallery) uiState.galleryWorkspace else uiState.browserWorkspace).activeTab.currentPage
+            browserPreferenceStore.saveActiveGalleryWorkspace(gallery)
+        }
+    }
+
+    fun activeBrowserPage(): BrowserPage =
+        (uiState.browserWorkspace.tabs + uiState.galleryWorkspace.tabs).asSequence()
+            .flatMap { it.history.asSequence() }.firstOrNull { it.key == navigationPage.key } ?: navigationPage
+
+    fun updatePreviewScroll(pageKey: String, position: ReaderPosition) {
+        val browser = uiState.browserWorkspace.updatePreviewPosition(pageKey, position)
+        val gallery = uiState.galleryWorkspace.updatePreviewPosition(pageKey, position)
+        if (browser != uiState.browserWorkspace) browserPreferenceStore.saveBrowserWorkspace(browser)
+        if (gallery != uiState.galleryWorkspace) browserPreferenceStore.saveGalleryWorkspace(gallery)
+        if (browser != uiState.browserWorkspace || gallery != uiState.galleryWorkspace) {
+            uiState = uiState.copy(browserWorkspace = browser, galleryWorkspace = gallery)
+        }
+    }
+
+    fun updateReaderSession(pageKey: String, page: Int, offset: Int = 0) {
+        val position = ReaderPosition(page.coerceAtLeast(0), offset.coerceAtLeast(0))
+        val browser = uiState.browserWorkspace.updateReaderPosition(pageKey, position)
+        val gallery = uiState.galleryWorkspace.updateReaderPosition(pageKey, position)
+        if (browser != uiState.browserWorkspace) browserPreferenceStore.saveBrowserWorkspace(browser)
+        if (gallery != uiState.galleryWorkspace) browserPreferenceStore.saveGalleryWorkspace(gallery)
+        if (browser != uiState.browserWorkspace || gallery != uiState.galleryWorkspace) {
+            uiState = uiState.copy(browserWorkspace = browser, galleryWorkspace = gallery)
+        }
+    }
 
     fun newBrowserTab() {
+        val workspace = uiState.browserWorkspace.openTab(BrowserPage.Search(preferredLanguages = uiState.preferredLanguages))
+        rememberNewTab(workspace.activeTabId, false, uiState.browserWorkspace.activeTabId, false)
         applyBrowserWorkspace(
-            uiState.browserWorkspace.openTab(BrowserPage.Search(
-                preferredLanguages = uiState.preferredLanguages,
-            )),
+            workspace,
         )
     }
 
     fun selectBrowserTab(tabId: String) {
+        activateNewTab(tabId)
         applyBrowserWorkspace(uiState.browserWorkspace.selectTab(tabId), reload = true)
     }
 
     fun closeBrowserTab(tabId: String) {
+        uiState = uiState.copy(newTabReturns = uiState.newTabReturns - tabId)
         val current = uiState.browserWorkspace
         val closingActiveTab = tabId == current.activeTabId
         val workspace = current.closeTab(tabId, BrowserPage.Search(
@@ -587,25 +917,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         browserPreferenceStore.saveBrowserWorkspace(workspace)
     }
 
-    fun canGoBackInBrowserTab(): Boolean = uiState.browserWorkspace.activeTab.canGoBack
+    fun canGoBackInBrowserTab(): Boolean = canReturnFromNewTab(false) || uiState.browserWorkspace.activeTab.canGoBack
 
     fun goBackInBrowserTab(): Boolean {
+        if (returnFromNewTab(false)) return true
         if (!canGoBackInBrowserTab()) return false
         applyBrowserWorkspace(uiState.browserWorkspace.goBack(), reload = true)
         return true
     }
 
     fun newGalleryTab() {
+        val workspace = uiState.galleryWorkspace.openTab(BrowserPage.LibraryHome())
+        rememberNewTab(workspace.activeTabId, true, uiState.galleryWorkspace.activeTabId, true)
         applyGalleryWorkspace(
-            uiState.galleryWorkspace.openTab(BrowserPage.LibraryHome()),
+            workspace,
         )
     }
 
     fun selectGalleryTab(tabId: String) {
+        activateNewTab(tabId)
         applyGalleryWorkspace(uiState.galleryWorkspace.selectTab(tabId))
     }
 
     fun closeGalleryTab(tabId: String) {
+        uiState = uiState.copy(newTabReturns = uiState.newTabReturns - tabId)
         val current = uiState.galleryWorkspace
         val closingActiveTab = tabId == current.activeTabId
         val workspace = current.closeTab(tabId, BrowserPage.LibraryHome())
@@ -626,7 +961,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateTabWorkspace(workspace: BrowserWorkspace, isGallery: Boolean) {
         val previous = if (isGallery) uiState.galleryWorkspace else uiState.browserWorkspace
         if (workspace == previous) return
+        val validIds = (workspace.tabs + (if (isGallery) uiState.browserWorkspace else uiState.galleryWorkspace).tabs).mapTo(hashSetOf()) { it.id }
+        uiState = uiState.copy(newTabReturns = uiState.newTabReturns.filterKeys { it in validIds })
         if (workspace.activeTabId != previous.activeTabId) {
+            activateNewTab(workspace.activeTabId)
             if (isGallery) applyGalleryWorkspace(workspace) else applyBrowserWorkspace(workspace, reload = true)
         } else if (isGallery) {
             uiState = uiState.copy(galleryWorkspace = workspace)
@@ -646,46 +984,99 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(tabOverviewIsGallery = null)
     }
 
-    fun canGoBackInGalleryTab(): Boolean = uiState.galleryWorkspace.activeTab.canGoBack
+    fun canGoBackInGalleryTab(): Boolean = canReturnFromNewTab(true) || uiState.galleryWorkspace.activeTab.canGoBack
 
     fun goBackInGalleryTab(): Boolean {
+        if (returnFromNewTab(true)) return true
         if (!canGoBackInGalleryTab()) return false
         applyGalleryWorkspace(uiState.galleryWorkspace.goBack())
         return true
     }
 
-    fun updateBrowserScroll(anchorKey: String?, index: Int, offset: Int) {
-        val workspace = uiState.browserWorkspace.updateActiveSearch { search ->
-            search.copy(
-                scrollAnchorKey = anchorKey,
-                scrollIndex = index.coerceAtLeast(0),
-                scrollOffset = offset.coerceAtLeast(0),
-            )
-        }
-        if (workspace != uiState.browserWorkspace) {
-            uiState = uiState.copy(browserWorkspace = workspace)
+    private fun rememberNewTab(tabId: String, isGallery: Boolean, originTabId: String, originIsGallery: Boolean, activate: Boolean = true) {
+        val entry = NewTabReturn(tabId, isGallery, originTabId, originIsGallery)
+        uiState = uiState.copy(newTabReturns = uiState.newTabReturns + (tabId to entry),
+            newTabNotice = uiState.newTabNotice + if (activate) 1 else 0)
+        if (activate) activateNewTab(tabId)
+    }
+
+    private fun activateNewTab(tabId: String) {
+        val entry = uiState.newTabReturns[tabId]?.takeIf { it.openedAtMillis == null } ?: return
+        val opened = entry.copy(openedAtMillis = android.os.SystemClock.elapsedRealtime())
+        uiState = uiState.copy(newTabReturns = uiState.newTabReturns + (tabId to opened))
+        viewModelScope.launch {
+            delay(NEW_TAB_RETURN_WINDOW_MS)
+            if (uiState.newTabReturns[tabId] == opened) uiState = uiState.copy(newTabReturns = uiState.newTabReturns - tabId)
         }
     }
 
-    fun updateGalleryScroll(anchorKey: String?, index: Int, offset: Int) {
-        val workspace = uiState.galleryWorkspace.updateActiveLibraryHome { page ->
-            page.copy(
-                scrollAnchorKey = anchorKey,
-                scrollIndex = index.coerceAtLeast(0),
-                scrollOffset = offset.coerceAtLeast(0),
-            )
+    fun canReturnFromNewTab(isGallery: Boolean): Boolean {
+        val workspace = if (isGallery) uiState.galleryWorkspace else uiState.browserWorkspace
+        val entry = uiState.newTabReturns[workspace.activeTabId] ?: return false
+        return entry.isGallery == isGallery && entry.isAvailable(android.os.SystemClock.elapsedRealtime())
+    }
+
+    private fun returnFromNewTab(isGallery: Boolean): Boolean {
+        if (!canReturnFromNewTab(isGallery)) return false
+        val previous = if (isGallery) uiState.galleryWorkspace else uiState.browserWorkspace
+        val entry = uiState.newTabReturns.getValue(previous.activeTabId)
+        val closed = previous.closeTabReturningTo(entry.tabId, entry.originTabId,
+            if (isGallery) BrowserPage.LibraryHome() else BrowserPage.Search(preferredLanguages = uiState.preferredLanguages))
+        uiState = uiState.copy(newTabReturns = uiState.newTabReturns - entry.tabId)
+        if (entry.originIsGallery == isGallery) {
+            if (isGallery) applyGalleryWorkspace(closed) else applyBrowserWorkspace(closed, reload = true)
+        } else {
+            if (isGallery) {
+                uiState = uiState.copy(galleryWorkspace = closed)
+                browserPreferenceStore.saveGalleryWorkspace(closed)
+                applyBrowserWorkspace(uiState.browserWorkspace.selectTab(entry.originTabId), reload = true)
+            } else {
+                uiState = uiState.copy(browserWorkspace = closed)
+                browserPreferenceStore.saveBrowserWorkspace(closed)
+                removeClosedSearchSessions(previous, closed)
+                applyGalleryWorkspace(uiState.galleryWorkspace.selectTab(entry.originTabId))
+            }
         }
+        return true
+    }
+
+    fun updateBrowserScroll(pageKey: String, sessionId: String?, anchorKey: String?, index: Int, offset: Int, scrollPage: Int) {
+        val workspace = uiState.browserWorkspace.updateSearchScroll(pageKey, sessionId, anchorKey, index, offset, scrollPage)
+        if (workspace != uiState.browserWorkspace) {
+            uiState = uiState.copy(browserWorkspace = workspace)
+            browserPreferenceStore.saveBrowserWorkspace(workspace)
+        }
+    }
+
+    fun updateGalleryScroll(pageKey: String, anchorKey: String?, index: Int, offset: Int) {
+        val workspace = uiState.galleryWorkspace.updateLibraryScroll(pageKey, anchorKey, index, offset)
         if (workspace != uiState.galleryWorkspace) {
             uiState = uiState.copy(galleryWorkspace = workspace)
+            browserPreferenceStore.saveGalleryWorkspace(workspace)
         }
+    }
+
+    private val historyMetadataPermits = kotlinx.coroutines.sync.Semaphore(2)
+    suspend fun loadHistoryMetadata(galleryId: Long) {
+        historyMetadataPermits.acquire()
+        try {
+            if (galleryId in uiState.galleryCache) return
+            try {
+                val gallery = hitomiClient.getGallery(galleryId)
+                uiState = uiState.copy(galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)))
+            } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+            catch (_: Exception) { /* A missing history thumbnail must not interrupt browsing. */ }
+        } finally { historyMetadataPermits.release() }
     }
 
     fun ensureGalleryLoaded(galleryId: Long) {
-        if (galleryId in uiState.galleryCache || uiState.galleries.any { it.id == galleryId }) return
+        val cached = uiState.galleryCache[galleryId] ?: uiState.galleries.firstOrNull { it.id == galleryId }
+        if (cached != null) { recordOnlineHistory(cached); return }
         viewModelScope.launch {
             runCatching { hitomiClient.getGallery(galleryId) }.onSuccess { gallery ->
+                recordOnlineHistory(gallery)
                 uiState = uiState.copy(
-                    activeGallery = gallery,
+                    activeGallery = presentedGallery(gallery),
                     galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)),
                 )
             }
@@ -761,9 +1152,85 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startBrowserSearch(reset = false)
     }
 
+    fun jumpToSearchPage(page: Int) {
+        if (!isSearchPageInRange(page, uiState.searchResultWindow?.index?.maxPage)) return
+        val search = activeSearchPage() ?: return
+        val queries = search.submittedQueries.ifEmpty {
+            queriesWithPreferredLanguages(search.submittedQuery.ifBlank { search.query }, search.preferredLanguages)
+        }
+        if (queries.isEmpty()) return
+        browserSearchJob?.cancel()
+        cancelSearchWindow()
+        val sessionId = UUID.randomUUID().toString()
+        val previousState = uiState
+        val previous = uiState.browserWorkspace
+        val workspace = previous.updateActiveSearch { it.copy(resultSessionId = sessionId, scrollAnchorKey = null, scrollIndex = 0, scrollOffset = 0, scrollPage = page) }
+        uiState = uiState.copy(browserWorkspace = workspace, galleries = emptyList(),
+            searchResultWindow = SearchResultWindow(SearchResultIndex(sessionId, queries)),
+            isLoadingPage = true, currentPage = 0, hasNextPage = false, nextSearchPageError = null)
+        val revision = uiState.browserNavigationRevision
+        browserSearchJob = viewModelScope.launch {
+            try {
+                val loaded = searchResultPager.seek(sessionId, queries, page)
+                if (!isSearchSessionCurrent(search.key, sessionId, revision)) return@launch
+                val targetOffset = loaded.index.pages.take(page - loaded.index.firstPage).sumOf { it.size }
+                val anchor = loaded.index.ids.getOrNull(targetOffset)?.let { "gallery:$it" }
+                val ready = uiState.browserWorkspace.updateActiveSearch { it.copy(
+                    scrollAnchorKey = anchor, scrollIndex = targetOffset + 2, scrollOffset = 0,
+                    scrollPage = page, currentPage = loaded.index.lastPage,
+                ) }
+                visibleSearchResults = targetOffset..targetOffset
+                uiState = uiState.copy(browserWorkspace = ready, searchResultWindow = loaded, galleries = loaded.galleries.map(::presentedGallery),
+                    galleryCache = cacheGalleries(uiState.galleryCache, loaded.galleries),
+                    currentPage = loaded.index.lastPage, hasNextPage = loaded.index.hasNextPage,
+                    searchJumpRevision = uiState.searchJumpRevision + 1)
+                syncActiveSearch(persist = true)
+                removeClosedSearchSessions(previous, uiState.browserWorkspace)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (isSearchSessionCurrent(search.key, sessionId, revision)) uiState = uiState.copy(
+                    browserWorkspace = previousState.browserWorkspace, searchResultWindow = previousState.searchResultWindow,
+                    galleries = previousState.galleries, currentPage = previousState.currentPage,
+                    hasNextPage = previousState.hasNextPage, isLoadingPage = false,
+                    message = error.message ?: strings[R.string.msg_could_not_change_page], isError = true)
+            } finally {
+                if (isSearchSessionCurrent(search.key, sessionId, revision)) uiState = uiState.copy(isLoadingPage = false)
+            }
+        }
+    }
+
+    fun loadPreviousSearchPage() {
+        val window = uiState.searchResultWindow ?: return
+        if (window.index.firstPage <= 1 || uiState.isLoadingPage || uiState.isRestoringSearch) return
+        val search = activeSearchPage() ?: return
+        val revision = uiState.browserNavigationRevision
+        cancelSearchWindow()
+        browserSearchJob = viewModelScope.launch {
+            uiState = uiState.copy(isLoadingPage = true)
+            try {
+                val loaded = searchResultPager.prepend(window.index)
+                if (!isSearchSessionCurrent(search.key, window.index.sessionId, revision)) return@launch
+                val added = loaded.index.pages.first().size
+                visibleSearchResults = (visibleSearchResults.first + added)..(visibleSearchResults.last + added)
+                val pages = loaded.index.window(visibleSearchResults.first, visibleSearchResults.last)
+                publishSearchWindow(loaded.copy(residentPages = window.residentPages + loaded.residentPages).retainPages(pages))
+                uiState = uiState.copy(galleryCache = cacheGalleries(uiState.galleryCache, loaded.galleries))
+                syncActiveSearch(persist = true)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (isSearchSessionCurrent(search.key, window.index.sessionId, revision)) uiState = uiState.copy(message = error.message, isError = true)
+            } finally {
+                if (isSearchSessionCurrent(search.key, window.index.sessionId, revision)) uiState = uiState.copy(isLoadingPage = false)
+            }
+        }
+    }
+
     fun refresh() {
         if (uiState.isLoadingPage || uiState.isRefreshing) return
-        val searchKey = activeSearchPage()?.key ?: return
+        val page = activeSearchPage() ?: return
+        val searchKey = page.key
+        uiState = uiState.copy(searchQuery = if (page.submittedQueries.isNotEmpty()) page.submittedQuery else page.query,
+            preferredLanguages = page.preferredLanguages)
         browserSearchJob = viewModelScope.launch {
             uiState = uiState.copy(isRefreshing = true)
             try {
@@ -790,7 +1257,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: Exception) {
                 uiState = uiState.copy(
                     readerErrorsByGalleryId = uiState.readerErrorsByGalleryId +
-                        (galleryId to (error.message ?: "페이지 목록을 불러오지 못했습니다.")),
+                        (galleryId to (error.message ?: strings[R.string.msg_could_not_load_pages])),
                 )
             } finally {
                 uiState = uiState.copy(
@@ -800,43 +1267,96 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setDownloadDestination(value: DownloadDestination) {
+        browserPreferenceStore.saveDownloadDestination(value)
+        uiState = uiState.copy(downloadDestination = value)
+        if (value == DownloadDestination.DESKTOP) showDesktopDownloadConnectionPrompt()
+    }
+    private fun showDesktopDownloadConnectionPrompt() {
+        if (uiState.desktopConnectionState != DesktopConnectionState.CONNECTED && !browserPreferenceStore.isDesktopDownloadAlertSuppressed())
+            uiState = uiState.copy(desktopDownloadConnectionPrompt = true)
+    }
+    fun dismissDesktopDownloadConnectionPrompt(suppress: Boolean) {
+        if (suppress) browserPreferenceStore.suppressDesktopDownloadAlert(true)
+        uiState = uiState.copy(desktopDownloadConnectionPrompt = false)
+    }
+    fun requestSettingsSection(section: String) {
+        uiState = uiState.copy(settingsSectionRequest = section, pendingDownloadGallery = null, downloadFolderRequired = false,
+            desktopDownloadConnectionPrompt = false)
+    }
+    fun consumeSettingsSectionRequest() { uiState = uiState.copy(settingsSectionRequest = null) }
+    fun cancelDownloadPrompt() {
+        downloadAfterFolder = null
+        uiState = uiState.copy(pendingDownloadGallery = null, downloadFolderRequired = false)
+    }
+    fun chooseDownloadDestination(value: DownloadDestination) {
+        val gallery = uiState.pendingDownloadGallery ?: return
+        uiState = uiState.copy(pendingDownloadGallery = null, downloadFolderRequired = false)
+        enqueueGalleryDownload(gallery, value)
+    }
     fun downloadGallery(gallery: GallerySummary) {
         if (gallery.id in uiState.downloadingGalleryIds) return
         if (requestStore.requests.value.any { it.galleryId == gallery.id && !it.isFinished }) {
-            uiState = uiState.copy(message = "다운로드 목록에 이미 있습니다.")
+            uiState = uiState.copy(message = strings[R.string.msg_already_in_the_download_list])
             return
         }
-        val profile = selectedProfile()
-        val sendImmediately = profile != null && uiState.desktopConnectionState == DesktopConnectionState.CONNECTED
-        val request = DownloadRequest(galleryId = gallery.id, title = gallery.title,
-            thumbnailUrl = gallery.thumbnailUrl, profileId = profile?.id)
+        if (uiState.downloadDestination == DownloadDestination.ASK) {
+            uiState = uiState.copy(pendingDownloadGallery = gallery, downloadFolderRequired = false)
+        } else enqueueGalleryDownload(gallery, uiState.downloadDestination)
+    }
+    private fun enqueueGalleryDownload(gallery: GallerySummary, destination: DownloadDestination) {
+        if (destination == DownloadDestination.ASK || gallery.id in uiState.downloadingGalleryIds) return
+        if (requestStore.requests.value.any { it.galleryId == gallery.id && !it.isFinished }) return
+        val local = destination == DownloadDestination.DEVICE
+        val location = uiState.downloadLocation
+        if (local && location == null) {
+            downloadAfterFolder = gallery
+            uiState = uiState.copy(pendingDownloadGallery = gallery, downloadFolderRequired = true)
+            return
+        }
+        if (local && uiState.libraryBooks.any { !it.isCloud && it.metadata.hitomiId?.toLongOrNull() == gallery.id }) {
+            uiState = uiState.copy(message = strings[R.string.msg_this_gallery_is_already_in_the_device_library], isError = true)
+            return
+        }
+        val profile = if (local) null else selectedProfile()
+        val request = DownloadRequest(galleryId = gallery.id, title = gallery.title, thumbnailUrl = gallery.thumbnailUrl,
+            target = if (local) DownloadTarget.LOCAL else DownloadTarget.DESKTOP, profileId = profile?.id,
+            locationUri = if (local) location?.uri else null)
+        uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds + gallery.id)
         viewModelScope.launch {
-            uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds + gallery.id)
             try {
                 withContext(Dispatchers.IO) { requestStore.update { addDownloadRequest(it, request) } }
-                if (profile != null && sendImmediately) {
+                if (local) {
+                    if (location != null && uiState.libraryLocations.none { it.uri == location.uri }) addLibraryLocation(location.uri, location.displayName)
+                    startLocalDownloadService()
+                    uiState = uiState.copy(message = strings[R.string.msg_added_to_device_downloads], isError = false)
+                } else if (profile != null && uiState.desktopConnectionState == DesktopConnectionState.CONNECTED) {
                     sendPendingDownloadRequests(profile, onlyRequestId = request.id, requireRequestIds = false)
                 } else {
-                    uiState = uiState.copy(message = "PC 동기화 대기 목록에 추가됨 · 기기에 자동 다운로드하지 않습니다.", isError = false)
+                    uiState = uiState.copy(message = strings[R.string.msg_added_to_pc_sync_queue_no_automatic_device_download], isError = false)
+                    showDesktopDownloadConnectionPrompt()
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                uiState = uiState.copy(message = "다운로드 요청을 완료하지 못했습니다: ${error.message}", isError = true)
-            } finally {
-                uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds - gallery.id)
-            }
+                if (local) withContext(Dispatchers.IO) { runCatching { requestStore.change(request.id) { it.copy(status = RequestStatus.PAUSED, error = error.message) } } }
+                uiState = uiState.copy(message = strings[R.string.msg_download_request_failed, error.message], isError = true)
+            } finally { uiState = uiState.copy(downloadingGalleryIds = uiState.downloadingGalleryIds - gallery.id) }
         }
+    }
+    private fun startLocalDownloadService() {
+        val context = getApplication<Application>()
+        context.startForegroundService(android.content.Intent(context, com.doujinmenu.android.data.LocalDownloadService::class.java))
     }
 
     fun startLocalDownload(id: String) {
         val request = requestStore.requests.value.firstOrNull { it.id == id } ?: return
         if (!request.canDownloadLocally) return
         val location = uiState.downloadLocation ?: run {
-            uiState = uiState.copy(downloadQueueError = "다운로드 폴더를 먼저 선택하세요.")
+            uiState = uiState.copy(downloadQueueError = strings[R.string.msg_choose_a_download_folder_first])
             return
         }
         if (uiState.libraryBooks.any { !it.isCloud && it.metadata.hitomiId?.toLongOrNull() == request.galleryId }) {
-            uiState = uiState.copy(downloadQueueError = "이미 기기 라이브러리에 있는 작품입니다.")
+            uiState = uiState.copy(downloadQueueError = strings[R.string.msg_this_gallery_is_already_in_the_device_library])
             return
         }
         // Register the chosen folder once; the existing scanner/reader handles completed CBZs.
@@ -854,9 +1374,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 if (!claimed) return@launch
-                val context = getApplication<Application>()
-                context.startForegroundService(android.content.Intent(context, com.doujinmenu.android.data.LocalDownloadService::class.java))
-                uiState = uiState.copy(downloadQueueError = null, message = "기기 다운로드에 추가됨", isError = false)
+                startLocalDownloadService()
+                uiState = uiState.copy(downloadQueueError = null, message = strings[R.string.msg_added_to_device_downloads], isError = false)
             } catch (error: Exception) {
                 runCatching { requestStore.change(id) { it.copy(status = RequestStatus.PAUSED, error = error.message) } }
                 uiState = uiState.copy(downloadQueueError = error.message)
@@ -913,7 +1432,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     manual -> {
                         uiState = uiState.copy(
-                            message = "현재 ${BuildConfig.VERSION_NAME} 버전이 최신입니다.",
+                            message = strings[R.string.msg_version_is_up_to_date, (BuildConfig.VERSION_NAME)],
                             isError = false,
                         )
                     }
@@ -921,7 +1440,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: Exception) {
                 if (manual) {
                     uiState = uiState.copy(
-                        message = "업데이트를 확인하지 못했습니다: ${error.message ?: "네트워크 오류"}",
+                        message = strings[R.string.msg_could_not_check_for_updates, (error.message ?: strings[R.string.msg_network_error])],
                         isError = true,
                     )
                 }
@@ -969,14 +1488,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (uiState.isLibraryScanning) return
         val scannedLocations = uiState.libraryLocations
         val profile = selectedProfile()
-        viewModelScope.launch {
+        val generation = libraryProfileGeneration
+        fun current() = generation == libraryProfileGeneration && profile?.id == uiState.selectedProfileId
+        libraryRefreshJob = viewModelScope.launch {
             uiState = uiState.copy(
                 isLibraryScanning = true,
                 isLibraryPullRefreshing = showPullFeedback,
                 libraryScanError = null,
             )
+            try {
             val result = libraryScanner.scan(scannedLocations)
+            if (!current()) return@launch
+            if (profile != null) syncPresentations(profile)
             val cloudResult = profile?.let { runCatching { client.getLibraryBooks(it) } }
+            if (!current()) return@launch
+            if (cloudResult?.isSuccess == true) successfulDesktopRefreshes++
             val cloudBooks = when {
                 profile == null -> emptyList()
                 cloudResult?.isSuccess == true -> cloudResult.getOrThrow()
@@ -987,105 +1513,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val localBooks = identityReconciliation.books
             val cloudError = cloudResult?.exceptionOrNull()?.let { error ->
-                "데스크톱 라이브러리를 불러오지 못했습니다: ${error.message ?: "알 수 없는 오류"}"
+                strings[R.string.msg_could_not_load_desktop_library, (error.message ?: strings[R.string.msg_unknown_error])]
             }
             val desktopDownloadPath = profile?.let {
                 runCatching { client.getDesktopDownloadPath(it) }.getOrNull()
             }
-            val legacyDesktopIdAliases = profile?.let { selected ->
-                cloudBooks.mapNotNull { book ->
-                    val remoteId = book.remoteBookId ?: return@mapNotNull null
-                    val legacyId = "desktop:${selected.id}:$remoteId"
-                    (legacyId to book.id).takeIf { legacyId != book.id }
-                }.toMap()
-            }.orEmpty()
-            val legacyIdAliases = legacyDesktopIdAliases +
-                identityReconciliation.idAliases +
-                legacyLocalLibraryIdAliases(localBooks)
-            var hiddenIds = remapLibraryIds(libraryPreferenceStore.loadHiddenIds(), legacyIdAliases)
-            var favoriteIds = remapLibraryIds(libraryPreferenceStore.loadFavoriteIds(), legacyIdAliases)
-            var readIds = remapLibraryIds(libraryPreferenceStore.loadReadIds(), legacyIdAliases)
-            var progress = remapLibraryIdKeys(libraryPreferenceStore.loadProgress(), legacyIdAliases)
-            var pendingBookStateIds = remapLibraryIds(
-                libraryPreferenceStore.loadPendingBookStateSyncIds(),
-                legacyIdAliases,
-            )
-            var bookStateModifiedTimes = remapLibraryIdKeys(
-                libraryPreferenceStore.loadBookStateModifiedTimes(),
-                legacyIdAliases,
-            )
-            var pendingSeriesSyncIds = remapLibraryIds(
-                libraryPreferenceStore.loadPendingSeriesSyncIds(),
-                legacyIdAliases,
-            )
-            val localSeries = remapLibraryIdKeys(
-                libraryPreferenceStore.loadCustomSeries(),
-                legacyIdAliases,
-            )
-            val localSeriesRemovalTimes = remapLibraryIdKeys(
-                libraryPreferenceStore.loadSeriesRemovalTimes(),
-                legacyIdAliases,
-            )
-            val seriesMerge = mergeSyncedSeries(
-                local = localSeries,
-                removalTimes = localSeriesRemovalTimes,
-                books = cloudBooks,
-                pendingIds = pendingSeriesSyncIds,
-            )
-            val rawBooks = localBooks + cloudBooks
-            val knownSyncableIds = rawBooks.asSequence()
-                .filter { it.syncId != null }
-                .mapTo(hashSetOf(), LibraryBook::id)
-            val librarySnapshotComplete = result.errors.isEmpty() &&
-                (profile == null || cloudResult?.isSuccess == true)
-            val knownBookIds = rawBooks.mapTo(hashSetOf(), LibraryBook::id)
-            val customSeries = if (librarySnapshotComplete) {
-                seriesMerge.assignments.filterKeys { it in knownBookIds }
-            } else {
-                seriesMerge.assignments
-            }
-            val seriesRemovalTimes = if (librarySnapshotComplete) {
-                seriesMerge.removalTimes.filterKeys { it in knownBookIds }
-            } else {
-                seriesMerge.removalTimes
-            }
-            pendingSeriesSyncIds += seriesMerge.localWinnerIds.filter { it in knownSyncableIds }
-            var customTitles = remapLibraryIdKeys(libraryPreferenceStore.loadCustomTitles(), legacyIdAliases)
-            var favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames()
-            if (librarySnapshotComplete) {
-                pendingBookStateIds = pendingBookStateIds.filterTo(linkedSetOf()) {
-                    it in knownSyncableIds
+            if (!current()) return@launch
+            val librarySnapshotComplete = result.errors.isEmpty() && (profile == null || cloudResult?.isSuccess == true)
+            var prepared: PreparedLibraryRefresh
+            while (true) {
+                val preferences = libraryPreferenceStore.snapshot()
+                val presentations = uiState.presentations
+                val previousBooks = uiState.libraryBooks
+                prepared = withContext(Dispatchers.Default) {
+                    prepareLibraryRefresh(localBooks, cloudBooks, profile, identityReconciliation.idAliases,
+                        librarySnapshotComplete, presentations, previousBooks.associateBy(LibraryBook::id))
                 }
+                if (!current()) return@launch
+                // A user edit during preparation must win over this older scan snapshot.
+                if (libraryPreferenceStore.matchesSnapshot(preferences) && presentations === uiState.presentations) break
             }
-            pendingSeriesSyncIds = sanitizePendingSeriesSyncIds(
-                pending = pendingSeriesSyncIds,
-                knownSyncableIds = knownSyncableIds,
-                librarySnapshotComplete = librarySnapshotComplete,
-                assignments = customSeries,
-                removalTimes = seriesRemovalTimes,
-            )
-            val remoteBySyncId = cloudBooks.mapNotNull { remote ->
-                remote.syncId?.lowercase()?.let { it to remote }
-            }.toMap()
-            rawBooks.forEach { book ->
-                val remote = book.syncId?.lowercase()?.let(remoteBySyncId::get) ?: return@forEach
-                if (book.id in pendingBookStateIds) return@forEach
-                pendingBookStateIds -= book.id
-                hiddenIds = hiddenIds.withMembership(book.id, remote.syncedHidden)
-                favoriteIds = favoriteIds.withMembership(book.id, remote.syncedFavorite)
-                readIds = readIds.withMembership(book.id, remote.syncedRead)
-                progress = progress + (book.id to remote.syncedProgress)
-                customTitles = if (remote.syncedCustomTitle == null) customTitles - book.id
-                else customTitles + (book.id to remote.syncedCustomTitle)
-                bookStateModifiedTimes = bookStateModifiedTimes +
-                    (book.id to remote.syncedStateModifiedAt)
-                remote.syncedSeries?.name?.let { seriesName ->
-                    favoriteSeriesNames = favoriteSeriesNames.withMembership(
-                        seriesName,
-                        remote.syncedSeriesFavorite,
-                    )
-                }
-            }
+            val legacyIdAliases = prepared.aliases
+            val hiddenIds = prepared.hiddenIds
+            val favoriteIds = prepared.favoriteIds
+            val readIds = prepared.readIds
+            val progress = prepared.progress
+            val pendingBookStateIds = prepared.pendingBookStateIds
+            val bookStateModifiedTimes = prepared.bookStateModifiedTimes
+            val pendingSeriesSyncIds = prepared.pendingSeriesSyncIds
+            val customSeries = prepared.customSeries
+            val seriesRemovalTimes = prepared.seriesRemovalTimes
+            val localSeries = prepared.localSeries
+            val localSeriesRemovalTimes = prepared.localSeriesRemovalTimes
+            val customTitles = prepared.customTitles
+            val favoriteSeriesNames = prepared.favoriteSeriesNames
+            val allBooks = prepared.allBooks
             if (
                 legacyIdAliases.isNotEmpty() ||
                 cloudBooks.any(LibraryBook::hasSyncedSeriesState) ||
@@ -1110,11 +1572,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             libraryPreferenceStore.savePendingSeriesSyncIds(pendingSeriesSyncIds)
             libraryPreferenceStore.savePendingBookStateSyncIds(pendingBookStateIds)
             libraryPreferenceStore.saveBookStateModifiedTimes(bookStateModifiedTimes)
-            val allBooks = (localBooks + cloudBooks).map { book ->
-                    val customTitle = customTitles[book.id]
-                    if (customTitle != null) book.copy(title = customTitle, originalTitle = customTitle)
-                    else book.copy(title = preferredLocalizedTitle(book.originalTitle))
-                }
             val previousActiveBook = uiState.activeLibraryBook
             val savedActiveBookId = previousActiveBook?.id ?: libraryPreferenceStore.loadActiveBookId()
             val refreshedActiveBook = savedActiveBookId?.let { savedId ->
@@ -1153,7 +1610,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     pendingSeriesSyncIds,
                     pendingBookStateIds,
                     readerReadyBooks,
-                ),
+                ) + uiState.presentations.values.count { it.dirty },
                 libraryLastSyncedAt = if (
                     profile != null &&
                     cloudError == null &&
@@ -1183,9 +1640,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         uiState.librarySyncError
                     },
                     message = if (remaining == 0) {
-                        "라이브러리 동기화를 완료했습니다."
+                        strings[R.string.msg_library_sync_complete]
                     } else {
-                        "동기화되지 않은 변경사항이 ${remaining}개 남아 있습니다."
+                        strings[R.string.msg_changes_still_need_syncing, (remaining)]
                     },
                     isError = remaining > 0,
                 )
@@ -1193,18 +1650,155 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val refreshError = uiState.libraryScanError
                 uiState = uiState.copy(
                     message = if (refreshError == null) {
-                        "라이브러리를 새로고침했습니다."
+                        strings[R.string.msg_library_refreshed]
                     } else {
-                        "라이브러리 새로고침을 완료했지만 일부 항목을 불러오지 못했습니다."
+                        strings[R.string.msg_library_refreshed_but_some_items_could_not_be_loaded]
                     },
                     isError = refreshError != null,
                 )
             }
             if (uiState.libraryLocations != scannedLocations) refreshLibrarySilently()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (current()) uiState = uiState.copy(libraryScanError = error.message, isLibraryScanning = false, isLibraryPullRefreshing = false)
+            } finally {
+                if (current()) uiState = uiState.copy(isLibraryScanning = false, isLibraryPullRefreshing = false)
+            }
         }
     }
 
-    fun setLibraryQuery(value: String) = update { copy(libraryQuery = value) }
+    private fun prepareLibraryRefresh(
+        localBooks: List<LibraryBook>, cloudBooks: List<LibraryBook>, profile: DesktopProfile?,
+        identityAliases: Map<String, String>, librarySnapshotComplete: Boolean,
+        presentations: Map<String, com.doujinmenu.android.data.PresentationRecord>, previousBooks: Map<String, LibraryBook>,
+    ): PreparedLibraryRefresh {
+        val legacyDesktopIdAliases = profile?.let { selected ->
+            cloudBooks.mapNotNull { book ->
+                val remoteId = book.remoteBookId ?: return@mapNotNull null
+                val legacyId = "desktop:${selected.id}:$remoteId"
+                (legacyId to book.id).takeIf { legacyId != book.id }
+            }.toMap()
+        }.orEmpty()
+        val legacyIdAliases = legacyDesktopIdAliases +
+            identityAliases +
+            legacyLocalLibraryIdAliases(localBooks)
+        val hiddenIds = remapLibraryIds(libraryPreferenceStore.loadHiddenIds(), legacyIdAliases).toMutableSet()
+        val favoriteIds = remapLibraryIds(libraryPreferenceStore.loadFavoriteIds(), legacyIdAliases).toMutableSet()
+        val readIds = remapLibraryIds(libraryPreferenceStore.loadReadIds(), legacyIdAliases).toMutableSet()
+        val progress = remapLibraryIdKeys(libraryPreferenceStore.loadProgress(), legacyIdAliases).toMutableMap()
+        var pendingBookStateIds = remapLibraryIds(
+            libraryPreferenceStore.loadPendingBookStateSyncIds(),
+            legacyIdAliases,
+        )
+        val bookStateModifiedTimes = remapLibraryIdKeys(
+            libraryPreferenceStore.loadBookStateModifiedTimes(),
+            legacyIdAliases,
+        ).toMutableMap()
+        var pendingSeriesSyncIds = remapLibraryIds(
+            libraryPreferenceStore.loadPendingSeriesSyncIds(),
+            legacyIdAliases,
+        )
+        val localSeries = remapLibraryIdKeys(
+            libraryPreferenceStore.loadCustomSeries(),
+            legacyIdAliases,
+        )
+        val localSeriesRemovalTimes = remapLibraryIdKeys(
+            libraryPreferenceStore.loadSeriesRemovalTimes(),
+            legacyIdAliases,
+        )
+        val seriesMerge = mergeSyncedSeries(
+            local = localSeries,
+            removalTimes = localSeriesRemovalTimes,
+            books = cloudBooks,
+            pendingIds = pendingSeriesSyncIds,
+        )
+        val rawBooks = localBooks + cloudBooks
+        val knownSyncableIds = rawBooks.asSequence()
+            .filter { it.syncId != null }
+            .mapTo(hashSetOf(), LibraryBook::id)
+        val knownBookIds = rawBooks.mapTo(hashSetOf(), LibraryBook::id)
+        val customSeries = if (librarySnapshotComplete) {
+            seriesMerge.assignments.filterKeys { it in knownBookIds }
+        } else {
+            seriesMerge.assignments
+        }
+        val seriesRemovalTimes = if (librarySnapshotComplete) {
+            seriesMerge.removalTimes.filterKeys { it in knownBookIds }
+        } else {
+            seriesMerge.removalTimes
+        }
+        pendingSeriesSyncIds += seriesMerge.localWinnerIds.filter { it in knownSyncableIds }
+        val customTitles = remapLibraryIdKeys(libraryPreferenceStore.loadCustomTitles(), legacyIdAliases).toMutableMap()
+        val favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames().toMutableSet()
+        if (librarySnapshotComplete) {
+            pendingBookStateIds = pendingBookStateIds.filterTo(linkedSetOf()) {
+                it in knownSyncableIds
+            }
+        }
+        pendingSeriesSyncIds = sanitizePendingSeriesSyncIds(
+            pending = pendingSeriesSyncIds,
+            knownSyncableIds = knownSyncableIds,
+            librarySnapshotComplete = librarySnapshotComplete,
+            assignments = customSeries,
+            removalTimes = seriesRemovalTimes,
+        )
+        val remoteBySyncId = cloudBooks.mapNotNull { remote ->
+            remote.syncId?.lowercase()?.let { it to remote }
+        }.toMap()
+        rawBooks.forEach { book ->
+            val remote = book.syncId?.lowercase()?.let(remoteBySyncId::get) ?: return@forEach
+            if (book.id in pendingBookStateIds) return@forEach
+            hiddenIds.setMembership(book.id, remote.syncedHidden)
+            favoriteIds.setMembership(book.id, remote.syncedFavorite)
+            readIds.setMembership(book.id, remote.syncedRead)
+            progress[book.id] = remote.syncedProgress
+            if (remote.syncedCustomTitle == null) customTitles.remove(book.id)
+            else customTitles[book.id] = remote.syncedCustomTitle
+            bookStateModifiedTimes[book.id] = remote.syncedStateModifiedAt
+            remote.syncedSeries?.name?.let { seriesName ->
+                favoriteSeriesNames.setMembership(
+                    seriesName,
+                    remote.syncedSeriesFavorite,
+                )
+            }
+        }
+        val allBooks = (localBooks + cloudBooks).map { book ->
+                val customTitle = customTitles[book.id]
+                if (customTitle != null) book.copy(title = customTitle, originalTitle = customTitle)
+                else book.copy(title = preferredLocalizedTitle(book.originalTitle))
+            }.map { book ->
+                val presented = presentedBook(book, presentations)
+                previousBooks[presented.id]?.takeIf { it == presented } ?: presented
+            }
+        return PreparedLibraryRefresh(legacyIdAliases, hiddenIds, favoriteIds, readIds, progress, pendingBookStateIds, bookStateModifiedTimes, pendingSeriesSyncIds, customSeries, seriesRemovalTimes, localSeries, localSeriesRemovalTimes, customTitles, favoriteSeriesNames, allBooks)
+    }
+
+    fun setLibraryQuery(value: String) {
+        uiState = uiState.copy(libraryQueryDraft = value)
+        refreshFilterSuggestions(value, library = true)
+        libraryQueryJob?.cancel()
+        libraryQueryJob = viewModelScope.launch {
+            delay(250)
+            if (uiState.libraryQueryDraft == value) applyLibrarySearch(value, record = false)
+        }
+    }
+    fun submitLibrarySearch(query: String = uiState.libraryQueryDraft) {
+        libraryQueryJob?.cancel()
+        applyLibrarySearch(query, record = true)
+    }
+    private fun applyLibrarySearch(query: String, record: Boolean) {
+        val applied = normalizeSearchSeparators(query)
+        val history = if (record) uiState.libraryQueryHistory.recordQuery(SearchQueryEntry(applied)) else uiState.libraryQueryHistory
+        val workspace = uiState.galleryWorkspace.updateActiveLibraryHome { it.copy(query = applied, scrollAnchorKey = null, scrollIndex = 0, scrollOffset = 0) }
+        if (record) browserPreferenceStore.saveSearchQueryHistory(history, "library_query_history")
+        browserPreferenceStore.saveGalleryWorkspace(workspace)
+        uiState = uiState.copy(libraryQuery = applied, libraryQueryDraft = if (record) applied else uiState.libraryQueryDraft,
+            libraryQueryHistory = history, galleryWorkspace = workspace)
+    }
+    fun clearLibrarySearchHistory() {
+        browserPreferenceStore.saveSearchQueryHistory(emptyList(), "library_query_history")
+        uiState = uiState.copy(libraryQueryHistory = emptyList())
+    }
     fun toggleLibraryFavoritesFilter() = update {
         copy(libraryFavoritesOnly = !libraryFavoritesOnly)
     }
@@ -1227,9 +1821,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
     fun setLibrarySeriesMode(enabled: Boolean) = update {
-        copy(librarySeriesMode = enabled, selectedLibrarySeries = null)
+        copy(librarySeriesMode = enabled, libraryExcludeSeries = false)
     }
-    fun selectLibrarySeries(name: String?) = update { copy(selectedLibrarySeries = name) }
+    fun setLibraryExcludeSeries(enabled: Boolean) = update {
+        copy(libraryExcludeSeries = enabled, librarySeriesMode = false)
+    }
+    fun selectLibrarySeries(name: String?) {
+        if (name == null) { goBackInGalleryTab(); return }
+        applyGalleryWorkspace(uiState.galleryWorkspace.pushPage(BrowserPage.LibrarySeries(name)))
+    }
+    fun setLibrarySeriesEpisodeList(show: Boolean) {
+        val page = uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibrarySeries ?: return
+        applyGalleryWorkspace(uiState.galleryWorkspace.updateLibrarySeries(page.key) { it.copy(episodeList = show) })
+    }
+    fun openLibrarySeriesList(name: String) {
+        applyGalleryWorkspace(uiState.galleryWorkspace.pushPage(BrowserPage.LibrarySeries(name, episodeList = true)))
+    }
+    fun updateSeriesEpisodeScroll(pageKey: String, index: Int, offset: Int) {
+        val workspace = uiState.galleryWorkspace.updateLibrarySeries(pageKey) {
+            it.copy(episodePosition = ReaderPosition(index.coerceAtLeast(0), offset.coerceAtLeast(0)))
+        }
+        if (workspace != uiState.galleryWorkspace) {
+            uiState = uiState.copy(galleryWorkspace = workspace)
+            browserPreferenceStore.saveGalleryWorkspace(workspace)
+        }
+    }
+
+    fun commitLibrarySeriesEdit(name: String, baseline: Map<String, CustomSeriesAssignment>, orderedIds: List<String>): Boolean {
+        if (uiState.isLibraryScanning || orderedIds.distinct().size != orderedIds.size || orderedIds.any { id -> uiState.libraryBooks.none { it.id == id } }) return false
+        val current = uiState.customSeriesByBookId
+        fun membership(values: Map<String, CustomSeriesAssignment>) = values.filterValues { it.name == name }.mapValues { it.value.order }
+        if (membership(current) != membership(baseline)) return false
+        if (orderedIds.any { id -> current[id]?.let { it.name to it.order } != baseline[id]?.let { it.name to it.order } }) return false
+        val assignments = com.doujinmenu.android.model.replaceSeriesMembers(current, name, orderedIds, System.currentTimeMillis())
+        persistCustomSeries(assignments)
+        val favorites = if (orderedIds.isEmpty()) uiState.libraryFavoriteSeriesNames - name else uiState.libraryFavoriteSeriesNames
+        libraryPreferenceStore.saveFavoriteSeriesNames(favorites)
+        uiState = uiState.copy(customSeriesByBookId = assignments, libraryFavoriteSeriesNames = favorites)
+        if (orderedIds.isEmpty() && (uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibrarySeries)?.name == name) goBackInGalleryTab()
+        return true
+    }
 
     fun openLibraryBook(bookId: String) {
         val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
@@ -1239,11 +1870,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isLibraryBookLoading = !book.hasResolvedReaderPages(),
             libraryScanError = null,
         )
-        enqueueBookStateSync(setOf(bookId), addHistory = true)
+        recordLibraryHistory(book)
+        enqueueBookStateSync(setOf(bookId), addHistory = uiState.historyRecording)
         prepareActiveLibraryBook(book)
+        if (book.metadata.publishedDate == null) book.metadata.hitomiId?.toLongOrNull()?.let { id ->
+            viewModelScope.launch {
+                try {
+                    val gallery = hitomiClient.getGallery(id)
+                    gallery.publishedDate?.let { date ->
+                        withContext(Dispatchers.IO) { libraryIdentityStore.cachePublishedDate(id.toString(), date) }
+                        val updated = uiState.libraryBooks.map { current -> if (current.metadata.hitomiId == id.toString())
+                            current.copy(metadata = current.metadata.copy(publishedDate = date)) else current }
+                        uiState = uiState.copy(libraryBooks = updated, activeLibraryBook = updated.firstOrNull { it.id == uiState.activeLibraryBook?.id },
+                            galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)))
+                    }
+                } catch (error: CancellationException) { throw error } catch (_: Exception) { /* Upload date is optional offline. */ }
+            }
+        }
     }
 
     private fun prepareActiveLibraryBook(book: LibraryBook) {
+        val generation = libraryProfileGeneration
         if (book.hasResolvedReaderPages()) {
             if (uiState.activeLibraryBook?.id == book.id) {
                 uiState = uiState.copy(isLibraryBookLoading = false)
@@ -1257,7 +1904,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (uiState.activeLibraryBook?.id == book.id) {
                     uiState = uiState.copy(
                         isLibraryBookLoading = false,
-                        libraryScanError = "데스크톱 연결을 복구한 뒤 다시 시도해 주세요.",
+                        libraryScanError = strings[R.string.msg_reconnect_to_desktop_and_retry],
                     )
                 }
                 return
@@ -1266,7 +1913,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val urls = client.getLibraryBookPages(profile, remoteId)
                 book.copy(
                     pages = urls.mapIndexed { index, url -> LibraryPage(url, "${index + 1}") },
-                    coverUriOverride = urls.firstOrNull() ?: book.coverUri,
+                    coverUriOverride = book.coverUri,
                 )
             }
         } else {
@@ -1276,24 +1923,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activeBookPreparationJob = viewModelScope.launch {
             runCatching { preparation() }
                 .onSuccess { prepared ->
+                    if (generation != libraryProfileGeneration) return@onSuccess
                     val activeMatches = uiState.activeLibraryBook?.id == prepared.id
+                    val display = presentedBook(prepared).let { ready -> ready.copy(metadata = ready.metadata.copy(
+                        publishedDate = ready.metadata.publishedDate ?: uiState.libraryBooks.firstOrNull { it.id == ready.id }?.metadata?.publishedDate)) }
                     uiState = uiState.copy(
-                        activeLibraryBook = if (activeMatches) prepared else uiState.activeLibraryBook,
+                        activeLibraryBook = if (activeMatches) display else uiState.activeLibraryBook,
                         libraryBooks = uiState.libraryBooks.map {
-                            if (it.id == prepared.id) prepared else it
+                            if (it.id == prepared.id) display else it
                         },
                         isLibraryBookLoading = if (activeMatches) false else uiState.isLibraryBookLoading,
                         libraryScanError = if (activeMatches) null else uiState.libraryScanError,
                     )
                 }
                 .onFailure { error ->
-                    if (uiState.activeLibraryBook?.id == book.id) {
+                    if (generation == libraryProfileGeneration && uiState.activeLibraryBook?.id == book.id) {
                         uiState = uiState.copy(
                             isLibraryBookLoading = false,
                             libraryScanError = error.message ?: if (book.isCloud) {
-                                "데스크톱 페이지를 불러올 수 없습니다."
+                                strings[R.string.msg_could_not_load_desktop_pages]
                             } else {
-                                "압축파일을 열 수 없습니다."
+                                strings[R.string.msg_could_not_open_archive]
                             },
                         )
                     }
@@ -1301,13 +1951,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun toggleLibraryFavorite(bookId: String) {
-        val ids = uiState.libraryFavoriteIds.toMutableSet().apply {
-            if (!add(bookId)) remove(bookId)
+    fun loadSeriesBookPreview(bookId: String) {
+        val book = uiState.libraryBooks.firstOrNull { it.id == bookId } ?: return
+        if (book.hasResolvedReaderPages() || bookId in uiState.seriesPreviewLoadingIds) return
+        val profile = selectedProfile()
+        val generation = libraryProfileGeneration
+        uiState = uiState.copy(seriesPreviewLoadingIds = uiState.seriesPreviewLoadingIds + bookId,
+            seriesPreviewErrors = uiState.seriesPreviewErrors - bookId)
+        viewModelScope.launch {
+            try {
+                val prepared = if (book.isCloud) {
+                    check(profile != null && book.remoteBookId != null) { strings[R.string.msg_reconnect_to_desktop_and_retry] }
+                    val pages = client.getLibraryBookPages(profile, book.remoteBookId)
+                    book.copy(pages = pages.mapIndexed { index, url -> LibraryPage(url, "${index + 1}") }, coverUriOverride = book.coverUri)
+                } else libraryArchiveExtractor.materialize(book)
+                if (generation == libraryProfileGeneration && selectedProfile()?.id == profile?.id) uiState = uiState.copy(libraryBooks = uiState.libraryBooks.map {
+                    if (it.id == bookId && it.folderUri == book.folderUri) presentedBook(prepared) else it
+                })
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) {
+                if (generation == libraryProfileGeneration && selectedProfile()?.id == profile?.id) uiState = uiState.copy(seriesPreviewErrors = uiState.seriesPreviewErrors +
+                    (bookId to (error.message ?: strings[R.string.msg_could_not_open_archive])))
+            } finally { if (generation == libraryProfileGeneration) uiState = uiState.copy(seriesPreviewLoadingIds = uiState.seriesPreviewLoadingIds - bookId) }
         }
+    }
+
+    fun toggleLibraryFavorite(bookId: String) {
+        val relatedIds = if (bookId.startsWith("online:")) uiState.libraryBooks.filter { it.metadata.hitomiId == bookId.removePrefix("online:") }
+            .mapTo(linkedSetOf()) { it.id } + bookId else setOf(bookId)
+        val favorite = relatedIds.any { it in uiState.libraryFavoriteIds }
+        val ids = if (favorite) uiState.libraryFavoriteIds - relatedIds else uiState.libraryFavoriteIds + relatedIds
         libraryPreferenceStore.saveFavoriteIds(ids)
         uiState = uiState.copy(libraryFavoriteIds = ids)
-        enqueueBookStateSync(setOf(bookId))
+        enqueueBookStateSync(relatedIds)
     }
 
     fun toggleLibrarySeriesFavorite(seriesName: String) {
@@ -1328,6 +2004,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         libraryPreferenceStore.saveReadIds(ids)
         uiState = uiState.copy(libraryReadIds = ids)
         enqueueBookStateSync(setOf(bookId))
+    }
+
+    fun markOnlineRead(id: Long, read: Boolean) {
+        val ids = if (read) uiState.viewedGalleryIds + id else uiState.viewedGalleryIds - id
+        browserPreferenceStore.saveViewedGalleryIds(ids)
+        uiState = uiState.copy(viewedGalleryIds = ids)
     }
 
     fun addLibraryFavorites(bookIds: Set<String>) {
@@ -1355,30 +2037,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val name = seriesName.trim()
         if (name.isEmpty()) return
         if (!ensureValidSeriesName(name)) return
-        val modifiedAt = System.currentTimeMillis()
-        val affectedNames = bookIds.mapNotNullTo(linkedSetOf()) { id ->
-            uiState.customSeriesByBookId[id]?.name?.takeIf { it != name }
-        } + name
-        var nextOrder = uiState.customSeriesByBookId.values
-            .filter { it.name == name }
-            .maxOfOrNull(CustomSeriesAssignment::order)?.plus(1) ?: 0
-        val additions = buildMap {
-            bookIds.forEach { bookId ->
-                val existing = uiState.customSeriesByBookId[bookId]
-                put(
-                    bookId,
-                    if (existing?.name == name) existing.copy(modifiedAt = modifiedAt)
-                    else CustomSeriesAssignment(name, nextOrder++, modifiedAt),
-                )
-            }
-        }
-        val assignments = touchSeriesAssignments(
-            reindexSeriesAssignments(uiState.customSeriesByBookId + additions, affectedNames),
-            affectedNames,
-            modifiedAt,
-        )
+        val validIds = bookIds.intersect(uiState.libraryBooks.mapTo(hashSetOf()) { it.id })
+        val assignments = com.doujinmenu.android.model.appendSeriesMembers(uiState.customSeriesByBookId, validIds, name, System.currentTimeMillis())
         persistCustomSeries(assignments)
         uiState = uiState.copy(customSeriesByBookId = assignments)
+    }
+
+    fun appendLibrarySeries(bookIds: Set<String>, name: String): Boolean {
+        if (uiState.customSeriesByBookId.values.none { it.name == name }) {
+            uiState = uiState.copy(message = strings[R.string.ui_series_no_longer_exists], isError = true)
+            return false
+        }
+        assignLibrarySeries(bookIds, name)
+        return true
     }
 
     fun autoCreateLibrarySeries() {
@@ -1388,7 +2059,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (candidates.size < 2) {
             uiState = uiState.copy(
-                message = "자동 생성할 미분류 갤러리가 부족합니다.",
+                message = strings[R.string.msg_not_enough_ungrouped_galleries_to_generate_series],
                 isError = false,
             )
             return
@@ -1436,7 +2107,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 if (groups.isEmpty()) {
                     uiState = uiState.copy(
-                        message = "같은 작가와 유사한 제목을 가진 갤러리를 찾지 못했습니다.",
+                        message = strings[R.string.msg_no_galleries_with_the_same_artist_and_similar_titles],
                         isError = false,
                     )
                     return@launch
@@ -1460,51 +2131,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 persistCustomSeries(indexed)
                 uiState = uiState.copy(
                     customSeriesByBookId = indexed,
-                    message = "${groups.size}개 시리즈를 자동 생성했습니다.",
+                    message = strings[R.string.msg_generated_series, (groups.size)],
                     isError = false,
                 )
             } catch (error: Exception) {
                 uiState = uiState.copy(
-                    message = "자동 생성에 실패했습니다: ${error.message ?: "알 수 없는 오류"}",
+                    message = strings[R.string.msg_auto_generation_failed, (error.message ?: strings[R.string.msg_unknown_error])],
                     isError = true,
                 )
             } finally {
                 uiState = uiState.copy(isAutoCreatingSeries = false)
             }
         }
-    }
-
-    fun reorderLibrarySeriesBooks(orderedBookIds: List<String>) {
-        val requestedIds = orderedBookIds.distinct()
-        val seriesName = requestedIds.firstNotNullOfOrNull { id ->
-            uiState.customSeriesByBookId[id]?.name
-        } ?: return
-        val knownIds = uiState.libraryBooks.mapTo(hashSetOf(), LibraryBook::id)
-        val currentIds = uiState.customSeriesByBookId.entries.asSequence()
-            .filter { (id, assignment) -> id in knownIds && assignment.name == seriesName }
-            .sortedWith(compareBy({ it.value.order }, { it.key }))
-            .map { it.key }
-            .toList()
-        val movableIds = requestedIds.filter { id ->
-            id in currentIds && uiState.customSeriesByBookId[id]?.name == seriesName
-        }
-        if (movableIds.size < 2) return
-        val movableSet = movableIds.toHashSet()
-        val replacements = movableIds.iterator()
-        val reorderedIds = currentIds.map { id ->
-            if (id in movableSet) replacements.next() else id
-        }
-        if (reorderedIds == currentIds) return
-        val assignments = uiState.customSeriesByBookId.toMutableMap()
-        val modifiedAt = System.currentTimeMillis()
-        reorderedIds.forEachIndexed { order, id ->
-            assignments[id] = assignments.getValue(id).copy(
-                order = order,
-                modifiedAt = modifiedAt,
-            )
-        }
-        persistCustomSeries(assignments)
-        uiState = uiState.copy(customSeriesByBookId = assignments)
     }
 
     fun setLibraryBooksHidden(bookIds: Set<String>, hidden: Boolean) {
@@ -1517,7 +2155,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(
             libraryHiddenIds = updated,
             activeLibraryBook = uiState.activeLibraryBook?.takeUnless { hidden && it.id in bookIds },
-            message = if (hidden) "선택한 갤러리를 숨겼습니다." else "선택한 갤러리의 숨김을 해제했습니다.",
+            message = if (hidden) strings[R.string.msg_selected_galleries_hidden] else strings[R.string.msg_selected_galleries_unhidden],
             isError = false,
         )
         enqueueBookStateSync(bookIds)
@@ -1531,7 +2169,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val localBooks = selectedBooks.filterNot(LibraryBook::isCloud)
         if (remoteBooks.isNotEmpty() && profile == null) {
             uiState = uiState.copy(
-                message = "데스크톱 갤러리를 삭제하려면 PC에 연결해야 합니다.",
+                message = strings[R.string.msg_connect_to_pc_to_delete_desktop_galleries],
                 isError = true,
             )
             return
@@ -1542,22 +2180,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             remoteBooks.forEach { book ->
                 runCatching { client.deleteLibraryBook(profile!!, book.remoteBookId!!) }
                     .onSuccess { deletedIds += book.id }
-                    .onFailure { failures += "${book.title}: ${it.message ?: "삭제 실패"}" }
+                    .onFailure { failures += "${book.title}: ${it.message ?: strings[R.string.msg_deletion_failed]}" }
             }
             localBooks.forEach { book ->
                 runCatching { libraryFileDeleter.delete(book) }
                     .onSuccess { deletedIds += book.id }
-                    .onFailure { failures += "${book.title}: ${it.message ?: "삭제 실패"}" }
+                    .onFailure { failures += "${book.title}: ${it.message ?: strings[R.string.msg_deletion_failed]}" }
             }
             if (deletedIds.isNotEmpty()) removeDeletedLibraryState(deletedIds)
             val details = buildList {
                 if (remoteBooks.any { it.id in deletedIds }) {
-                    add("데스크톱 갤러리를 휴지통으로 이동하고 DB에서 삭제했습니다.")
+                    add(strings[R.string.msg_desktop_galleries_moved_to_trash_and_removed_from_the])
                 }
                 if (localBooks.any { it.id in deletedIds }) {
-                    add("로컬 갤러리 파일을 영구 삭제했습니다.")
+                    add(strings[R.string.msg_local_gallery_files_permanently_deleted])
                 }
-                if (failures.isNotEmpty()) add("${failures.size}개 삭제에 실패했습니다.")
+                if (failures.isNotEmpty()) add(strings[R.string.msg_could_not_delete_items, (failures.size)])
             }.joinToString(" ")
             uiState = uiState.copy(message = details, isError = failures.isNotEmpty())
         }
@@ -1602,7 +2240,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun renameLibraryBook(bookId: String, title: String) {
         val normalized = title.trim()
-        if (normalized.isEmpty()) return
+        if (normalized.isEmpty() || normalized.length > 500) return
+        uiState.libraryBooks.firstOrNull { it.id == bookId }?.let { book ->
+            runCatching { book.presentation().copy(title = normalized) }.getOrNull()?.let(::saveGalleryPresentation)
+        }
         val titles = libraryPreferenceStore.loadCustomTitles() + (bookId to normalized)
         libraryPreferenceStore.saveCustomTitles(titles)
         uiState = uiState.copy(
@@ -1632,6 +2273,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val normalized = newName.trim()
         if (normalized.isEmpty() || oldName == normalized) return
         if (!ensureValidSeriesName(normalized)) return
+        if (seriesPresentationConflict(oldName)) {
+            uiState = uiState.copy(message = getApplication<Application>().getString(com.doujinmenu.android.R.string.ui_metadata_conflict), isError = true)
+            return
+        }
         val modifiedAt = System.currentTimeMillis()
         val renamed = uiState.customSeriesByBookId.mapValues { (_, assignment) ->
             if (assignment.name == oldName) {
@@ -1648,13 +2293,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             customSeriesByBookId = assignments,
             libraryFavoriteSeriesNames = favorites,
         )
+        val workspace = uiState.galleryWorkspace.renameSeriesPages(oldName, normalized)
+        if (workspace != uiState.galleryWorkspace) applyGalleryWorkspace(workspace)
+        copySeriesPresentation(oldName, normalized)
     }
+
+    private fun copySeriesPresentation(oldName: String, newName: String) {
+        if (oldName == newName) return
+        if (uiState.presentations[com.doujinmenu.android.model.seriesPresentationKey(oldName)] == null &&
+            uiState.presentations[com.doujinmenu.android.model.seriesCoverPresentationKey(oldName)] == null) return
+        val profileId = uiState.selectedProfileId
+        viewModelScope.launch { runOperation {
+            withContext(Dispatchers.IO) { presentationStore(profileId).copySeriesOverride(oldName, newName) }
+            if (profileId == uiState.selectedProfileId) { reloadPresentations(); scheduleLibrarySync() }
+        } }
+    }
+
+    private fun seriesPresentationConflict(name: String): Boolean = listOf(com.doujinmenu.android.model.seriesPresentationKey(name),
+        com.doujinmenu.android.model.seriesCoverPresentationKey(name)).any { uiState.presentations[it]?.conflict != null }
 
     fun mergeLibrarySeries(seriesNames: List<String>, mergedName: String) {
         val names = seriesNames.distinct()
         val name = mergedName.trim()
         if (names.size < 2 || name.isEmpty()) return
         if (!ensureValidSeriesName(name)) return
+        if (names.any(::seriesPresentationConflict)) {
+            uiState = uiState.copy(message = getApplication<Application>().getString(com.doujinmenu.android.R.string.ui_metadata_conflict), isError = true)
+            return
+        }
         val modifiedAt = System.currentTimeMillis()
         val selectedEntries = names.flatMap { sourceName ->
             uiState.customSeriesByBookId.entries
@@ -1686,6 +2352,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             customSeriesByBookId = indexed,
             libraryFavoriteSeriesNames = favorites,
         )
+        copySeriesPresentation(names.first(), name)
     }
 
     fun deleteLibrarySeries(names: Set<String>) {
@@ -1749,9 +2416,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             uiState.libraryReadIds
         }
+        book?.let { recordLibraryHistory(it, normalizedPage) }
         if (uiState.libraryProgress[bookId] == normalizedPage && readIds == uiState.libraryReadIds) return
         val progress = uiState.libraryProgress + (bookId to normalizedPage)
-        libraryPreferenceStore.saveProgress(progress)
+        libraryPreferenceStore.saveBookProgress(bookId, normalizedPage)
         if (readIds != uiState.libraryReadIds) libraryPreferenceStore.saveReadIds(readIds)
         uiState = uiState.copy(libraryProgress = progress, libraryReadIds = readIds)
         enqueueBookStateSync(setOf(bookId))
@@ -1760,7 +2428,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun ensureValidSeriesName(name: String): Boolean {
         if (name.length <= MAX_SERIES_NAME_LENGTH) return true
         uiState = uiState.copy(
-            message = "시리즈 이름은 ${MAX_SERIES_NAME_LENGTH}자 이하로 입력해 주세요.",
+            message = strings[R.string.msg_series_names_must_be_characters_or_fewer, (MAX_SERIES_NAME_LENGTH)],
             isError = true,
         )
         return false
@@ -1776,10 +2444,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             uiState.viewedGalleryIds
         }
+        (uiState.galleryCache[galleryId] ?: uiState.galleries.firstOrNull { it.id == galleryId })?.let { recordOnlineHistory(it, normalizedPage) }
         if (uiState.onlineReaderProgress[galleryId] == normalizedPage && viewedIds == uiState.viewedGalleryIds) return
         val progress = uiState.onlineReaderProgress + (galleryId to normalizedPage)
-        libraryPreferenceStore.saveOnlineProgress(progress)
+        libraryPreferenceStore.saveOnlinePage(galleryId, normalizedPage)
         uiState = uiState.copy(onlineReaderProgress = progress, viewedGalleryIds = viewedIds)
+    }
+
+    private fun saveHistory(event: RecentHistoryEntry) {
+        if (!uiState.historyRecording) return
+        val entries = uiState.recentHistory.recordHistory(event)
+        recentHistoryStore.save(entries)
+        uiState = uiState.copy(recentHistory = entries)
+    }
+
+    private fun recordOnlineHistory(gallery: GallerySummary, page: Int? = null) {
+        val completed = page != null && reachedLastPage(page, gallery.pageCount)
+        saveHistory(RecentHistoryEntry(
+            key = "gallery:${gallery.id}", title = gallery.title, viewedAt = System.currentTimeMillis(),
+            source = HistorySource.SEARCH, galleryId = gallery.id, artist = gallery.artists.joinToString(),
+            thumbnail = gallery.thumbnailUrl, pageCount = gallery.pageCount, page = page,
+            action = if (page == null) HistoryAction.DETAIL else if (completed) HistoryAction.COMPLETED else HistoryAction.READING,
+            completed = completed,
+        ))
+    }
+
+    private fun recordLibraryHistory(book: LibraryBook, page: Int? = null) {
+        val id = book.metadata.hitomiId?.toLongOrNull()?.takeIf { it > 0 }
+        val completed = page != null && reachedLastPage(page, book.pages.size)
+        saveHistory(RecentHistoryEntry(
+            key = id?.let { "gallery:$it" } ?: book.syncId?.let { "sync:$it" } ?: "book:${book.id}",
+            title = book.title, viewedAt = System.currentTimeMillis(),
+            source = if (book.isCloud) HistorySource.PC else HistorySource.DEVICE,
+            galleryId = id, bookId = book.id, syncId = book.syncId, artist = book.metadata.artists.joinToString(),
+            thumbnail = book.coverUri, pageCount = book.pages.size, page = page,
+            action = if (page == null) HistoryAction.DETAIL else if (completed) HistoryAction.COMPLETED else HistoryAction.READING,
+            completed = completed,
+        ))
+    }
+
+    fun setHistoryRecording(enabled: Boolean) {
+        recentHistoryStore.setRecording(enabled)
+        uiState = uiState.copy(historyRecording = enabled)
+    }
+
+    fun removeHistory(key: String) {
+        val entries = uiState.recentHistory.filterNot { it.key == key }
+        recentHistoryStore.save(entries)
+        uiState = uiState.copy(recentHistory = entries)
+    }
+
+    fun clearHistory() {
+        recentHistoryStore.save(emptyList())
+        uiState = uiState.copy(recentHistory = emptyList())
+    }
+
+    fun openHistory(entry: RecentHistoryEntry, resume: Boolean) {
+        if (uiState.isBusy) return
+        val book = entry.findBook(uiState.libraryBooks.filterNot { it.id in uiState.libraryHiddenIds })
+        if (book != null) {
+            openLibraryBookTab(book.id)
+            if (resume) openLibraryReaderTab(book.id, (entry.page ?: uiState.libraryProgress[book.id] ?: 0).coerceAtLeast(0))
+            return
+        }
+        val id = entry.galleryId
+        if (id == null) {
+            uiState = uiState.copy(message = strings[R.string.msg_file_not_found_check_storage_and_pc_connection], isError = true)
+            return
+        }
+        viewModelScope.launch {
+            runOperation {
+                val gallery = uiState.galleryCache[id] ?: hitomiClient.getGallery(id)
+                uiState = uiState.copy(galleryCache = cacheGalleries(uiState.galleryCache, listOf(gallery)))
+                selectGallery(id)
+                if (resume) openOnlineReaderTab(id, (entry.page ?: uiState.onlineReaderProgress[id] ?: 0)
+                    .coerceIn(0, (gallery.pageCount - 1).coerceAtLeast(0)))
+            }
+        }
     }
 
     fun updateViewerPreferences(value: ViewerPreferences) {
@@ -1791,6 +2532,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val location = StorageLocation(uri, displayName)
         browserPreferenceStore.saveDownloadLocation(location)
         uiState = uiState.copy(downloadLocation = location)
+        downloadAfterFolder?.let { gallery ->
+            downloadAfterFolder = null
+            uiState = uiState.copy(pendingDownloadGallery = null, downloadFolderRequired = false)
+            enqueueGalleryDownload(gallery, DownloadDestination.DEVICE)
+        }
     }
 
     fun clearDownloadLocation() {
@@ -1809,7 +2555,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (downloadRefreshJob?.isActive == true || uiState.isDownloadConnectionUnavailable) return
         val profile = selectedProfile() ?: run {
             if (!silent) {
-                uiState = uiState.copy(downloadQueueError = "연결된 데스크톱이 없습니다.")
+                uiState = uiState.copy(downloadQueueError = strings[R.string.msg_no_desktop_connected])
             }
             return
         }
@@ -1828,7 +2574,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val hasNewCompletion = completedIds.any { it !in observedCompletedDownloadIds }
                 observedCompletedDownloadIds.clear()
                 observedCompletedDownloadIds += completedIds
-                val reconnectMessage = "PC와 다시 연결되었습니다.".takeIf { notifyOnDownloadReconnect }
+                val reconnectMessage = strings[R.string.msg_reconnected_to_pc].takeIf { notifyOnDownloadReconnect }
                 uiState = uiState.copy(
                     downloadQueue = downloads,
                     downloadQueueError = null,
@@ -1841,7 +2587,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: Exception) {
                 if (!silent) {
                     uiState = uiState.copy(
-                        downloadQueueError = error.message ?: "다운로드 목록을 불러오지 못했습니다.",
+                        downloadQueueError = error.message ?: strings[R.string.msg_could_not_load_downloads],
                         isDownloadConnectionUnavailable = true,
                     )
                 }
@@ -1877,7 +2623,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         if (queueId != null && queueId in uiState.activeDownloadActionIds) return
         val profile = selectedProfile() ?: run {
-            uiState = uiState.copy(downloadQueueError = "연결된 데스크톱이 없습니다.")
+            uiState = uiState.copy(downloadQueueError = strings[R.string.msg_no_desktop_connected])
             return
         }
         viewModelScope.launch {
@@ -1894,7 +2640,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             } catch (error: Exception) {
                 uiState = uiState.copy(
-                    downloadQueueError = error.message ?: "다운로드 작업에 실패했습니다.",
+                    downloadQueueError = error.message ?: strings[R.string.msg_download_action_failed],
                 )
             } finally {
                 if (queueId != null) {
@@ -1936,8 +2682,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isActiveSearch(key) && activeSearchPage()?.resultSessionId == sessionId && uiState.browserNavigationRevision == revision
 
     private fun publishSearchWindow(window: SearchResultWindow) {
-        uiState = uiState.copy(searchResultWindow = window, galleries = window.galleries,
-            currentPage = window.index.pages.size, hasNextPage = window.index.hasNextPage)
+        uiState = uiState.copy(searchResultWindow = window, galleries = window.galleries.map(::presentedGallery),
+            currentPage = window.index.lastPage, hasNextPage = window.index.hasNextPage)
     }
 
     private fun restoreBrowserSearch() {
@@ -1957,8 +2703,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         browserPreferenceStore.saveBrowserWorkspace(workspace)
         browserSearchJob = viewModelScope.launch {
             try {
-                val index = searchResultPager.restore(sessionId, queries, search.currentPage)
+                val index = searchResultPager.restore(sessionId, queries, search.scrollPage)
                 if (!isSearchSessionCurrent(search.key, sessionId, revision)) return@launch
+                visibleSearchResults = index.ids.indexOf(search.scrollAnchorKey?.removePrefix("gallery:")?.toLongOrNull()).coerceAtLeast(0).let { it..it }
                 publishSearchWindow(SearchResultWindow(index))
                 syncActiveSearch(persist = true)
                 loadVisibleSearchResults(visibleSearchResults.first, visibleSearchResults.last)
@@ -1966,7 +2713,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 throw cancelled
             } catch (error: Exception) {
                 if (isSearchSessionCurrent(search.key, sessionId, revision)) {
-                    uiState = uiState.copy(message = error.message ?: "검색 결과를 복원하지 못했습니다.", isError = true)
+                    uiState = uiState.copy(message = error.message ?: strings[R.string.msg_could_not_restore_search_results], isError = true)
                 }
             } finally {
                 if (isSearchSessionCurrent(search.key, sessionId, revision)) {
@@ -2004,15 +2751,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 throw cancelled
             } catch (error: Exception) {
                 if (isSearchSessionCurrent(searchKey, window.index.sessionId, revision)) {
-                    uiState = uiState.copy(message = error.message ?: "검색 결과를 불러오지 못했습니다.", isError = true)
+                    uiState = uiState.copy(message = error.message ?: strings[R.string.msg_could_not_load_search_results], isError = true)
                 }
             }
         }
     }
 
     private suspend fun fetchSearchPage(queries: List<String>, page: Int): SearchResult = coroutineScope {
-        val results = queries.map { query -> async { hitomiClient.search(query, page) } }.awaitAll()
-        SearchResult(results.flatMap { it.galleryIds }.distinct(), results.any { it.hasNextPage })
+        val results = queries.distinct().map { query -> async { hitomiClient.search(query, page) } }.awaitAll()
+        combineLanguageSearchResults(results)
     }
 
     private fun openSearchTab(query: String, preferredLanguages: Set<String>) {
@@ -2022,12 +2769,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             applyBrowserWorkspace(workspace, reload = true)
             return
         }
-        applyBrowserWorkspace(
-            uiState.browserWorkspace.openTab(BrowserPage.Search(
-                query = query,
-                preferredLanguages = preferredLanguages,
-            )),
-        )
+        val originIsGallery = navigationPage is BrowserPage.LibraryHome || navigationPage is BrowserPage.LibrarySeries || navigationPage is BrowserPage.LibraryBook || navigationPage is BrowserPage.LibraryReader
+        val origin = if (originIsGallery) uiState.galleryWorkspace else uiState.browserWorkspace
+        val workspace = uiState.browserWorkspace.openTab(BrowserPage.Search(query = query, preferredLanguages = preferredLanguages))
+        rememberNewTab(workspace.activeTabId, false, origin.activeTabId, originIsGallery)
+        applyBrowserWorkspace(workspace)
         startBrowserSearch(reset = true)
     }
 
@@ -2041,6 +2787,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         suggestionJob?.cancel()
         val page = workspace.activeTab.currentPage
         navigationPage = page
+        browserPreferenceStore.saveActiveGalleryWorkspace(false)
         val revision = uiState.browserNavigationRevision + 1
         uiState = when (page) {
             is BrowserPage.Search -> uiState.copy(
@@ -2087,12 +2834,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun applyGalleryWorkspace(workspace: BrowserWorkspace) {
+        libraryQueryJob?.cancel()
         browserSearchJob?.cancel()
         cancelSearchWindow()
         suggestionJob?.cancel()
         navigationPage = workspace.activeTab.currentPage
+        browserPreferenceStore.saveActiveGalleryWorkspace(true)
         uiState = uiState.copy(
             galleryWorkspace = workspace,
+            libraryQuery = (workspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query ?: uiState.libraryQuery,
+            libraryQueryDraft = (workspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query ?: uiState.libraryQueryDraft,
             galleries = emptyList(),
             searchResultWindow = null,
             nextSearchPageError = null,
@@ -2109,8 +2860,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun syncActiveSearch(persist: Boolean = false) {
         val workspace = uiState.browserWorkspace.updateActiveSearch { search ->
             search.copy(
-                query = uiState.searchQuery,
-                preferredLanguages = uiState.preferredLanguages,
                 submittedQuery = uiState.submittedSearchQuery,
                 submittedQueries = uiState.submittedSearchQueries,
                 resultIds = emptyList(),
@@ -2136,7 +2885,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (uiState.submittedSearchQueries.isEmpty()) uiState.searchQuery.trim() else ""
             }
         }
-        val searchQueries = if (reset) {
+        val searchQueries = if (reset && preserveResults) {
+            uiState.submittedSearchQueries.ifEmpty { queriesWithPreferredLanguages(query, uiState.preferredLanguages) }
+        } else if (reset) {
             queriesWithPreferredLanguages(query, uiState.preferredLanguages)
         } else {
             uiState.submittedSearchQueries.ifEmpty {
@@ -2144,19 +2895,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         if (searchQueries.isEmpty()) {
-            uiState = uiState.copy(message = "검색어를 입력하세요.", isError = true)
+            uiState = uiState.copy(message = strings[R.string.msg_enter_a_search_query], isError = true)
             return
         }
         val index = if (reset) SearchResultIndex(java.util.UUID.randomUUID().toString(), searchQueries)
             else uiState.searchResultWindow?.index ?: return
+        if (reset) {
+            browserPreferenceStore.savePreferredLanguages(uiState.preferredLanguages)
+            if (!preserveResults) {
+                val history = uiState.searchQueryHistory.recordQuery(SearchQueryEntry(query, uiState.preferredLanguages))
+                browserPreferenceStore.saveSearchQueryHistory(history)
+                uiState = uiState.copy(searchQueryHistory = history)
+            }
+        }
         val revision = uiState.browserNavigationRevision
         if (reset) {
             cancelSearchWindow()
             if (!preserveResults) visibleSearchResults = 0..0
         }
         val previousWorkspace = uiState.browserWorkspace
+        val previousResults = uiState.searchResultWindow
+        val previousPage = uiState.currentPage
+        val previousHasNext = uiState.hasNextPage
         val workspace = previousWorkspace.updateActiveSearch { search ->
-            search.copy(resultSessionId = index.sessionId,
+            search.copy(query = if (reset) query else search.query,
+                preferredLanguages = if (reset) uiState.preferredLanguages else search.preferredLanguages,
+                resultSessionId = index.sessionId,
+                scrollPage = if (reset && !preserveResults) 1 else search.scrollPage,
                 scrollAnchorKey = if (reset && !preserveResults) null else search.scrollAnchorKey,
                 scrollIndex = if (reset && !preserveResults) 0 else search.scrollIndex,
                 scrollOffset = if (reset && !preserveResults) 0 else search.scrollOffset)
@@ -2189,7 +2954,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 galleryCache = cacheGalleries(uiState.galleryCache, summaries),
                 knownFilterTokens = knownFilters,
                 message = if (failedCount > 0) {
-                    "상세 정보를 불러오지 못한 갤러리가 ${failedCount}개 있습니다."
+                    strings[R.string.msg_could_not_load_details_for_galleries, (failedCount)]
                 } else {
                     null
                 },
@@ -2202,9 +2967,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             throw cancelled
         } catch (error: Exception) {
             if (isSearchSessionCurrent(searchKey, index.sessionId, revision)) {
+                if (preserveResults) uiState = uiState.copy(browserWorkspace = previousWorkspace,
+                    searchResultWindow = previousResults, currentPage = previousPage, hasNextPage = previousHasNext, isLoadingPage = false)
                 uiState = uiState.copy(
-                    message = error.message ?: "검색 페이지를 불러오지 못했습니다.",
-                    nextSearchPageError = error.message ?: "검색 페이지를 불러오지 못했습니다.",
+                    message = error.message ?: strings[R.string.msg_could_not_load_search_page],
+                    nextSearchPageError = error.message ?: strings[R.string.msg_could_not_load_search_page],
                     isError = true,
                 )
                 syncActiveSearch(persist = true)
@@ -2237,7 +3004,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 thumbnailUrl = null,
                                 pageCount = 0,
                                 language = null,
-                                loadError = error.message ?: "상세 정보를 불러오지 못했습니다.",
+                                loadError = error.message ?: strings[R.string.msg_could_not_load_details],
                             )
                         }
                 }
@@ -2251,7 +3018,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             block()
         } catch (error: Exception) {
             uiState = uiState.copy(
-                message = operationErrorMessage(error),
+                message = operationErrorMessage(error, strings),
                 isError = true,
             )
         } finally {
@@ -2261,21 +3028,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private inline fun update(transform: MainUiState.() -> MainUiState) {
         uiState = uiState.transform()
-    }
-
-    private fun queriesWithPreferredLanguages(
-        query: String,
-        preferredLanguages: Set<String>,
-    ): List<String> {
-        val normalizedQuery = normalizeSearchSeparators(query)
-        val baseQuery = normalizedQuery
-            .replace(Regex("(?i)(^|\\s)-?language:[^\\s]+"), " ")
-            .trim()
-            .replace(Regex("\\s+"), " ")
-        if (preferredLanguages.isEmpty()) return listOf(normalizedQuery).filter { it.isNotBlank() }
-        return preferredLanguages.sorted().map { language ->
-            listOf(baseQuery, "language:$language").filter { it.isNotBlank() }.joinToString(" ")
-        }
     }
 
     private fun normalizeFilterFacet(facet: String): String {
@@ -2289,90 +3041,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return "$prefix:$value"
     }
 
-    private fun refreshFilterSuggestions(query: String) {
+    private fun refreshFilterSuggestions(query: String, library: Boolean = false) {
         suggestionJob?.cancel()
-        val rawToken = query.substringAfterLast(' ').removePrefix("-").trim()
-        if (rawToken.isEmpty()) {
-            uiState = uiState.copy(filterSuggestions = emptyList(), isLoadingFilterSuggestions = false)
-            return
+        fun publish(values: List<FilterSuggestion>, loading: Boolean) {
+            uiState = if (library) uiState.copy(libraryFilterSuggestions = values, isLoadingLibrarySuggestions = loading)
+                else uiState.copy(filterSuggestions = values, isLoadingFilterSuggestions = loading)
         }
-        if (':' !in rawToken) {
-            val partial = rawToken.lowercase()
-            val typeHints = FILTER_TYPES
-                .filter { it.startsWith(partial) }
-                .map { FilterSuggestion("$it:", "$it 필터") }
-            val local = localUntypedFilterSuggestions(partial)
-            val cacheKey = "untyped:$partial"
-            suggestionCache[cacheKey]?.let { cached ->
-                uiState = uiState.copy(
-                    filterSuggestions = mergeUntypedSuggestions(typeHints, local, cached, partial),
-                    isLoadingFilterSuggestions = false,
-                )
-                return
-            }
-
-            uiState = uiState.copy(
-                filterSuggestions = mergeUntypedSuggestions(typeHints, local, emptyList(), partial),
-                isLoadingFilterSuggestions = true,
-            )
-            suggestionJob = viewModelScope.launch {
-                delay(SUGGESTION_DEBOUNCE_MS)
-                val remote = coroutineScope {
-                    UNTYPED_SUGGESTION_TYPES.map { type ->
-                        async {
-                            runCatching { suggestionClient.getSuggestions(type, partial) }
-                                .getOrDefault(emptyList())
-                        }
-                    }.awaitAll().flatten()
-                }
-                suggestionCache[cacheKey] = remote
-                val knownFilters = rememberKnownFilterTokens(remote.mapTo(linkedSetOf()) { it.token })
-                if (uiState.searchQuery.substringAfterLast(' ').removePrefix("-") == rawToken) {
-                    uiState = uiState.copy(
-                        filterSuggestions = mergeUntypedSuggestions(typeHints, local, remote, partial),
-                        isLoadingFilterSuggestions = false,
-                        knownFilterTokens = knownFilters,
-                    )
-                } else if (knownFilters != uiState.knownFilterTokens) {
-                    uiState = uiState.copy(knownFilterTokens = knownFilters)
-                }
-            }
-            return
-        }
-        val type = rawToken.substringBefore(':').lowercase()
-        val partial = rawToken.substringAfter(':').lowercase()
-        if (type !in FILTER_TYPES || partial.isEmpty()) {
-            uiState = uiState.copy(filterSuggestions = emptyList(), isLoadingFilterSuggestions = false)
-            return
-        }
-
-        val local = localFilterSuggestions(type, partial)
-        val bucket = partial.first().let { if (it.isDigit()) "0-9" else it.toString() }
-        val cacheKey = "$type:$bucket"
-        suggestionCache[cacheKey]?.let { cached ->
-            uiState = uiState.copy(
-                filterSuggestions = mergeSuggestions(local, cached, partial),
-                isLoadingFilterSuggestions = false,
-            )
-            return
-        }
-
-        uiState = uiState.copy(filterSuggestions = local, isLoadingFilterSuggestions = true)
+        val rawToken = query.substring(searchTokenStart(query)).removePrefix("-").trim().lowercase()
+        if (rawToken.isEmpty()) { publish(emptyList(), false); return }
+        val type = rawToken.substringBefore(':', "")
+        val partial = rawToken.substringAfter(':', rawToken)
+        if ((':' in rawToken && type !in FILTER_TYPES) || partial.isEmpty()) { publish(emptyList(), false); return }
+        val untyped = ':' !in rawToken
+        val hints = if (untyped) FILTER_TYPES.filter { it.startsWith(partial) }.map { FilterSuggestion("$it:", strings[R.string.msg_filter, it]) } else emptyList()
+        var local = if (untyped) localUntypedFilterSuggestions(partial) else localFilterSuggestions(type, partial)
+        fun merged(remote: List<FilterSuggestion>) = if (untyped) mergeUntypedSuggestions(hints, local, remote, partial) else mergeSuggestions(local, remote, partial)
+        val cacheKey = if (untyped) "untyped:$partial" else "$type:${partial.first().let { if (it.isDigit()) "0-9" else it.toString() }}"
+        val generation = libraryProfileGeneration
+        fun current() = generation == libraryProfileGeneration && (if (library) uiState.libraryQueryDraft else uiState.searchQuery) == query
+        publish(merged(suggestionCache[cacheKey].orEmpty()), true)
         suggestionJob = viewModelScope.launch {
-            delay(SUGGESTION_DEBOUNCE_MS)
-            val remote = runCatching { suggestionClient.getSuggestions(type, partial) }
-                .getOrDefault(emptyList())
-            suggestionCache[cacheKey] = remote
-            val knownFilters = rememberKnownFilterTokens(remote.mapTo(linkedSetOf()) { it.token })
-            if (uiState.searchQuery.substringAfterLast(' ').removePrefix("-") == rawToken) {
-                uiState = uiState.copy(
-                    filterSuggestions = mergeSuggestions(local, remote, partial),
-                    isLoadingFilterSuggestions = false,
-                    knownFilterTokens = knownFilters,
-                )
-            } else if (knownFilters != uiState.knownFilterTokens) {
-                uiState = uiState.copy(knownFilterTokens = knownFilters)
+            val books = uiState.libraryBooks
+            val cached = librarySuggestionIndex?.takeIf { it.first === books }?.second
+            val tokens = withContext(Dispatchers.Default) { cached ?: libraryFilterTokens(books) }
+            if (!current()) return@launch
+            if (books === uiState.libraryBooks) librarySuggestionIndex = books to tokens
+            val libraryTokens = withContext(Dispatchers.Default) {
+                tokens.asSequence().filter { if (untyped) it.substringAfter(':').startsWith(partial) else it.startsWith("$type:$partial") }
+                    .take(MAX_FILTER_SUGGESTIONS).map { FilterSuggestion(it, it.substringAfter(':').replace('_', ' ')) }.toList()
             }
+            if (!current()) return@launch
+            local = local + libraryTokens
+            suggestionCache[cacheKey]?.let { publish(merged(it), false); return@launch }
+            publish(merged(emptyList()), true)
+            delay(SUGGESTION_DEBOUNCE_MS)
+            val remote = if (untyped) coroutineScope { UNTYPED_SUGGESTION_TYPES.map { facet -> async {
+                runCatching { suggestionClient.getSuggestions(facet, partial) }.getOrDefault(emptyList())
+            } }.awaitAll().flatten() } else runCatching { suggestionClient.getSuggestions(type, partial) }.getOrDefault(emptyList())
+            if (!current()) return@launch
+            suggestionCache[cacheKey] = remote
+            val known = rememberKnownFilterTokens(remote.mapTo(linkedSetOf()) { it.token })
+            if ((if (library) uiState.libraryQueryDraft else uiState.searchQuery) == query) publish(merged(remote), false)
+            if (known != uiState.knownFilterTokens) uiState = uiState.copy(knownFilterTokens = known)
         }
     }
 
@@ -2426,10 +3136,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .distinctBy { it.token }
         .take(MAX_FILTER_SUGGESTIONS)
 
-    private fun filterValue(value: String): String = value
-        .trim()
-        .lowercase()
-        .replace(Regex("\\s+"), "_")
+    private fun filterValue(value: String): String = normalizeFilterValue(value)
 
     private fun rememberFilterTokens(galleries: List<GallerySummary>): Set<String> {
         val discovered = galleries.asSequence().flatMap { gallery ->
@@ -2472,7 +3179,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val cache = LinkedHashMap(existing)
         incoming.forEach { gallery ->
             cache.remove(gallery.id)
-            cache[gallery.id] = gallery
+            cache[gallery.id] = presentedGallery(gallery)
         }
         while (cache.size > MAX_CACHED_GALLERIES) {
             cache.remove(cache.keys.first())
@@ -2507,7 +3214,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         libraryPreferenceStore.loadPendingSeriesSyncIds(),
         libraryPreferenceStore.loadPendingBookStateSyncIds(),
         uiState.libraryBooks,
-    )
+    ) + uiState.presentations.values.count { it.dirty }
 
     private fun enqueueBookStateSync(changedIds: Set<String>, addHistory: Boolean = false) {
         val syncableIds = uiState.libraryBooks.asSequence()
@@ -2541,28 +3248,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncActiveSearch(persist = true)
         browserPreferenceStore.saveGalleryWorkspace(uiState.galleryWorkspace)
         stopConnectionMonitoring()
-        reconnectLibraryRefreshJob?.cancel()
+        if (pendingRefreshIsReconnect) importantLibraryRefreshJob?.cancel()
         librarySyncDebounceJob?.cancel()
         librarySyncDebounceJob = viewModelScope.launch { flushPendingLibrarySync() }
     }
 
-    private fun requestImportantLibraryRefresh() {
+    private fun requestImportantLibraryRefresh() = requestLibraryRefreshWhenIdle(reconnect = false)
+
+    private fun requestReconnectLibraryRefresh() = requestLibraryRefreshWhenIdle(reconnect = true)
+
+    private fun requestLibraryRefreshWhenIdle(reconnect: Boolean) {
+        // A queued server change is stronger than a reconnect check.
+        if (reconnect && importantLibraryRefreshJob?.isActive == true) return
         importantLibraryRefreshJob?.cancel()
+        pendingRefreshIsReconnect = reconnect
+        val generation = libraryProfileGeneration
+        val completed = successfulDesktopRefreshes
+        val inFlight = libraryRefreshJob
         importantLibraryRefreshJob = viewModelScope.launch {
+            inFlight?.join()
             while (uiState.isLibraryScanning || uiState.isLibrarySyncing) {
                 delay(IMPORTANT_LIBRARY_REFRESH_RETRY_MS)
             }
-            refreshLibrarySilently()
-        }
-    }
-
-    private fun requestReconnectLibraryRefresh() {
-        reconnectLibraryRefreshJob?.cancel()
-        reconnectLibraryRefreshJob = viewModelScope.launch {
-            while (uiState.isLibraryScanning) {
-                delay(IMPORTANT_LIBRARY_REFRESH_RETRY_MS)
+            if (generation == libraryProfileGeneration && (!reconnect || successfulDesktopRefreshes == completed)) {
+                refreshLibrarySilently()
             }
-            refreshLibrarySilently()
         }
     }
 
@@ -2581,6 +3291,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         booksOverride: List<LibraryBook>? = null,
     ) = librarySyncFlushMutex.withLock {
         val profile = profileOverride ?: selectedProfile() ?: return@withLock
+        syncPresentations(profile)
         if (uiState.isLibraryScanning && booksOverride == null) {
             scheduleLibrarySync(LIBRARY_SYNC_SCAN_RETRY_MS)
             return@withLock
@@ -2593,7 +3304,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (uploadFailures.isNotEmpty()) {
             uiState = uiState.copy(
                 librarySyncError = uploadFailures.joinToString("\n"),
-                message = "${uploadFailures.size}개 로컬 파일을 데스크톱으로 전송하지 못했습니다.",
+                message = strings[R.string.msg_could_not_transfer_local_files_to_desktop, (uploadFailures.size)],
                 isError = true,
             )
         }
@@ -2648,6 +3359,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) = bookStateSyncMutex.withLock {
         if (uploadLocalBooks) uploadMissingLocalBooks(profile, books, ids)
         val customTitles = libraryPreferenceStore.loadCustomTitles()
+        val presentations = withContext(Dispatchers.IO) { presentationStore(profile.id).all().associateBy { it.value.key } }
         val modifiedTimes = libraryPreferenceStore.loadBookStateModifiedTimes()
         val versionBySyncId = latestSyncStateVersions(books)
         val booksBySyncId = books
@@ -2655,6 +3367,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .groupBy { it.syncId!!.lowercase() }
         val attempts = books.asSequence()
             .filter { it.id in ids }
+            // Legacy title fields must not bypass an unresolved presentation conflict.
+            .filter { book -> runCatching { presentations[book.presentationKey()]?.dirty != true }.getOrDefault(true) }
             .mapNotNull { book ->
                 val syncId = book.syncId ?: return@mapNotNull null
                 val relatedBooks = booksBySyncId[syncId.lowercase()].orEmpty()
@@ -2675,7 +3389,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         isFavorite = book.id in uiState.libraryFavoriteIds,
                         isRead = book.id in uiState.libraryReadIds,
                         isHidden = book.id in uiState.libraryHiddenIds,
-                        customTitle = customTitles[book.id],
+                        customTitle = runCatching { presentations[book.presentationKey()]?.value?.title }.getOrNull() ?: customTitles[book.id],
                         seriesFavorite = seriesName in uiState.libraryFavoriteSeriesNames,
                         historyEventId = mutationId.takeIf { addHistory },
                         historyViewedAt = if (addHistory) {
@@ -2745,7 +3459,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val failureDetails = failureMessages.joinToString("\n").takeIf(String::isNotBlank)
-        val failureMessage = "책 상태 ${failed.size}개를 동기화하지 못했습니다."
+        val failureMessage = strings[R.string.msg_could_not_sync_book_states, (failed.size)]
         uiState = uiState.copy(
             librarySyncPendingCount = pendingLibrarySyncCount(),
             librarySyncError = if (failed.isEmpty()) uiState.librarySyncError
@@ -2755,7 +3469,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     append(failureMessage)
                     failureDetails?.lineSequence()?.firstOrNull()?.let { append(" ").append(it) }
                 }
-                conflictCount > 0 -> "다른 기기의 변경 ${conflictCount}건을 확인하고 최신 상태로 저장했습니다."
+                conflictCount > 0 -> strings[R.string.msg_applied_changes_from_another_device, (conflictCount)]
                 else -> uiState.message
             },
             isError = failed.isNotEmpty(),
@@ -2787,14 +3501,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ): Set<String> {
         if (remoteStates.isEmpty()) return emptySet()
 
-        var favoriteIds = libraryPreferenceStore.loadFavoriteIds()
-        var readIds = libraryPreferenceStore.loadReadIds()
-        var hiddenIds = libraryPreferenceStore.loadHiddenIds()
-        var progress = libraryPreferenceStore.loadProgress()
-        var customTitles = libraryPreferenceStore.loadCustomTitles()
-        var favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames()
-        var modifiedTimes = libraryPreferenceStore.loadBookStateModifiedTimes()
-        var pendingIds = libraryPreferenceStore.loadPendingBookStateSyncIds()
+        val favoriteIds = libraryPreferenceStore.loadFavoriteIds().toMutableSet()
+        val readIds = libraryPreferenceStore.loadReadIds().toMutableSet()
+        val hiddenIds = libraryPreferenceStore.loadHiddenIds().toMutableSet()
+        val progress = libraryPreferenceStore.loadProgress().toMutableMap()
+        val customTitles = libraryPreferenceStore.loadCustomTitles().toMutableMap()
+        val favoriteSeriesNames = libraryPreferenceStore.loadFavoriteSeriesNames().toMutableSet()
+        val modifiedTimes = libraryPreferenceStore.loadBookStateModifiedTimes().toMutableMap()
+        val pendingIds = libraryPreferenceStore.loadPendingBookStateSyncIds().toMutableSet()
         val booksBySyncId = books.groupBy { it.syncId?.lowercase() }
         val receivedStatesByBookId = mutableMapOf<String, SyncedBookState>()
         val acceptedStatesByBookId = mutableMapOf<String, SyncedBookState>()
@@ -2810,20 +3524,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         expectedModifiedAtByBookId = expectedModifiedAtByBookId,
                     )
                 ) {
-                    pendingIds += book.id
+                    pendingIds.add(book.id)
                     return@forEach
                 }
-                pendingIds -= book.id
+                pendingIds.remove(book.id)
                 acceptedStatesByBookId[book.id] = state
-                favoriteIds = favoriteIds.withMembership(book.id, state.isFavorite)
-                readIds = readIds.withMembership(book.id, state.isRead)
-                hiddenIds = hiddenIds.withMembership(book.id, state.isHidden)
-                progress = progress + (book.id to state.currentPage)
-                customTitles = if (state.customTitle == null) customTitles - book.id
-                else customTitles + (book.id to state.customTitle)
-                modifiedTimes = modifiedTimes + (book.id to state.modifiedAt)
+                favoriteIds.setMembership(book.id, state.isFavorite)
+                readIds.setMembership(book.id, state.isRead)
+                hiddenIds.setMembership(book.id, state.isHidden)
+                progress[book.id] = state.currentPage
+                if (state.customTitle == null) customTitles.remove(book.id)
+                else customTitles[book.id] = state.customTitle
+                modifiedTimes[book.id] = state.modifiedAt
                 uiState.customSeriesByBookId[book.id]?.name?.let { seriesName ->
-                    favoriteSeriesNames = favoriteSeriesNames.withMembership(
+                    favoriteSeriesNames.setMembership(
                         seriesName,
                         state.seriesFavorite,
                     )
@@ -2854,8 +3568,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         uiState = uiState.copy(
-            libraryBooks = uiState.libraryBooks.map(LibraryBook::withSyncedState),
-            activeLibraryBook = uiState.activeLibraryBook?.withSyncedState(),
+            libraryBooks = uiState.libraryBooks.map { presentedBook(it.withSyncedState()) },
+            activeLibraryBook = uiState.activeLibraryBook?.withSyncedState()?.let(::presentedBook),
             libraryFavoriteIds = favoriteIds,
             libraryReadIds = readIds,
             libraryHiddenIds = hiddenIds,
@@ -2869,7 +3583,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun syncDownloadRequests() {
         val profile = selectedProfile() ?: run {
-            uiState = uiState.copy(downloadQueueError = "먼저 데스크톱과 연결하세요.")
+            uiState = uiState.copy(downloadQueueError = strings[R.string.msg_connect_to_desktop_first])
             return
         }
         if (uiState.isDownloadSyncing) return
@@ -2890,7 +3604,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         try {
             val status = client.getStatus(profile.baseUrl)
             check(!requireRequestIds || status.downloadRequestIds) {
-                "대기 요청 동기화에는 요청 ID를 지원하는 데스크톱 업데이트가 필요합니다. 목록은 유지됩니다."
+                strings[R.string.msg_update_desktop_to_a_version_supporting_request_ids_pen]
             }
             for (request in pending) {
                 var claimed = false
@@ -2922,20 +3636,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            errors += error.message ?: "다운로드 요청 동기화에 실패했습니다."
+            errors += error.message ?: strings[R.string.msg_download_request_sync_failed]
         } finally {
             uiState = uiState.copy(isDownloadSyncing = false,
                 downloadQueueError = errors.takeIf { it.isNotEmpty() }?.joinToString("\n"))
         }
-        if (errors.isEmpty()) uiState = uiState.copy(message = "대기 요청을 PC 다운로드 큐에 전달했습니다.", isError = false)
+        if (errors.isEmpty()) uiState = uiState.copy(message = strings[R.string.msg_pending_requests_sent_to_pc_download_queue], isError = false)
         errors
     }
 
     fun syncLibraryNow() {
         val profile = selectedProfile()
         if (profile == null || uiState.isLibrarySyncing) {
-            if (profile == null) uiState = uiState.copy(librarySyncError = "먼저 데스크톱과 연결하세요.",
-                message = "먼저 데스크톱과 연결하세요.", isError = true)
+            if (profile == null) uiState = uiState.copy(librarySyncError = strings[R.string.msg_connect_to_desktop_first],
+                message = strings[R.string.msg_connect_to_desktop_first], isError = true)
             return
         }
         viewModelScope.launch {
@@ -2949,7 +3663,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val failures = uploadMissingLocalBooks(profile, uiState.libraryBooks, remainingIds)
                 val errors = downloadErrors + failures
                 if (errors.isNotEmpty()) uiState = uiState.copy(librarySyncError = errors.joinToString("\n"),
-                    message = "일부 항목을 동기화하지 못했습니다. 대기 목록에서 확인하세요.", isError = true)
+                    message = strings[R.string.msg_some_items_could_not_sync_check_the_pending_list], isError = true)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 uiState = uiState.copy(librarySyncError = error.message, message = error.message, isError = true)
@@ -2976,7 +3690,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (uploadFailures.isNotEmpty()) {
             uiState = uiState.copy(
                 librarySyncError = uploadFailures.joinToString("\n"),
-                message = "시리즈를 저장하기 전에 ${uploadFailures.size}개 로컬 파일을 전송하지 못했습니다.",
+                message = strings[R.string.msg_could_not_transfer_local_files_before_saving_series, (uploadFailures.size)],
                 isError = true,
             )
         }
@@ -3015,10 +3729,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             uiState = uiState.copy(
                 librarySyncError = combinedSyncError(
                     uiState.librarySyncError,
-                    details ?: "시리즈 ${failed.size}개 항목을 데스크톱에 저장하지 못했습니다.",
+                    details ?: strings[R.string.msg_could_not_save_series_items_on_desktop, (failed.size)],
                 ),
                 message = buildString {
-                    append("시리즈 ${failed.size}개 항목을 데스크톱에 저장하지 못했습니다.")
+                    append(strings[R.string.msg_could_not_save_series_items_on_desktop, (failed.size)])
                     if (details != null) append(" ").append(details.lineSequence().first())
                 },
                 isError = true,
@@ -3085,14 +3799,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 (desktopApiVersion ?: 0) < SAFE_ARCHIVE_IMPORT_API_VERSION
             ) {
                 failures += if (desktopApiVersion == null) {
-                    "${book.title}: 데스크톱 호환 버전을 확인하지 못했습니다."
+                    strings[R.string.msg_could_not_check_desktop_compatibility, (book.title)]
                 } else {
-                    "${book.title}: 안전한 전송을 위해 데스크톱 앱을 업데이트하세요."
+                    strings[R.string.msg_update_desktop_for_safe_transfer, (book.title)]
                 }
                 return@forEach
             }
             val prepared = runCatching { libraryUploadPreparer.prepare(book) }.getOrElse { error ->
-                failures += "${book.title}: ${error.message ?: "업로드 준비 실패"}"
+                failures += "${book.title}: ${error.message ?: strings[R.string.msg_upload_preparation_failed]}"
                 return@forEach
             }
             var uploaded = false
@@ -3117,7 +3831,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             prepared.file.delete()
             if (!uploaded) {
-                failures += "${book.title}: ${lastError?.message ?: "파일 업로드 실패"}"
+                failures += "${book.title}: ${lastError?.message ?: strings[R.string.msg_file_upload_failed]}"
             }
         }
         return failures
@@ -3239,7 +3953,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (acceptedSyncIds.isNotEmpty()) {
             uiState = uiState.copy(
                 customSeriesByBookId = assignments,
-                message = "다른 기기에서 먼저 변경된 시리즈 ${acceptedSyncIds.size}개는 데스크톱 상태를 적용했습니다.",
+                message = strings[R.string.msg_applied_desktop_state_to_series_changed_on_another_dev, (acceptedSyncIds.size)],
                 isError = false,
             )
         }
@@ -3344,6 +4058,16 @@ internal fun preferredLibraryBookForGalleryId(
     .sortedBy(LibraryBook::isCloud)
     .firstOrNull()
 
+internal fun preferredLibraryBooksByGalleryId(books: List<LibraryBook>, hiddenIds: Set<String>): Map<Long, LibraryBook> =
+    LinkedHashMap<Long, LibraryBook>().apply {
+        for (book in books) {
+            if (book.id in hiddenIds) continue
+            val id = book.metadata.hitomiId?.toLongOrNull() ?: continue
+            val previous = get(id)
+            if (previous == null || (previous.isCloud && !book.isCloud)) put(id, book)
+        }
+    }
+
 internal fun remapLibraryIds(
     ids: Set<String>,
     aliases: Map<String, String>,
@@ -3352,10 +4076,11 @@ internal fun remapLibraryIds(
 internal fun <T> remapLibraryIdKeys(
     values: Map<String, T>,
     aliases: Map<String, String>,
-): Map<String, T> = buildMap {
-    values.filterKeys { it !in aliases }.forEach(::put)
-    values.filterKeys { it in aliases }.forEach { (id, value) ->
-        putIfAbsent(aliases.getValue(id), value)
+): Map<String, T> {
+    if (aliases.isEmpty()) return values
+    return LinkedHashMap<String, T>(values.size).apply {
+        values.forEach { (id, value) -> if (id !in aliases) put(id, value) }
+        values.forEach { (id, value) -> aliases[id]?.let { putIfAbsent(it, value) } }
     }
 }
 
@@ -3407,8 +4132,9 @@ private fun CustomSeriesAssignment?.sameSeriesStateAs(
     else -> name == expected.name && order == expected.order
 }
 
-private fun Set<String>.withMembership(value: String, included: Boolean): Set<String> =
-    if (included) this + value else this - value
+private fun MutableSet<String>.setMembership(value: String, included: Boolean) {
+    if (included) add(value) else remove(value)
+}
 
 internal data class SeriesMergeResult(
     val assignments: Map<String, CustomSeriesAssignment>,
@@ -3449,16 +4175,16 @@ internal fun mergeSyncedSeries(
     return SeriesMergeResult(merged, mergedRemovalTimes, localWinnerIds)
 }
 
-private fun operationErrorMessage(error: Exception): String {
+private fun operationErrorMessage(error: Exception, strings: android.content.res.Resources): String {
     val causes = generateSequence(error as Throwable?) { it.cause }.toList()
     return when {
         causes.any { it is SocketTimeoutException } ->
-            "연결 시간이 초과되었습니다. 휴대폰의 VPN을 끄거나 로컬 네트워크 접근을 허용하고, PC와 같은 네트워크인지 확인해 주세요."
+            strings[R.string.msg_connection_timed_out_check_vpn_local_network_permissio]
         causes.any { it is ConnectException || it is NoRouteToHostException } ->
-            "PC에 연결할 수 없습니다. 휴대폰의 VPN과 네트워크 설정을 확인하고, PC와 같은 네트워크에 연결되어 있는지 확인해 주세요."
+            strings[R.string.msg_cannot_connect_to_pc_check_vpn_and_network_settings_an]
         causes.any { it is UnknownHostException } ->
-            "PC 주소를 찾을 수 없습니다. 입력한 IP/호스트와 네트워크 설정을 확인해 주세요."
-        else -> error.message ?: "알 수 없는 오류가 발생했습니다."
+            strings[R.string.msg_pc_address_not_found_check_the_ip_host_and_network_set]
+        else -> error.message ?: strings[R.string.msg_an_unknown_error_occurred]
     }
 }
 

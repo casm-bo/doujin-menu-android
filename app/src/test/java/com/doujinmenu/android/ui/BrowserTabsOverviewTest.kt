@@ -38,11 +38,4 @@ class BrowserTabsOverviewTest {
         assertFalse(isTabDropCenter(100f, 270f, 200f, 280f))
     }
 
-    @Test
-    fun toolbarUsesSubmittedQueryRatherThanUnsubmittedEdits() {
-        assertEquals("tag:full_color", BrowserPage.Search(query = "draft", submittedQuery = "tag:full_color", currentPage = 1).toolbarTitle)
-        assertEquals("language:korean", BrowserPage.Search(query = "draft", submittedQueries = listOf("language:korean"), currentPage = 1).toolbarTitle)
-        assertEquals("korean", BrowserPage.Search(preferredLanguages = setOf("korean")).toolbarTitle)
-        assertEquals("새 검색", BrowserPage.Search().toolbarTitle)
-    }
 }

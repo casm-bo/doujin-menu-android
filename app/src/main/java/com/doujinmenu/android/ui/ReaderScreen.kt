@@ -1,5 +1,9 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.model.ReaderImageSource
+import com.doujinmenu.android.model.ReaderPosition
+import com.doujinmenu.android.R
+
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -30,15 +34,19 @@ import com.doujinmenu.android.model.ViewerPreferences
 
 @Composable
 fun ReaderScreen(
+    sessionKey: String,
     galleryId: Long,
     initialPage: Int,
+    initialOffset: Int,
     state: MainUiState,
     preferences: ViewerPreferences,
     onLoad: (Long) -> Unit,
     onBack: () -> Unit,
-    onProgress: (Int) -> Unit,
+    onProgress: (ReaderPosition) -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
+    onReadingModeResolved: (com.doujinmenu.android.model.ViewerReadingMode) -> Unit = {},
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     HideSystemBars()
     LaunchedEffect(galleryId) { onLoad(galleryId) }
     val pageUrls = state.readerPagesByGalleryId[galleryId].orEmpty()
@@ -54,14 +62,14 @@ fun ReaderScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(readerError, color = Color.White)
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = { onLoad(galleryId) }) { Text("다시 시도") }
-                    Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("돌아가기") }
+                    Button(onClick = { onLoad(galleryId) }) { Text(strings[R.string.ui_try_again]) }
+                    Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text(strings[R.string.ui_return]) }
                 }
             }
             pageUrls.isEmpty() -> {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("페이지가 없습니다.", color = Color.White)
-                    Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("돌아가기") }
+                    Text(strings[R.string.ui_no_pages], color = Color.White)
+                    Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text(strings[R.string.ui_return]) }
                 }
             }
             else -> {
@@ -70,14 +78,17 @@ fun ReaderScreen(
                     pageUrls.map { url ->
                         ReaderPageModel(
                             key = url,
+                            source = ReaderImageSource(url, mapOf("Referer" to "https://hitomi.la/reader/$galleryId.html")),
                             model = hitomiImageRequest(context, url, galleryId),
                         )
                     }
                 }
                 val title = state.galleryCache[galleryId]?.title
-                    ?: "갤러리 $galleryId"
+                    ?: strings[R.string.ui_gallery_d16837, (galleryId)]
                 UnifiedReader(
-                    readerKey = "online:$galleryId",
+                    readerKey = sessionKey,
+                    workKey = "gallery:$galleryId",
+                    initialOffset = initialOffset,
                     title = title,
                     pages = pages,
                     initialPage = initialPage,
@@ -85,6 +96,7 @@ fun ReaderScreen(
                     onBack = onBack,
                     onProgress = onProgress,
                     onPreferencesChange = onPreferencesChange,
+                    onReadingModeResolved = onReadingModeResolved,
                 )
             }
         }

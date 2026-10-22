@@ -14,8 +14,8 @@ import org.json.JSONObject
  * Keeps local-library identities and parsed metadata inside the app instead of
  * writing UUID sidecars next to user-owned gallery files.
  */
-class LibraryIdentityStore(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION) {
+class LibraryIdentityStore(context: Context, databaseName: String = DATABASE_NAME) :
+    SQLiteOpenHelper(context.applicationContext, databaseName, null, DATABASE_VERSION) {
 
     override fun onCreate(database: SQLiteDatabase) {
         database.execSQL(
@@ -38,9 +38,30 @@ class LibraryIdentityStore(context: Context) :
         database.execSQL(
             "CREATE INDEX index_library_identities_hitomi_id ON $TABLE_IDENTITIES(hitomi_id)",
         )
+        PresentationStore.createTables(database)
     }
 
-    override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) PresentationStore.createTables(database)
+    }
+
+    fun cachePublishedDate(hitomiId: String, date: String) {
+        require(date.length <= 200)
+        writableDatabase.beginTransaction()
+        try {
+            val rows = readableDatabase.query(TABLE_IDENTITIES, arrayOf(COLUMN_SOURCE_KEY, COLUMN_METADATA_JSON),
+                "$COLUMN_HITOMI_ID = ?", arrayOf(hitomiId), null, null, null).use { cursor -> buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1))
+            } }
+            rows.forEach { (key, json) ->
+                val metadata = metadataFromJson(JSONObject(json))
+                writableDatabase.update(TABLE_IDENTITIES, ContentValues().apply {
+                    put(COLUMN_METADATA_JSON, metadata.copy(publishedDate = date).toJson().toString())
+                }, "$COLUMN_SOURCE_KEY = ?", arrayOf(key))
+            }
+            writableDatabase.setTransactionSuccessful()
+        } finally { writableDatabase.endTransaction() }
+    }
 
     fun resolve(
         sourceKey: String,
@@ -167,7 +188,7 @@ class LibraryIdentityStore(context: Context) :
 
     companion object {
         private const val DATABASE_NAME = "library_identity.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
         private const val TABLE_IDENTITIES = "library_identities"
         private const val COLUMN_SOURCE_KEY = "source_key"
         private const val COLUMN_SOURCE_URI = "source_uri"
@@ -205,10 +226,11 @@ internal fun mergeParsedInfo(preferred: ParsedInfoTxt, fallback: ParsedInfoTxt):
             characters = preferred.metadata.characters.ifEmpty { fallback.metadata.characters },
             tags = preferred.metadata.tags.ifEmpty { fallback.metadata.tags },
             language = preferred.metadata.language ?: fallback.metadata.language,
+            publishedDate = preferred.metadata.publishedDate ?: fallback.metadata.publishedDate,
         ),
     )
 
-private fun LibraryMetadata.toJson() = JSONObject()
+internal fun LibraryMetadata.toJson() = JSONObject()
     .put("hitomiId", hitomiId)
     .put("artists", JSONArray(artists))
     .put("groups", JSONArray(groups))
@@ -217,17 +239,21 @@ private fun LibraryMetadata.toJson() = JSONObject()
     .put("characters", JSONArray(characters))
     .put("tags", JSONArray(tags))
     .put("language", language)
+    .put("publishedDate", publishedDate)
 
-private fun metadataFromJson(json: JSONObject) = LibraryMetadata(
-    hitomiId = json.optString("hitomiId").takeIf(String::isNotBlank),
+internal fun metadataFromJson(json: JSONObject) = LibraryMetadata(
+    hitomiId = json.nullableMetadataString("hitomiId"),
     artists = json.stringList("artists"),
     groups = json.stringList("groups"),
-    galleryType = json.optString("galleryType").takeIf(String::isNotBlank),
+    galleryType = json.nullableMetadataString("galleryType"),
     series = json.stringList("series"),
     characters = json.stringList("characters"),
     tags = json.stringList("tags"),
-    language = json.optString("language").takeIf(String::isNotBlank),
+    language = json.nullableMetadataString("language"),
+    publishedDate = json.nullableMetadataString("publishedDate"),
 )
+
+private fun JSONObject.nullableMetadataString(key: String) = if (isNull(key)) null else optString(key).takeIf(String::isNotBlank)
 
 private fun JSONObject.stringList(key: String): List<String> = buildList {
     val values = optJSONArray(key) ?: return@buildList

@@ -12,6 +12,8 @@ import com.doujinmenu.android.model.LibraryMetadata
 import com.doujinmenu.android.model.LibraryPage
 import com.doujinmenu.android.model.PairingResult
 import com.doujinmenu.android.model.SearchResult
+import com.doujinmenu.android.model.GalleryPresentation
+import com.doujinmenu.android.data.toJson
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -85,7 +87,51 @@ data class BookStateSyncChangesPage(
     val changes: List<BookStateSyncChange>,
 )
 
+data class PresentationPage(val values: List<GalleryPresentation>, val cursor: Long, val hasMore: Boolean)
+data class PresentationResult(val status: String, val value: GalleryPresentation)
+
 class CompanionClient {
+    suspend fun getPresentations(profile: DesktopProfile, cursor: Long): PresentationPage = withContext(Dispatchers.IO) {
+        val data = request("${profile.baseUrl}/v1/library/presentations?cursor=$cursor&limit=200", token = profile.token).requireSuccess()
+        val values = data.getJSONArray("values")
+        PresentationPage(List(values.length()) { com.doujinmenu.android.data.presentationFromJson(values.getJSONObject(it)) }, data.getLong("cursor"), data.getBoolean("hasMore"))
+    }
+
+    suspend fun savePresentation(profile: DesktopProfile, record: com.doujinmenu.android.data.PresentationRecord): PresentationResult = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("mutationId", record.mutationId).put("baseVersion", record.value.version)
+            .put("value", record.value.toJson())
+        val data = request("${profile.baseUrl}/v1/library/presentations", method = "POST", token = profile.token, body = body).requireSuccess()
+        PresentationResult(data.getString("status"), com.doujinmenu.android.data.presentationFromJson(data.getJSONObject("value")))
+    }
+
+    suspend fun transferCover(profile: DesktopProfile, hash: String, upload: ByteArray? = null): ByteArray = withContext(Dispatchers.IO) {
+        require(hash.matches(Regex("[a-f0-9]{64}")))
+        val connection = URL("${profile.baseUrl}/v1/library/presentation-covers/$hash").openConnection() as HttpURLConnection
+        try {
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = CONNECT_TIMEOUT_MS; connection.readTimeout = READ_TIMEOUT_MS
+            connection.setRequestProperty("Authorization", "Bearer ${profile.token}")
+            if (upload != null) {
+                require(upload.size in 1..5 * 1024 * 1024)
+                connection.requestMethod = "PUT"; connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/octet-stream")
+                connection.setFixedLengthStreamingMode(upload.size)
+                connection.outputStream.use { it.write(upload) }
+            }
+            if (connection.responseCode !in 200..299) throw CompanionApiException("Cover transfer failed (HTTP ${connection.responseCode})", connection.responseCode)
+            connection.inputStream.use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(32 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    require(output.size() + count <= 5 * 1024 * 1024)
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
+        } finally { connection.disconnect() }
+    }
     suspend fun getStatus(baseUrl: String): CompanionStatus = withContext(Dispatchers.IO) {
         val root = request("$baseUrl/v1/status")
         val data = root.requireSuccess()
@@ -211,6 +257,7 @@ class CompanionClient {
                             modifiedAt = item.optLong("modifiedAt", 0L),
                             metadata = LibraryMetadata(
                                 hitomiId = item.nullableString("hitomiId") ?: item.nullableString("hitomi_id"),
+                                publishedDate = item.nullableString("publishedDate"),
                                 artists = item.optJSONArray("artists").metadataNames(),
                                 groups = item.optJSONArray("groups").metadataNames(),
                                 galleryType = item.nullableString("type"),
@@ -505,6 +552,7 @@ class CompanionClient {
     ): JSONObject {
         val connection = URL(url).openConnection() as HttpURLConnection
         return try {
+            connection.instanceFollowRedirects = false
             connection.requestMethod = method
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = readTimeoutMs
@@ -662,6 +710,8 @@ internal fun parseHitomiGallery(data: JSONObject, fallbackId: Long): GallerySumm
         id = data.optLong("id", fallbackId),
         title = title,
         artists = data.optJSONArray("artists").metadataNames(),
+        groups = data.optJSONArray("groups").metadataNames(),
+        characters = data.optJSONArray("characters").metadataNames(),
         series = data.optJSONArray("series").metadataNames(),
         galleryType = data.nullableString("type"),
         tags = tags,

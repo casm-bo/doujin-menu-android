@@ -1,11 +1,14 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -21,17 +24,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserWorkspace
-import com.doujinmenu.android.model.label
 import kotlinx.coroutines.launch
 
-internal val BrowserPage.toolbarTitle: String
-    get() = if (this is BrowserPage.Search) {
-        (if (currentPage > 0 || submittedQueries.isNotEmpty()) {
-            submittedQuery.ifBlank { submittedQueries.joinToString(" · ") }
-        } else query).ifBlank {
-            preferredLanguages.joinToString(" · ").ifBlank { "새 검색" }
-        }
-    } else label
+internal fun BrowserPage.localizedToolbarTitle(strings: android.content.res.Resources): String = when (this) {
+    is BrowserPage.Search -> (if (currentPage > 0 || submittedQueries.isNotEmpty()) submittedQuery.ifBlank { submittedQueries.joinToString(" · ") } else query)
+        .ifBlank { preferredLanguages.joinToString(" · ").ifBlank { strings[R.string.ui_new_search] } }
+    is BrowserPage.LibraryHome -> strings[R.string.ui_gallery]
+    is BrowserPage.LibrarySeries -> name
+    is BrowserPage.OnlineGallery -> title.ifBlank { strings[R.string.ui_gallery_d16837, galleryId] }
+    is BrowserPage.OnlineReader -> title.ifBlank { strings[R.string.ui_gallery_d16837, galleryId] }
+    is BrowserPage.LibraryBook -> title.ifBlank { strings[R.string.ui_gallery] }
+    is BrowserPage.LibraryReader -> title.ifBlank { strings[R.string.ui_gallery] }
+}
 
 @Composable
 fun BrowserTabStrip(
@@ -40,31 +44,39 @@ fun BrowserTabStrip(
     onShowOverview: () -> Unit,
     previews: BrowserTabPreviewCache,
     onBack: (() -> Unit)? = null,
+    titleOverride: String? = null,
+    titleContent: (@Composable () -> Unit)? = null,
     extraActions: @Composable RowScope.() -> Unit = {},
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    val search = LocalInlineSearch.current
     val scope = rememberCoroutineScope()
     fun captureThen(action: () -> Unit) { scope.launch { previews.captureNow(); action() } }
 
-    Surface(modifier = Modifier.statusBarsPadding(), color = MaterialTheme.colorScheme.surfaceContainer) {
+    Surface(modifier = if (titleContent == null) Modifier.statusBarsPadding() else Modifier, color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) IconButton(onClick = { captureThen(onBack) },
-                modifier = Modifier.semantics { contentDescription = "뒤로" }) { Text("‹") }
+                modifier = Modifier.semantics { contentDescription = strings[R.string.ui_back] }) { Text("‹") }
             Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(28.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                Text(workspace.activeTab.currentPage.toolbarTitle,
+                if (titleContent != null) titleContent() else Text(titleOverride ?: workspace.activeTab.currentPage.localizedToolbarTitle(strings),
                     Modifier.padding(horizontal = 16.dp, vertical = 13.dp), maxLines = 1,
                     overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
             }
-            IconButton(onClick = { captureThen(onNew) }, modifier = Modifier.semantics { contentDescription = "새 탭" }) {
+            if (search?.expanded != true) {
+            Row {
+            IconButton(onClick = { captureThen(onNew) }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_new_tab] }) {
                 Text("+", style = MaterialTheme.typography.headlineMedium)
             }
             IconButton(onClick = { captureThen(onShowOverview) },
-                modifier = Modifier.semantics { contentDescription = "모든 탭 보기, ${workspace.tabs.size}개" }) {
+                modifier = Modifier.semantics { contentDescription = strings[R.string.ui_show_all_tabs, (workspace.tabs.size)] }) {
                 Surface(shape = RoundedCornerShape(7.dp), border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)) {
                     Text(workspace.tabs.size.toString(), Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelLarge)
                 }
             }
             extraActions()
+            }
+            }
         }
     }
 }

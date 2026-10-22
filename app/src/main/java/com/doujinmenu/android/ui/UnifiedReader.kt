@@ -1,5 +1,22 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+import com.doujinmenu.android.model.ReaderImageSource
+import com.doujinmenu.android.model.ReaderPosition
+import com.doujinmenu.android.model.ImageDimensions
+import com.doujinmenu.android.model.ViewerReadingMode
+import com.doujinmenu.android.model.detectReadingMode
+import com.doujinmenu.android.model.webtoonSampleIndices
+import com.doujinmenu.android.data.ReaderImages
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -44,6 +61,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,7 +93,7 @@ import com.doujinmenu.android.model.ViewerTapZones
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-internal data class ReaderPageModel(val key: String, val model: Any)
+internal data class ReaderPageModel(val key: String, val model: Any, val source: ReaderImageSource)
 
 internal fun initialThumbnailVisibility(preferences: ViewerPreferences): Boolean =
     !preferences.hideThumbnails
@@ -83,23 +101,55 @@ internal fun initialThumbnailVisibility(preferences: ViewerPreferences): Boolean
 @Composable
 internal fun UnifiedReader(
     readerKey: String,
+    workKey: String,
+    initialOffset: Int = 0,
     title: String,
     pages: List<ReaderPageModel>,
     initialPage: Int,
     preferences: ViewerPreferences,
     onBack: () -> Unit,
-    onProgress: (Int) -> Unit,
+    onProgress: (ReaderPosition) -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
     favorite: Boolean? = null,
     onToggleFavorite: (() -> Unit)? = null,
     nextBookTitle: String? = null,
     onOpenNextBook: (() -> Unit)? = null,
+    onReadingModeResolved: (ViewerReadingMode) -> Unit = {},
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     ReaderKeepScreenOn(preferences.keepScreenOn)
 
+    val context = LocalContext.current
+    val modeStore = remember(context) { com.doujinmenu.android.security.LibraryPreferenceStore(context) }
+    var overrideName by rememberSaveable(workKey) { mutableStateOf(modeStore.loadReaderMode(workKey)?.name.orEmpty()) }
+    val selectedMode = ViewerReadingMode.entries.firstOrNull { it.name == overrideName } ?: preferences.readingMode
+    var detectedMode by remember(readerKey) { mutableStateOf<ViewerReadingMode?>(null) }
+    var detectedSizes by remember(readerKey) { mutableStateOf(emptyMap<Int, ImageDimensions>()) }
+    var currentPage by rememberSaveable(readerKey) { mutableIntStateOf(initialPage.coerceIn(pages.indices)) }
+    var currentOffset by rememberSaveable(readerKey) { mutableIntStateOf(initialOffset) }
+    var webtoonJump by remember(readerKey) { mutableStateOf<Int?>(null) }
+    fun selectMode(mode: ViewerReadingMode?) {
+        overrideName = mode?.name.orEmpty(); modeStore.saveReaderMode(workKey, mode)
+    }
+    LaunchedEffect(readerKey, selectedMode) {
+        if (selectedMode == ViewerReadingMode.AUTO && detectedMode == null) {
+            val repository = ReaderImages(context)
+            val sizes = coroutineScope { webtoonSampleIndices(pages.size).map { index -> async {
+                val size = try { repository.probe(pages[index].source) }
+                    catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                    catch (_: Exception) { null }
+                index to size
+            } }.awaitAll() }.mapNotNull { (index, size) -> size?.let { index to it } }.toMap()
+            detectedSizes = sizes
+            detectedMode = detectReadingMode(sizes.values.toList())
+        }
+    }
+    val actualMode = if (selectedMode == ViewerReadingMode.AUTO) detectedMode else selectedMode
+    val modeCallback by rememberUpdatedState(onReadingModeResolved)
+    LaunchedEffect(workKey, actualMode) { actualMode?.let(modeCallback) }
     val pagerState = androidx.compose.runtime.key(readerKey) {
         rememberPagerState(
-            initialPage = initialPage.coerceIn(0, pages.lastIndex),
+            initialPage = currentPage,
             pageCount = { pages.size },
         )
     }
@@ -110,7 +160,18 @@ internal fun UnifiedReader(
     }
     var settingsVisible by remember(readerKey) { mutableStateOf(false) }
     var nextBookDialog by remember(readerKey) { mutableStateOf(false) }
-    LaunchedEffect(pagerState.currentPage) { onProgress(pagerState.currentPage) }
+    var pagerReady by remember(readerKey) { mutableStateOf(false) }
+    LaunchedEffect(actualMode) {
+        pagerReady = false
+        if (actualMode == ViewerReadingMode.PAGE && pagerState.currentPage != currentPage) pagerState.scrollToPage(currentPage)
+        pagerReady = actualMode == ViewerReadingMode.PAGE
+    }
+    LaunchedEffect(pagerState.currentPage, actualMode, pagerReady) {
+        if (actualMode == ViewerReadingMode.PAGE && pagerReady) {
+            currentPage = pagerState.currentPage; currentOffset = 0
+            onProgress(ReaderPosition(currentPage))
+        }
+    }
     LaunchedEffect(controlsVisible) {
         if (controlsVisible) {
             delay(READER_CONTROLS_AUTO_HIDE_MS)
@@ -124,7 +185,7 @@ internal fun UnifiedReader(
 
     fun moveTo(page: Int) {
         when {
-            page in pages.indices -> scope.launch { pagerState.animateScrollToPage(page) }
+            page in pages.indices -> if (actualMode == ViewerReadingMode.WEBTOON) webtoonJump = page else scope.launch { pagerState.animateScrollToPage(page) }
             page >= pages.size && nextBookTitle != null && onOpenNextBook != null -> nextBookDialog = true
         }
     }
@@ -157,9 +218,17 @@ internal fun UnifiedReader(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        when (actualMode) {
+            null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            ViewerReadingMode.WEBTOON -> WebtoonReader(readerKey, pages, ReaderPosition(currentPage, currentOffset), detectedSizes,
+                webtoonJump, { webtoonJump = null }, { currentPage = it },
+                { position -> currentPage = position.page; currentOffset = position.offset; onProgress(position) },
+                { controlsVisible = !controlsVisible }, { selectMode(ViewerReadingMode.PAGE) },
+                if (nextBookTitle != null && onOpenNextBook != null) ({ nextBookDialog = true }) else null)
+            else -> {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().testTag("reader-pager"),
             beyondViewportPageCount = minOf(2, pages.lastIndex),
             key = { pages[it].key },
             reverseLayout = preferences.readingDirection == ViewerReadingDirection.RIGHT_TO_LEFT,
@@ -167,7 +236,7 @@ internal fun UnifiedReader(
         ) { page ->
             UnifiedZoomableImage(
                 model = pages[page].model,
-                contentDescription = "${page + 1}페이지",
+                contentDescription = strings[R.string.ui_pages, (page + 1)],
                 contentScale = if (preferences.scale == ViewerScale.FIT_WIDTH) {
                     ContentScale.FillWidth
                 } else {
@@ -183,6 +252,8 @@ internal fun UnifiedReader(
                     )
                 },
             )
+        }
+            }
         }
 
         AnimatedVisibility(
@@ -214,7 +285,7 @@ internal fun UnifiedReader(
         ) {
             ReaderThumbnailBar(
                 pages = pages,
-                currentPage = pagerState.currentPage,
+                currentPage = currentPage,
                 onPageClick =(::moveTo),
                 onSwipeDown = { thumbnailsVisible = false },
             )
@@ -232,7 +303,7 @@ internal fun UnifiedReader(
 
         if (!controlsVisible && preferences.showPageNumber) {
             Text(
-                "${pagerState.currentPage + 1} / ${pages.size}",
+                "${currentPage + 1} / ${pages.size}",
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .padding(bottom = if (thumbnailsVisible) 120.dp else 0.dp)
                     .background(Color.Black.copy(alpha = 0.65f))
@@ -244,23 +315,27 @@ internal fun UnifiedReader(
 
     if (settingsVisible) {
         UnifiedViewerSettingsDialog(
-            preferences = preferences,
-            onChange = onPreferencesChange,
+            preferences = preferences.copy(readingMode = selectedMode),
+            onChange = { value ->
+                if (value.readingMode != selectedMode) selectMode(value.readingMode)
+                onPreferencesChange(value.copy(readingMode = preferences.readingMode))
+            },
+            onResetMode = { selectMode(null) },
             onDismiss = { settingsVisible = false },
         )
     }
     if (nextBookDialog && nextBookTitle != null && onOpenNextBook != null) {
         AlertDialog(
             onDismissRequest = { nextBookDialog = false },
-            title = { Text("다음 책") },
-            text = { Text("$nextBookTitle 을(를) 이어서 볼까요?") },
+            title = { Text(strings[R.string.ui_next_book]) },
+            text = { Text(strings[R.string.ui_continue_with, (nextBookTitle)]) },
             confirmButton = {
                 TextButton(onClick = {
                     nextBookDialog = false
                     onOpenNextBook()
-                }) { Text("열기") }
+                }) { Text(strings[R.string.ui_open]) }
             },
-            dismissButton = { TextButton(onClick = { nextBookDialog = false }) { Text("취소") } },
+            dismissButton = { TextButton(onClick = { nextBookDialog = false }) { Text(strings[R.string.ui_cancel]) } },
         )
     }
 }
@@ -273,6 +348,7 @@ private fun ReaderTopBar(
     onToggleFavorite: (() -> Unit)?,
     onSettings: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Row(
         modifier = Modifier.fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
@@ -294,7 +370,7 @@ private fun ReaderTopBar(
                 Text(if (favorite) "♥" else "♡", color = Color.White)
             }
         }
-        TextButton(onClick = onSettings) { Text("설정", color = Color.White) }
+        TextButton(onClick = onSettings) { Text(strings[R.string.ui_settings], color = Color.White) }
     }
 }
 
@@ -306,6 +382,7 @@ private fun ReaderThumbnailBar(
     onSwipeDown: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val listState = rememberLazyListState()
     LaunchedEffect(currentPage) {
         if (currentPage in pages.indices) listState.animateScrollToItem(currentPage)
@@ -337,7 +414,7 @@ private fun ReaderThumbnailBar(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 AsyncImage(
                     model = page.model,
-                    contentDescription = "${index + 1}페이지로 이동",
+                    contentDescription = strings[R.string.ui_go_to_page_abf841, (index + 1)],
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(width = 60.dp, height = 84.dp)
                         .border(
@@ -432,19 +509,20 @@ private fun UnifiedZoomableImage(
 private fun UnifiedViewerSettingsDialog(
     preferences: ViewerPreferences,
     onChange: (ViewerPreferences) -> Unit,
+    onResetMode: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("리더 설정") },
+        title = { Text(strings[R.string.ui_reader_settings]) },
         text = {
-            ViewerSettingsContent(
-                preferences = preferences,
-                onChange = onChange,
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            )
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                TextButton(onClick = onResetMode) { Text(strings[R.string.ui_use_app_reader_mode]) }
+                ViewerSettingsContent(preferences = preferences, onChange = onChange)
+            }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("완료") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(strings[R.string.ui_completed]) } },
     )
 }
 
@@ -454,26 +532,35 @@ internal fun ViewerSettingsContent(
     onChange: (ViewerPreferences) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var tapEditorVisible by remember { mutableStateOf(false) }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        SettingsHeading("화면 맞춤")
+        SettingsHeading(strings[R.string.ui_reading_mode])
+        ViewerReadingMode.entries.forEach { mode ->
+            SettingsRadio(strings[when (mode) {
+                ViewerReadingMode.AUTO -> R.string.ui_reader_auto
+                ViewerReadingMode.PAGE -> R.string.ui_reader_page
+                ViewerReadingMode.WEBTOON -> R.string.ui_reader_webtoon
+            }], preferences.readingMode == mode) { onChange(preferences.copy(readingMode = mode)) }
+        }
+        SettingsHeading(strings[R.string.ui_page_scale])
         ViewerScale.entries.forEach { value ->
             SettingsRadio(
-                label = if (value == ViewerScale.FIT_SCREEN) "전체 페이지" else "너비 맞춤",
+                label = if (value == ViewerScale.FIT_SCREEN) strings[R.string.ui_fit_page] else strings[R.string.ui_fit_width],
                 selected = preferences.scale == value,
             ) { onChange(preferences.copy(scale = value)) }
         }
 
-        SettingsHeading("읽는 방향")
+        SettingsHeading(strings[R.string.ui_reading_direction])
         ViewerReadingDirection.entries.forEach { value ->
             SettingsRadio(
                 label = if (value == ViewerReadingDirection.LEFT_TO_RIGHT) {
-                    "왼쪽 → 오른쪽"
+                    strings[R.string.ui_left_right]
                 } else {
-                    "오른쪽 → 왼쪽"
+                    strings[R.string.ui_right_left]
                 },
                 selected = preferences.readingDirection == value,
             ) {
@@ -488,20 +575,20 @@ internal fun ViewerSettingsContent(
             }
         }
 
-        SettingsHeading("페이지 넘기기")
+        SettingsHeading(strings[R.string.ui_page_turning])
         ViewerPageTurnMode.entries.forEach { value ->
             SettingsRadio(
                 label = when (value) {
-                    ViewerPageTurnMode.SWIPE_AND_TAP -> "슬라이드 + 터치"
-                    ViewerPageTurnMode.SWIPE_ONLY -> "슬라이드만"
-                    ViewerPageTurnMode.TAP_ONLY -> "터치만"
+                    ViewerPageTurnMode.SWIPE_AND_TAP -> strings[R.string.ui_swipe_tap]
+                    ViewerPageTurnMode.SWIPE_ONLY -> strings[R.string.ui_swipe_only]
+                    ViewerPageTurnMode.TAP_ONLY -> strings[R.string.ui_tap_only]
                 },
                 selected = preferences.pageTurnMode == value,
             ) { onChange(preferences.copy(pageTurnMode = value)) }
         }
 
-        SettingsHeading("터치 영역")
-        ReaderSettingSwitch("9분할 사용자 설정", preferences.customTapZonesEnabled) { enabled ->
+        SettingsHeading(strings[R.string.ui_tap_zones])
+        ReaderSettingSwitch(strings[R.string.ui_custom_3_3_zones], preferences.customTapZonesEnabled) { enabled ->
             onChange(
                 preferences.copy(
                     customTapZonesEnabled = enabled,
@@ -511,22 +598,22 @@ internal fun ViewerSettingsContent(
         }
         if (preferences.customTapZonesEnabled) {
             Text(
-                "이전·토글·다음·없음 동작을 화면의 실제 위치에 배치합니다.",
+                strings[R.string.ui_place_previous_toggle_next_none_actions_on_screen],
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedButton(
                 onClick = { tapEditorVisible = true },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("터치 영역 편집") }
+            ) { Text(strings[R.string.ui_edit_tap_zones]) }
         }
 
-        ReaderSettingSwitch("페이지 번호 표시", preferences.showPageNumber) {
+        ReaderSettingSwitch(strings[R.string.ui_show_page_number], preferences.showPageNumber) {
             onChange(preferences.copy(showPageNumber = it))
         }
-        ReaderSettingSwitch("썸네일 숨기기", preferences.hideThumbnails) {
+        ReaderSettingSwitch(strings[R.string.ui_hide_thumbnails], preferences.hideThumbnails) {
             onChange(preferences.copy(hideThumbnails = it))
         }
-        ReaderSettingSwitch("화면 꺼짐 방지", preferences.keepScreenOn) {
+        ReaderSettingSwitch(strings[R.string.ui_keep_screen_on], preferences.keepScreenOn) {
             onChange(preferences.copy(keepScreenOn = it))
         }
     }
@@ -546,6 +633,7 @@ private fun TouchZoneEditor(
     onChange: (ViewerTapZones) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -570,7 +658,7 @@ private fun TouchZoneEditor(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    action.shortLabel(),
+                                    strings[action.shortLabelResource()],
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.titleMedium,
@@ -587,12 +675,12 @@ private fun TouchZoneEditor(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "영역을 눌러 이전 · 토글 · 다음 · 없음 변경",
+                    strings[R.string.ui_tap_a_zone_to_cycle_previous_toggle_next_none],
                     modifier = Modifier.weight(1f),
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
                 )
-                TextButton(onClick = onDismiss) { Text("완료", color = Color.White) }
+                TextButton(onClick = onDismiss) { Text(strings[R.string.ui_completed], color = Color.White) }
             }
         }
     }
@@ -612,11 +700,11 @@ private fun ViewerTapAction.zoneColor(): Color = when (this) {
     ViewerTapAction.TOGGLE_CONTROLS -> Color(0xFF3949AB)
 }
 
-private fun ViewerTapAction.shortLabel(): String = when (this) {
-    ViewerTapAction.PREVIOUS_PAGE -> "이전"
-    ViewerTapAction.NEXT_PAGE -> "다음"
-    ViewerTapAction.TOGGLE_CONTROLS -> "토글"
-    ViewerTapAction.NONE -> "없음"
+private fun ViewerTapAction.shortLabelResource(): Int = when (this) {
+    ViewerTapAction.PREVIOUS_PAGE -> R.string.ui_previous
+    ViewerTapAction.NEXT_PAGE -> R.string.ui_next
+    ViewerTapAction.TOGGLE_CONTROLS -> R.string.ui_toggle_controls
+    ViewerTapAction.NONE -> R.string.ui_none
 }
 
 @Composable

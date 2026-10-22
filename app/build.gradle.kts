@@ -11,8 +11,9 @@ android {
         applicationId = "com.doujinmenu.android"
         minSdk = 26
         targetSdk = 37
-        versionCode = 11
-        versionName = "0.10.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        versionCode = 12
+        versionName = "1.0.0"
     }
 
     signingConfigs {
@@ -26,10 +27,18 @@ android {
         }
     }
 
+    testBuildType = "uitest"
+
     buildTypes {
         getByName("debug") {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+        }
+        create("uitest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".uitest"
+            versionNameSuffix = "-uitest"
+            matchingFallbacks += listOf("debug")
         }
         getByName("release") {
             signingConfig = signingConfigs.findByName("release")
@@ -56,6 +65,8 @@ dependencies {
 
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.appcompat:appcompat:1.7.1")
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0")
@@ -64,6 +75,10 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("io.coil-kt.coil3:coil-compose:3.5.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.5.0")
+
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    add("uitestImplementation", "androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")

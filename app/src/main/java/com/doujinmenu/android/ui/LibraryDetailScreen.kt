@@ -1,5 +1,8 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.model.ReaderPosition
+import com.doujinmenu.android.R
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -45,6 +48,9 @@ import com.doujinmenu.android.model.LibraryBook
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryDetailScreen(
+    pageKey: String,
+    initialPreviewPosition: ReaderPosition,
+    onPreviewPositionChange: (ReaderPosition) -> Unit,
     book: LibraryBook?,
     previousBook: LibraryBook?,
     nextBook: LibraryBook?,
@@ -59,13 +65,16 @@ fun LibraryDetailScreen(
     onOpenSeriesList: () -> Unit,
     onSearchFacet: (String) -> Unit,
     onSearchLanguage: (String) -> Unit,
+    options: (@Composable () -> Unit)? = null,
+    webtoon: Boolean = false,
     tabBar: (@Composable () -> Unit)? = null,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Scaffold(
         topBar = {
             if (tabBar != null) tabBar() else {
                 TopAppBar(
-                    title = { Text("갤러리 상세") },
+                    title = { Text(strings[R.string.ui_gallery_details]) },
                     navigationIcon = { TextButton(onClick = onBack) { Text("<") } },
                 )
             }
@@ -73,13 +82,15 @@ fun LibraryDetailScreen(
     ) { padding ->
         if (book == null) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("갤러리 정보를 찾을 수 없습니다.")
+                Text(strings[R.string.ui_gallery_not_found])
             }
             return@Scaffold
         }
         val metadata = book.metadata
         val context = LocalContext.current
+        val gridState = previewGridState(pageKey, initialPreviewPosition, book.pages.size, onPreviewPositionChange)
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Fixed(3),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
@@ -88,35 +99,9 @@ fun LibraryDetailScreen(
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    if (book.coverUri.isNotBlank()) {
-                        AsyncImage(
-                            model = libraryImageRequest(context, book.coverUri, book.cloudToken),
-                            contentDescription = book.title,
-                            modifier = Modifier.fillMaxWidth().height(390.dp),
-                            contentScale = ContentScale.Fit,
-                        )
-                    }
-                    Text(book.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    FacetSection("작가", metadata.artists, "artist", onSearchFacet)
-                    FacetSection("그룹", metadata.groups, "group", onSearchFacet)
-                    FacetSection("시리즈", metadata.series, "series", onSearchFacet)
-                    FacetSection("캐릭터", metadata.characters, "character", onSearchFacet)
-                    metadata.galleryType?.let { value ->
-                        FacetSection("타입", listOf(value), "type", onSearchFacet)
-                    }
-                    metadata.language?.let { value ->
-                        FacetSection("언어", listOf(value), "language", onSearchLanguage, rawValue = true)
-                    }
-                    FacetSection("태그", metadata.tags, "tag", onSearchFacet)
-                    Text(
-                        listOfNotNull(
-                            metadata.hitomiId?.let { "ID $it" },
-                            "${book.pages.size}페이지",
-                            book.locationName,
-                            if (book.isCloud) "데스크톱" else null,
-                        ).joinToString(" · "),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    DetailHeader(book.title, metadata,
+                        book.coverUri.takeIf { it.isNotBlank() }?.let { libraryImageRequest(context, it, book.cloudToken) },
+                        book.pages.size, onSearchFacet = onSearchFacet, onSearchLanguage = onSearchLanguage, options = options, webtoon = webtoon)
                     val readerEnabled = !isLoading && book.pages.all { it.uri.isNotBlank() }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -126,12 +111,12 @@ fun LibraryDetailScreen(
                             onClick = { onOpenReader(0) },
                             enabled = readerEnabled,
                             modifier = Modifier.weight(1f),
-                        ) { Text(if (isLoading) "불러오는 중…" else "처음부터 읽기") }
+                        ) { Text(if (isLoading) strings[R.string.ui_loading] else strings[R.string.ui_read_from_beginning]) }
                         Button(
                             onClick = { onOpenReader(progress.coerceAtLeast(0)) },
                             enabled = readerEnabled && progress > 0,
                             modifier = Modifier.weight(1f),
-                        ) { Text("계속해서 읽기") }
+                        ) { Text(strings[R.string.ui_continue_reading]) }
                     }
                     if (isSeriesBook) {
                         Row(
@@ -146,7 +131,7 @@ fun LibraryDetailScreen(
                                 contentPadding = PaddingValues(horizontal = 4.dp),
                             ) {
                                 DetailChevronIcon(pointsRight = false)
-                                Text("이전화", modifier = Modifier.padding(start = 5.dp), maxLines = 1)
+                                Text(strings[R.string.ui_previous_chapter], modifier = Modifier.padding(start = 5.dp), maxLines = 1)
                             }
                             Button(
                                 onClick = onOpenSeriesList,
@@ -155,7 +140,7 @@ fun LibraryDetailScreen(
                                 contentPadding = PaddingValues(horizontal = 6.dp),
                             ) {
                                 DetailListIcon()
-                                Text("목록보기", modifier = Modifier.padding(start = 6.dp), maxLines = 1)
+                                Text(strings[R.string.ui_list], modifier = Modifier.padding(start = 6.dp), maxLines = 1)
                             }
                             Button(
                                 onClick = onOpenNextBook,
@@ -164,7 +149,7 @@ fun LibraryDetailScreen(
                                 shape = RoundedCornerShape(topEnd = 14.dp, bottomEnd = 14.dp),
                                 contentPadding = PaddingValues(horizontal = 4.dp),
                             ) {
-                                Text("다음화", modifier = Modifier.padding(end = 5.dp), maxLines = 1)
+                                Text(strings[R.string.ui_next_chapter], modifier = Modifier.padding(end = 5.dp), maxLines = 1)
                                 DetailChevronIcon(pointsRight = true)
                             }
                         }
@@ -175,21 +160,21 @@ fun LibraryDetailScreen(
                         }
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    Text("갤러리 미리보기", style = MaterialTheme.typography.titleMedium)
+                    Text(strings[R.string.ui_gallery_preview], style = MaterialTheme.typography.titleMedium)
                 }
             }
             itemsIndexed(book.pages, key = { index, page -> "$index-${page.name}" }) { index, page ->
                 Box(
                     modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(6.dp))
-                        .clickable(enabled = page.uri.isNotBlank()) { onOpenReader(index) }
+                        .clickable(enabled = page.uri.isNotBlank()) { onPreviewPositionChange(ReaderPosition(gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset)); onOpenReader(index) }
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("${index + 1}", style = MaterialTheme.typography.labelSmall)
                     if (page.uri.isNotBlank()) {
-                        AsyncImage(
+                        DetailImage(
                             model = libraryImageRequest(context, page.uri, book.cloudToken),
-                            contentDescription = "${index + 1}페이지 미리보기",
+                            contentDescription = strings[R.string.ui_page_preview, (index + 1)],
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
                         )
@@ -228,7 +213,7 @@ private fun DetailListIcon(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun FacetSection(
+internal fun FacetSection(
     title: String,
     values: List<String>,
     prefix: String,

@@ -7,6 +7,7 @@ sealed interface BrowserPage {
 
     data class LibraryHome(
         override val key: String = UUID.randomUUID().toString(),
+        val query: String = "",
         val scrollAnchorKey: String? = null,
         val scrollIndex: Int = 0,
         val scrollOffset: Int = 0,
@@ -26,18 +27,29 @@ sealed interface BrowserPage {
         val scrollIndex: Int = 0,
         val scrollOffset: Int = 0,
         val resultSessionId: String? = null,
+        val scrollPage: Int = 1,
+    ) : BrowserPage
+
+    data class LibrarySeries(
+        val name: String,
+        override val key: String = UUID.randomUUID().toString(),
+        val episodeList: Boolean = false,
+        val previewPosition: ReaderPosition = ReaderPosition(0),
+        val episodePosition: ReaderPosition = ReaderPosition(0),
     ) : BrowserPage
 
     data class OnlineGallery(
         val galleryId: Long,
         val title: String,
         override val key: String = UUID.randomUUID().toString(),
+        val previewPosition: ReaderPosition = ReaderPosition(0),
     ) : BrowserPage
 
     data class LibraryBook(
         val bookId: String,
         val title: String,
         override val key: String = UUID.randomUUID().toString(),
+        val previewPosition: ReaderPosition = ReaderPosition(0),
     ) : BrowserPage
 
     data class OnlineReader(
@@ -45,6 +57,7 @@ sealed interface BrowserPage {
         val title: String,
         val startPage: Int,
         override val key: String = UUID.randomUUID().toString(),
+        val position: ReaderPosition? = null,
     ) : BrowserPage
 
     data class LibraryReader(
@@ -52,7 +65,36 @@ sealed interface BrowserPage {
         val title: String,
         val startPage: Int,
         override val key: String = UUID.randomUUID().toString(),
+        val position: ReaderPosition? = null,
     ) : BrowserPage
+}
+
+data class ReaderPosition(val page: Int, val offset: Int = 0) {
+    init { require(page >= 0 && offset >= 0) }
+}
+
+private fun BrowserWorkspace.mapPages(transform: (BrowserPage) -> BrowserPage): BrowserWorkspace {
+    fun BrowserTab.update() = copy(history = history.map(transform))
+    return copy(tabs = tabs.map { it.update() }, groups = groups.map { group -> group.copy(archivedTabs = group.archivedTabs.map { it.update() }) })
+}
+
+fun BrowserWorkspace.updateReaderPosition(pageKey: String, position: ReaderPosition): BrowserWorkspace = mapPages { page ->
+    when {
+        page.key != pageKey -> page
+        page is BrowserPage.OnlineReader -> page.copy(position = position)
+        page is BrowserPage.LibraryReader -> page.copy(position = position)
+        else -> page
+    }
+}
+
+fun BrowserWorkspace.updatePreviewPosition(pageKey: String, position: ReaderPosition): BrowserWorkspace = mapPages { page ->
+    when {
+        page.key != pageKey -> page
+        page is BrowserPage.OnlineGallery -> page.copy(previewPosition = position)
+        page is BrowserPage.LibraryBook -> page.copy(previewPosition = position)
+        page is BrowserPage.LibrarySeries -> page.copy(previewPosition = position)
+        else -> page
+    }
 }
 
 data class BrowserTab(
@@ -88,9 +130,38 @@ data class BrowserWorkspace(
 fun BrowserWorkspace.selectTab(tabId: String): BrowserWorkspace =
     if (tabs.any { it.id == tabId }) copy(activeTabId = tabId) else this
 
+/** Keep a departing screen bound to its own page while the detail route enters. */
+inline fun <reified T : BrowserPage> BrowserWorkspace.currentOrPreviousPage(): T? {
+    val tab = activeTab
+    for (index in tab.currentIndex.coerceIn(tab.history.indices) downTo 0) {
+        val page = tab.history[index]
+        if (page is T) return page
+    }
+    return null
+}
+
 val BrowserWorkspace.searchResultSessionIds: Set<String>
     get() = (tabs + groups.flatMap { it.archivedTabs }).flatMap { it.history }
         .filterIsInstance<BrowserPage.Search>().mapNotNull { it.resultSessionId }.toSet()
+
+/** A departing search can finish saving after another tab/page became active. */
+fun BrowserWorkspace.updateSearchScroll(
+    pageKey: String, sessionId: String?, anchorKey: String?, index: Int, offset: Int, scrollPage: Int = 1,
+): BrowserWorkspace {
+    fun BrowserTab.saveScroll() = copy(history = history.map { page ->
+        if (page is BrowserPage.Search && page.key == pageKey && page.resultSessionId == sessionId) {
+            page.copy(scrollAnchorKey = anchorKey, scrollIndex = index.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0), scrollPage = scrollPage.coerceAtLeast(1))
+        } else page
+    })
+    return copy(tabs = tabs.map { it.saveScroll() }, groups = groups.map { group ->
+        group.copy(archivedTabs = group.archivedTabs.map { it.saveScroll() })
+    })
+}
+
+fun BrowserWorkspace.updateLibraryScroll(pageKey: String, anchor: String?, index: Int, offset: Int): BrowserWorkspace = mapPages { page ->
+    if (page is BrowserPage.LibraryHome && page.key == pageKey) page.copy(scrollAnchorKey = anchor,
+        scrollIndex = index.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0)) else page
+}
 
 fun BrowserWorkspace.selectSearchTab(
     query: String,
@@ -128,6 +199,7 @@ data class BackgroundGalleryTab(
     val workspace: BrowserWorkspace,
     val tabId: String?,
     val alreadyOpen: Boolean = false,
+    val galleryWorkspace: Boolean = false,
 )
 
 fun BrowserWorkspace.openGalleryInBackground(galleryId: Long, title: String): BackgroundGalleryTab {
@@ -160,6 +232,33 @@ fun BrowserWorkspace.closeTab(
 fun BrowserWorkspace.pushPage(page: BrowserPage): BrowserWorkspace = updateActiveTab { tab ->
     val history = (tab.history.take(tab.currentIndex + 1) + page).takeLast(MAX_TAB_HISTORY)
     tab.copy(history = history, currentIndex = history.lastIndex)
+}
+
+private fun List<BrowserPage>.withLibraryReader(page: BrowserPage.LibraryReader): List<BrowserPage> {
+    val seriesOrigin = indexOfLast { it is BrowserPage.LibrarySeries }
+        .takeIf { it > indexOfLast { entry -> entry is BrowserPage.LibraryHome } }
+    val origin = if (seriesOrigin != null) take(seriesOrigin + 1).mapIndexed { index, entry ->
+        if (index == seriesOrigin) (entry as BrowserPage.LibrarySeries).copy(episodeList = false) else entry
+    } else this
+    return (origin + page).takeLast(MAX_TAB_HISTORY)
+}
+
+fun BrowserWorkspace.openLibraryReader(page: BrowserPage.LibraryReader): BrowserWorkspace = updateActiveTab { tab ->
+    val history = tab.history.take(tab.currentIndex + 1).withLibraryReader(page)
+    tab.copy(history = history, currentIndex = history.lastIndex)
+}
+
+fun BrowserWorkspace.continueLibraryReader(page: BrowserPage.LibraryReader): BrowserWorkspace = updateActiveTab { tab ->
+    val history = tab.history.take(tab.currentIndex).withLibraryReader(page)
+    tab.copy(history = history, currentIndex = history.lastIndex)
+}
+
+fun BrowserWorkspace.updateLibrarySeries(pageKey: String, transform: (BrowserPage.LibrarySeries) -> BrowserPage.LibrarySeries): BrowserWorkspace = mapPages { page ->
+    if (page is BrowserPage.LibrarySeries && page.key == pageKey) transform(page) else page
+}
+
+fun BrowserWorkspace.renameSeriesPages(oldName: String, newName: String): BrowserWorkspace = mapPages { page ->
+    if (page is BrowserPage.LibrarySeries && page.name == oldName) page.copy(name = newName) else page
 }
 
 fun BrowserWorkspace.goBack(): BrowserWorkspace = updateActiveTab { tab ->
@@ -210,6 +309,7 @@ private fun BrowserWorkspace.updateActiveTab(
 val BrowserPage.label: String
     get() = when (this) {
         is BrowserPage.LibraryHome -> "새 갤러리"
+        is BrowserPage.LibrarySeries -> name
         is BrowserPage.Search -> query.ifBlank { "새 검색" }
         is BrowserPage.OnlineGallery -> title.ifBlank { "갤러리 $galleryId" }
         is BrowserPage.LibraryBook -> title.ifBlank { "다운로드 작품" }
@@ -227,9 +327,16 @@ internal fun searchTabKey(
     .sorted()
     .joinToString("\u0000")
 
-internal fun normalizeSearchSeparators(query: String): String = query
-    .replace(Regex("\\s*,+\\s*"), " ")
-    .trim()
-    .replace(Regex("\\s+"), " ")
+internal fun normalizeSearchSeparators(query: String): String = searchQueryTokens(query).joinToString(" ")
+
+internal fun queriesWithPreferredLanguages(query: String, preferredLanguages: Set<String>): List<String> {
+    val normalized = normalizeSearchSeparators(query)
+    if (preferredLanguages.isEmpty()) return listOf(normalized.ifBlank { "sort:newest" })
+    val base = normalized.replace(Regex("(?i)(^|\\s)-?language:[^\\s]+"), " ")
+        .trim().replace(Regex("\\s+"), " ")
+    return preferredLanguages.sorted().map { language ->
+        listOf(base, "language:$language").filter(String::isNotBlank).joinToString(" ")
+    }
+}
 
 private const val MAX_TAB_HISTORY = 50

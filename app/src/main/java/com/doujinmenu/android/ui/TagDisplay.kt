@@ -55,7 +55,7 @@ internal fun CompactTagRow(tags: List<String>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun TagPill(info: TagDisplayInfo, modifier: Modifier = Modifier) {
+internal fun TagPill(info: TagDisplayInfo, modifier: Modifier = Modifier, large: Boolean = false) {
     val (containerColor, contentColor) = tagColors(info.style)
     Surface(
         modifier = modifier,
@@ -65,8 +65,8 @@ internal fun TagPill(info: TagDisplayInfo, modifier: Modifier = Modifier) {
     ) {
         Text(
             info.text,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = if (large) 9.dp else 7.dp, vertical = if (large) 4.dp else 2.dp),
+            style = if (large) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -81,6 +81,6 @@ internal fun tagColors(style: TagStyle): Pair<Color, Color> {
         else Color(0xFFFCE7F3) to Color(0xFF9D174D)
         TagStyle.MALE -> if (dark) Color(0xFF1E40AF) to Color(0xFFDBEAFE)
         else Color(0xFFDBEAFE) to Color(0xFF1E40AF)
-        TagStyle.DEFAULT -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+        TagStyle.DEFAULT -> MaterialTheme.colorScheme.surfaceVariant to readableContentColor(MaterialTheme.colorScheme.surfaceVariant)
     }
 }

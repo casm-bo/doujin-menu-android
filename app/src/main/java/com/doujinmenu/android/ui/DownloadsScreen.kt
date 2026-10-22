@@ -1,5 +1,9 @@
 package com.doujinmenu.android.ui
 
+import androidx.compose.foundation.background
+import com.doujinmenu.android.R
+import com.doujinmenu.android.model.readableStoragePath
+
 import android.content.Intent
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -64,13 +68,14 @@ fun DownloadsScreen(
     onSetDownloadLocation: (String, String) -> Unit,
     onSyncRequests: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             val granted = runCatching { context.contentResolver.takePersistableUriPermission(uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }.isSuccess
             if (granted) onSetDownloadLocation(uri.toString(), DocumentsContract.getTreeDocumentId(uri).substringAfterLast(':'))
-            else android.widget.Toast.makeText(context, "폴더 접근 권한을 저장하지 못했습니다.", android.widget.Toast.LENGTH_LONG).show()
+            else android.widget.Toast.makeText(context, strings[R.string.ui_could_not_save_folder_access_permission], android.widget.Toast.LENGTH_LONG).show()
         }
     }
     val originalTitles = remember(state.galleryCache, state.galleries, state.libraryBooks) {
@@ -95,7 +100,7 @@ fun DownloadsScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(contentPadding),
+        modifier = Modifier.fillMaxSize().padding(contentPadding).background(MaterialTheme.colorScheme.surface),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -106,35 +111,37 @@ fun DownloadsScreen(
                 it.status == DownloadStatus.PENDING || it.status == DownloadStatus.DOWNLOADING
             }
             Text(
-                "전체 ${state.downloadQueue.size + visibleRequests.size} · PC 진행 중 $activeCount",
+                strings[R.string.ui_total_pc_active, (state.downloadQueue.size + visibleRequests.size), (activeCount)],
                 modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             TextButton(
                 onClick = onClearCompleted,
                 enabled = state.downloadQueue.any { it.status == DownloadStatus.COMPLETED },
-            ) { Text("완료 항목 정리") }
+            ) { Text(strings[R.string.ui_clear_completed_items]) }
             OutlinedButton(
                 onClick = { onRefresh(false) },
                 enabled = hasProfile && !state.isDownloadQueueLoading,
-            ) { Text("새로고침") }
+            ) { Text(strings[R.string.ui_refresh]) }
         }
 
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("PC 대기 ${state.downloadRequests.count { it.target == DownloadTarget.DESKTOP && !it.isFinished }}개", Modifier.weight(1f))
+            Text(strings[R.string.ui_pc_pending, (state.downloadRequests.count { it.target == DownloadTarget.DESKTOP && !it.isFinished })], Modifier.weight(1f))
             TextButton(onClick = onSyncRequests, enabled = hasProfile && !state.isDownloadSyncing &&
                 state.downloadRequests.any { it.pendingForDesktop(state.selectedProfileId.orEmpty()) }) {
-                Text(if (state.isDownloadSyncing) "동기화 중…" else "PC와 동기화")
+                Text(if (state.isDownloadSyncing) strings[R.string.ui_syncing] else strings[R.string.ui_sync_with_pc])
             }
         }
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("기기 저장: ${state.downloadLocation?.displayName ?: "폴더 미선택"}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { folderPicker.launch(null) }) { Text("폴더 선택") }
+            Text(strings[R.string.ui_device_storage, (state.downloadLocation?.let { readableStoragePath(it.uri, it.displayName) } ?: strings[R.string.download_folder_unset])], Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { folderPicker.launch(null) }) { Text(strings[R.string.ui_choose_folder]) }
         }
+        Text(strings[R.string.ui_desktop_download_folder] + ": " + (state.desktopDownloadPath?.let { readableStoragePath(it) }
+            ?: strings[R.string.ui_not_configured_on_desktop]), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
         if (!hasProfile || state.isDownloadConnectionUnavailable) {
             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("PC 미연결 · 대기 목록은 기기에 보관됩니다.", Modifier.weight(1f))
-                TextButton(onClick = onConnect) { Text("연결 설정") }
+                Text(strings[R.string.ui_pc_disconnected_pending_requests_are_stored_on_this_device], Modifier.weight(1f))
+                TextButton(onClick = onConnect) { Text(strings[R.string.ui_connection_settings]) }
             }
         }
         state.downloadQueueError?.let { error ->
@@ -147,7 +154,7 @@ fun DownloadsScreen(
 
         if (state.downloadQueue.any { it.status == DownloadStatus.COMPLETED }) {
             Text(
-                "완료 항목을 정리해도 PC 라이브러리의 파일은 유지됩니다.",
+                strings[R.string.ui_clearing_completed_items_keeps_files_in_the_pc_library],
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
@@ -156,16 +163,16 @@ fun DownloadsScreen(
 
         when {
             state.isDownloadQueueLoading && state.downloadQueue.isEmpty() && state.downloadRequests.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             }
             state.downloadQueue.isEmpty() && state.downloadRequests.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("다운로드 큐가 비어 있습니다.", style = MaterialTheme.typography.titleMedium)
+                        Text(strings[R.string.ui_the_download_queue_is_empty], style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "갤러리 상세 화면에서 다운로드를 추가할 수 있습니다.",
+                            strings[R.string.ui_add_downloads_from_a_gallery_detail_screen],
                             modifier = Modifier.padding(top = 6.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -174,48 +181,48 @@ fun DownloadsScreen(
             }
             else -> {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(visibleRequests, key = { "request:${it.id}" }) { request ->
-                        Card(Modifier.fillMaxWidth()) {
+                        Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(preferredLocalizedTitle(request.title), fontWeight = FontWeight.SemiBold)
                                 val local = request.target == DownloadTarget.LOCAL
                                 Text(when (request.status) {
-                                    RequestStatus.WAITING -> if (local) "기기 다운로드 대기" else "PC 동기화 대기"
-                                    RequestStatus.SENDING -> "PC에 전달 중…"
-                                    RequestStatus.SENT -> "PC 큐에 전달됨"
-                                    RequestStatus.RUNNING -> "기기에 다운로드 중"
-                                    RequestStatus.PAUSING -> "일시정지 중…"
-                                    RequestStatus.PAUSED -> "기기 다운로드 일시정지"
-                                    RequestStatus.FAILED -> "기기 다운로드 실패"
-                                    RequestStatus.COMPLETED -> "기기 저장 완료"
+                                    RequestStatus.WAITING -> if (local) strings[R.string.ui_waiting_for_device_download] else strings[R.string.ui_waiting_for_pc_sync]
+                                    RequestStatus.SENDING -> strings[R.string.ui_sending_to_pc]
+                                    RequestStatus.SENT -> strings[R.string.ui_sent_to_pc_queue]
+                                    RequestStatus.RUNNING -> strings[R.string.ui_downloading_to_device]
+                                    RequestStatus.PAUSING -> strings[R.string.ui_pausing]
+                                    RequestStatus.PAUSED -> strings[R.string.ui_device_download_paused]
+                                    RequestStatus.FAILED -> strings[R.string.ui_device_download_failed]
+                                    RequestStatus.COMPLETED -> strings[R.string.ui_saved_on_device]
                                 })
                                 if (local) {
-                                    Text("${request.downloadedFiles}/${request.totalFiles} 페이지", style = MaterialTheme.typography.bodySmall)
+                                    Text(strings[R.string.ui_pages_cb9b7a, (request.downloadedFiles), (request.totalFiles)], style = MaterialTheme.typography.bodySmall)
                                     if (request.totalFiles > 0) LinearProgressIndicator(
                                         progress = { request.downloadedFiles.toFloat() / request.totalFiles }, modifier = Modifier.fillMaxWidth())
                                 } else {
                                     val desktop = state.profiles.firstOrNull { it.id == request.profileId }
-                                    Text("대상: ${desktop?.name ?: if (request.profileId == null) "다음 동기화 PC" else "삭제된 PC"}", style = MaterialTheme.typography.bodySmall)
+                                    Text(strings[R.string.ui_target, (desktop?.name ?: if (request.profileId == null) strings[R.string.next_sync_pc] else strings[R.string.removed_pc])], style = MaterialTheme.typography.bodySmall)
                                 }
                                 if (request.desktopAttempted && !request.isFinished && !request.isBusy) {
-                                    Text("전송 결과 확인 필요 · PC와 동기화하세요.", style = MaterialTheme.typography.bodySmall)
+                                    Text(strings[R.string.ui_check_transfer_status_sync_with_pc], style = MaterialTheme.typography.bodySmall)
                                 }
                                 request.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     if (request.canDownloadLocally) {
                                         TextButton(onClick = { onLocalDownload(request.id) }, enabled = state.downloadLocation != null) {
-                                            Text(if (local) "기기 다운로드 재개" else "로컬 다운로드에 추가")
+                                            Text(if (local) strings[R.string.ui_resume_device_download] else strings[R.string.ui_add_local_download])
                                         }
                                     }
                                     if (local && (request.status == RequestStatus.RUNNING || request.status == RequestStatus.WAITING)) {
-                                        TextButton(onClick = { onPauseLocal(request.id) }) { Text("일시정지") }
+                                        TextButton(onClick = { onPauseLocal(request.id) }) { Text(strings[R.string.ui_pause]) }
                                     }
                                     TextButton(onClick = { onRemoveRequest(request.id) }, enabled = !request.isBusy) {
-                                        Text(if (request.isFinished || request.desktopAttempted) "기록 정리" else "취소 및 삭제")
+                                        Text(if (request.isFinished || request.desktopAttempted) strings[R.string.ui_clear_record] else strings[R.string.ui_cancel_and_delete])
                                     }
                                 }
                             }
@@ -248,13 +255,14 @@ private fun DownloadQueueCard(
     onRetry: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val thumbnailRequest = remember(item.thumbnailUrl, item.galleryId) {
         item.thumbnailUrl?.let {
             hitomiImageRequest(context, it, item.galleryId, crossfade = false)
         }
     }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -280,7 +288,7 @@ private fun DownloadQueueCard(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        item.status.label,
+                        strings[item.status.labelResource],
                         modifier = Modifier.weight(1f),
                         color = item.status.statusColor(),
                         style = MaterialTheme.typography.labelLarge,
@@ -306,9 +314,9 @@ private fun DownloadQueueCard(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     when (item.status) {
-                        DownloadStatus.DOWNLOADING -> DownloadActionButton("일시정지", actionInProgress, onPause)
-                        DownloadStatus.PAUSED -> DownloadActionButton("재개", actionInProgress, onResume)
-                        DownloadStatus.FAILED -> DownloadActionButton("재시도", actionInProgress, onRetry)
+                        DownloadStatus.DOWNLOADING -> DownloadActionButton(strings[R.string.ui_pause], actionInProgress, onPause)
+                        DownloadStatus.PAUSED -> DownloadActionButton(strings[R.string.ui_resume], actionInProgress, onResume)
+                        DownloadStatus.FAILED -> DownloadActionButton(strings[R.string.ui_retry], actionInProgress, onRetry)
                         else -> Unit
                     }
                     TextButton(
@@ -316,8 +324,8 @@ private fun DownloadQueueCard(
                         enabled = !actionInProgress && item.status != DownloadStatus.DOWNLOADING,
                     ) {
                         Text(
-                            if (item.status == DownloadStatus.COMPLETED) "완료"
-                            else "취소 및 삭제",
+                            if (item.status == DownloadStatus.COMPLETED) strings[R.string.ui_completed]
+                            else strings[R.string.ui_cancel_and_delete],
                         )
                     }
                 }
@@ -346,8 +354,9 @@ private fun DownloadActionButton(
     actionInProgress: Boolean,
     onClick: () -> Unit,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     Button(onClick = onClick, enabled = !actionInProgress) {
-        Text(if (actionInProgress) "처리 중…" else label)
+        Text(if (actionInProgress) strings[R.string.ui_processing] else label)
     }
 }
 
@@ -358,14 +367,14 @@ private fun DownloadStatus.statusColor() = when (this) {
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
-private val DownloadStatus.label: String
+private val DownloadStatus.labelResource: Int
     get() = when (this) {
-        DownloadStatus.PENDING -> "대기 중"
-        DownloadStatus.DOWNLOADING -> "다운로드 중"
-        DownloadStatus.COMPLETED -> "완료"
-        DownloadStatus.FAILED -> "실패"
-        DownloadStatus.PAUSED -> "일시정지"
-        DownloadStatus.UNKNOWN -> "알 수 없음"
+        DownloadStatus.PENDING -> R.string.ui_waiting
+        DownloadStatus.DOWNLOADING -> R.string.ui_downloading
+        DownloadStatus.COMPLETED -> R.string.ui_completed
+        DownloadStatus.FAILED -> R.string.ui_failed
+        DownloadStatus.PAUSED -> R.string.ui_pause
+        DownloadStatus.UNKNOWN -> R.string.ui_unknown
     }
 
 private fun formatBytes(bytes: Long): String = when {

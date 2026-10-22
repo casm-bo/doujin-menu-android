@@ -2,12 +2,14 @@ package com.doujinmenu.android.security
 
 import android.content.Context
 import com.doujinmenu.android.model.AppThemeMode
+import com.doujinmenu.android.model.ReaderPosition
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserTab
 import com.doujinmenu.android.model.BrowserTabGroup
 import com.doujinmenu.android.model.BrowserWorkspace
 import com.doujinmenu.android.model.normalizeGroups
 import com.doujinmenu.android.model.SearchFavorite
+import com.doujinmenu.android.model.SearchQueryEntry
 import com.doujinmenu.android.model.StorageLocation
 import java.util.UUID
 import org.json.JSONArray
@@ -15,6 +17,13 @@ import org.json.JSONObject
 
 class BrowserPreferenceStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+
+    fun loadDownloadDestination(): com.doujinmenu.android.model.DownloadDestination = runCatching {
+        com.doujinmenu.android.model.DownloadDestination.valueOf(preferences.getString("download_destination", null).orEmpty())
+    }.getOrDefault(com.doujinmenu.android.model.DownloadDestination.ASK)
+    fun saveDownloadDestination(value: com.doujinmenu.android.model.DownloadDestination) = preferences.edit().putString("download_destination", value.name).apply()
+    fun isDesktopDownloadAlertSuppressed(): Boolean = preferences.getBoolean("hide_desktop_download_alert", false)
+    fun suppressDesktopDownloadAlert(value: Boolean) = preferences.edit().putBoolean("hide_desktop_download_alert", value).apply()
 
     fun loadFavorites(): List<SearchFavorite> {
         val raw = preferences.getString(KEY_FAVORITES, null) ?: return emptyList()
@@ -54,6 +63,21 @@ class BrowserPreferenceStore(context: Context) {
         preferences.getStringSet(KEY_LANGUAGES, emptySet()).orEmpty()
             .mapTo(linkedSetOf()) { it.trim().lowercase() }
             .filterTo(linkedSetOf()) { it.isNotEmpty() }
+
+    fun loadSearchQueryHistory(key: String = "search_query_history"): List<SearchQueryEntry> = runCatching {
+        val array = JSONArray(preferences.getString(key, "[]"))
+        List(minOf(array.length(), 50)) { index ->
+            val item = array.getJSONObject(index)
+            SearchQueryEntry(item.getString("query"), item.optJSONArray("languages").stringSet())
+        }
+    }.getOrDefault(emptyList())
+
+    fun saveSearchQueryHistory(entries: List<SearchQueryEntry>, key: String = "search_query_history") {
+        val array = JSONArray(entries.take(50).map { entry ->
+            JSONObject().put("query", entry.query).put("languages", JSONArray(entry.languages.toList()))
+        })
+        preferences.edit().putString(key, array.toString()).apply()
+    }
 
     fun savePreferredLanguages(languages: Set<String>) {
         preferences.edit().putStringSet(KEY_LANGUAGES, languages).apply()
@@ -104,6 +128,12 @@ class BrowserPreferenceStore(context: Context) {
     fun saveBrowserWorkspace(workspace: BrowserWorkspace) {
         preferences.edit().putString(KEY_SEARCH_WORKSPACE, browserWorkspaceToJson(workspace)).apply()
     }
+
+    fun loadActiveGalleryWorkspace(): Boolean = preferences.getBoolean("active_gallery_workspace", false)
+    fun saveActiveGalleryWorkspace(gallery: Boolean) { preferences.edit().putBoolean("active_gallery_workspace", gallery).apply() }
+    fun loadMainDestination(): String = preferences.getString("main_destination", "browser")
+        ?.takeIf { it in setOf("browser", "library", "history", "downloads", "settings") } ?: "browser"
+    fun saveMainDestination(route: String) { preferences.edit().putString("main_destination", route).apply() }
 
     fun loadGalleryWorkspace(): BrowserWorkspace {
         val raw = preferences.getString(KEY_GALLERY_WORKSPACE, null)
@@ -254,8 +284,18 @@ private fun JSONArray?.browserTabs(): List<BrowserTab> {
 }
 
 private fun BrowserPage.toJson(): JSONObject = when (this) {
+    is BrowserPage.LibrarySeries -> JSONObject()
+        .put("type", "librarySeries")
+        .put("key", key)
+        .put("name", name)
+        .put("episodeList", episodeList)
+        .put("previewIndex", previewPosition.page)
+        .put("previewOffset", previewPosition.offset)
+        .put("episodeIndex", episodePosition.page)
+        .put("episodeOffset", episodePosition.offset)
     is BrowserPage.LibraryHome -> JSONObject()
         .put("type", "libraryHome")
+        .put("query", query)
         .put("key", key)
         .put("scrollAnchorKey", scrollAnchorKey)
         .put("scrollIndex", scrollIndex)
@@ -268,17 +308,20 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
         .put("submittedQuery", submittedQuery)
         .put("submittedQueries", JSONArray(submittedQueries))
         .put("resultSessionId", resultSessionId)
+        .put("scrollPage", scrollPage)
         .put("currentPage", currentPage)
         .put("scrollAnchorKey", scrollAnchorKey)
         .put("scrollIndex", scrollIndex)
         .put("scrollOffset", scrollOffset)
     is BrowserPage.OnlineGallery -> JSONObject()
         .put("type", "online")
+        .put("previewIndex", previewPosition.page).put("previewOffset", previewPosition.offset)
         .put("key", key)
         .put("galleryId", galleryId)
         .put("title", title)
     is BrowserPage.LibraryBook -> JSONObject()
         .put("type", "library")
+        .put("previewIndex", previewPosition.page).put("previewOffset", previewPosition.offset)
         .put("key", key)
         .put("bookId", bookId)
         .put("title", title)
@@ -288,19 +331,29 @@ private fun BrowserPage.toJson(): JSONObject = when (this) {
         .put("galleryId", galleryId)
         .put("title", title)
         .put("startPage", startPage)
+        .put("readerPage", position?.page)
+        .put("readerOffset", position?.offset)
     is BrowserPage.LibraryReader -> JSONObject()
         .put("type", "libraryReader")
         .put("key", key)
         .put("bookId", bookId)
         .put("title", title)
         .put("startPage", startPage)
+        .put("readerPage", position?.page)
+        .put("readerOffset", position?.offset)
 }
 
 private fun JSONObject.toBrowserPage(): BrowserPage? {
     val key = optString("key").takeIf(String::isNotBlank) ?: UUID.randomUUID().toString()
     return when (optString("type")) {
+        "librarySeries" -> optString("name").takeIf(String::isNotBlank)?.let { name ->
+            BrowserPage.LibrarySeries(name, key, optBoolean("episodeList"),
+                ReaderPosition(optInt("previewIndex").coerceAtLeast(0), optInt("previewOffset").coerceAtLeast(0)),
+                ReaderPosition(optInt("episodeIndex").coerceAtLeast(0), optInt("episodeOffset").coerceAtLeast(0)))
+        }
         "libraryHome" -> BrowserPage.LibraryHome(
             key = key,
+            query = optString("query"),
             scrollAnchorKey = optString("scrollAnchorKey").takeIf(String::isNotBlank),
             scrollIndex = optInt("scrollIndex", 0).coerceAtLeast(0),
             scrollOffset = optInt("scrollOffset", 0).coerceAtLeast(0),
@@ -312,22 +365,24 @@ private fun JSONObject.toBrowserPage(): BrowserPage? {
             submittedQuery = optString("submittedQuery"),
             submittedQueries = optJSONArray("submittedQueries").stringList(),
             resultSessionId = optString("resultSessionId").takeIf { it.isNotBlank() && it != "null" },
+            scrollPage = optInt("scrollPage", 1).coerceAtLeast(1),
             currentPage = optInt("currentPage", 0).coerceAtLeast(0),
             scrollAnchorKey = optString("scrollAnchorKey").takeIf(String::isNotBlank),
             scrollIndex = optInt("scrollIndex", 0).coerceAtLeast(0),
             scrollOffset = optInt("scrollOffset", 0).coerceAtLeast(0),
         )
         "online" -> optLong("galleryId").takeIf { it > 0 }?.let { galleryId ->
-            BrowserPage.OnlineGallery(galleryId, optString("title"), key)
+            BrowserPage.OnlineGallery(galleryId, optString("title"), key, ReaderPosition(optInt("previewIndex").coerceAtLeast(0), optInt("previewOffset").coerceAtLeast(0)))
         }
         "library" -> optString("bookId").takeIf(String::isNotBlank)?.let { bookId ->
-            BrowserPage.LibraryBook(bookId, optString("title"), key)
+            BrowserPage.LibraryBook(bookId, optString("title"), key, ReaderPosition(optInt("previewIndex").coerceAtLeast(0), optInt("previewOffset").coerceAtLeast(0)))
         }
         "onlineReader" -> optLong("galleryId").takeIf { it > 0 }?.let { galleryId ->
             BrowserPage.OnlineReader(
                 galleryId = galleryId,
                 title = optString("title"),
                 startPage = optInt("startPage", 0).coerceAtLeast(0),
+                position = if (has("readerPage") && !isNull("readerPage")) ReaderPosition(optInt("readerPage").coerceAtLeast(0), optInt("readerOffset").coerceAtLeast(0)) else null,
                 key = key,
             )
         }
@@ -336,6 +391,7 @@ private fun JSONObject.toBrowserPage(): BrowserPage? {
                 bookId = bookId,
                 title = optString("title"),
                 startPage = optInt("startPage", 0).coerceAtLeast(0),
+                position = if (has("readerPage") && !isNull("readerPage")) ReaderPosition(optInt("readerPage").coerceAtLeast(0), optInt("readerOffset").coerceAtLeast(0)) else null,
                 key = key,
             )
         }
@@ -353,7 +409,7 @@ internal fun BrowserWorkspace.galleryWorkspace(): BrowserWorkspace = onlyPages(
     fallback = BrowserPage.LibraryHome(),
     prependLibraryHome = true,
 ) { page ->
-    page is BrowserPage.LibraryHome || page is BrowserPage.LibraryBook || page is BrowserPage.LibraryReader
+    page is BrowserPage.LibraryHome || page is BrowserPage.LibrarySeries || page is BrowserPage.LibraryBook || page is BrowserPage.LibraryReader
 }
 
 private fun BrowserWorkspace.onlyPages(

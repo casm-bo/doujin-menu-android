@@ -1,5 +1,11 @@
 package com.doujinmenu.android.ui
 
+import com.doujinmenu.android.R
+import com.doujinmenu.android.model.presentation
+import com.doujinmenu.android.model.presentationKey
+import com.doujinmenu.android.model.seriesPresentationKey
+import com.doujinmenu.android.model.currentOrPreviousPage
+
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -20,9 +26,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,20 +54,25 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.semantics
@@ -78,19 +91,27 @@ import androidx.navigation.navArgument
 import kotlin.math.cos
 import kotlin.math.sin
 
-private enum class MainDestination(
+internal enum class MainDestination(
     val route: String,
-    val label: String,
+    val labelResource: Int,
     val symbol: String,
 ) {
-    Browser("browser", "검색", "⌕"),
-    Library("library", "갤러리", "▦"),
-    Downloads("downloads", "다운로드", "↓"),
-    Settings("settings", "설정", "⚙"),
+    Browser("browser", R.string.ui_search, "⌕"),
+    Library("library", R.string.ui_gallery, "▦"),
+    History("history", R.string.ui_recent_history, "◷"),
+    Downloads("downloads", R.string.ui_downloads, "↓"),
+    Settings("settings", R.string.ui_settings, "⚙"),
 }
 
 @Composable
 fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
+    if (viewModel.uiState.isStarting) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+    val strings = androidx.compose.ui.platform.LocalResources.current
     val navController = rememberNavController()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -103,25 +124,36 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 snackbarHostState.currentSnackbarData?.dismiss()
                 val action = snackbarHostState.showSnackbar(
                     message = when {
-                        result.tabId == null -> "새 탭을 열지 못했습니다."
-                        result.alreadyOpen -> "이미 열린 탭이 있습니다."
-                        else -> "새 탭에 열었습니다."
+                        result.tabId == null -> strings[R.string.ui_could_not_open_a_new_tab]
+                        result.alreadyOpen -> strings[R.string.ui_this_tab_is_already_open]
+                        else -> strings[R.string.ui_opened_in_a_new_tab]
                     },
-                    actionLabel = result.tabId?.let { "이동" },
+                    actionLabel = result.tabId?.let { strings[R.string.ui_go] },
                     withDismissAction = true,
-                    duration = SnackbarDuration.Long,
+                    duration = SnackbarDuration.Short,
                 )
                 if (action == SnackbarResult.ActionPerformed &&
-                    viewModel.uiState.browserWorkspace.tabs.any { it.id == result.tabId }) {
+                    (if (result.galleryWorkspace) viewModel.uiState.galleryWorkspace else viewModel.uiState.browserWorkspace).tabs.any { it.id == result.tabId }) {
                     viewModel.tabPreviews.captureNow()
-                    viewModel.selectBrowserTab(requireNotNull(result.tabId))
+                    if (result.galleryWorkspace) viewModel.selectGalleryTab(requireNotNull(result.tabId))
+                    else viewModel.selectBrowserTab(requireNotNull(result.tabId))
                 }
             }
         }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
-    var lastMainDestination by rememberSaveable { mutableStateOf(MainDestination.Browser.route) }
+    var lastMainDestination by rememberSaveable { mutableStateOf(viewModel.initialMainDestination()) }
     var searchOpenedFromGallery by rememberSaveable { mutableStateOf(false) }
+    var lastShownNewTabNotice by rememberSaveable { mutableStateOf(0) }
+    val newTabNotice = viewModel.uiState.newTabNotice
+    LaunchedEffect(newTabNotice) {
+        if (newTabNotice > 0 && newTabNotice != lastShownNewTabNotice) {
+            lastShownNewTabNotice = newTabNotice
+            backgroundTabNotice?.cancel()
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(strings[R.string.ui_opened_in_a_new_tab], duration = SnackbarDuration.Short)
+        }
+    }
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -149,8 +181,15 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     }
 
     val browserNavigationRevision = viewModel.uiState.browserNavigationRevision
+    var appliedNavigationRevision by rememberSaveable { mutableStateOf(-1L) }
     LaunchedEffect(browserNavigationRevision) {
-        when (val page = viewModel.activeBrowserPage()) {
+        val page = viewModel.activeBrowserPage()
+        val restoringMain = navController.currentDestination?.route == "main" &&
+            (appliedNavigationRevision == browserNavigationRevision || (browserNavigationRevision == 0L && lastMainDestination !in setOf("browser", "library")))
+        appliedNavigationRevision = browserNavigationRevision
+        if (restoringMain && (page is BrowserPage.Search || page is BrowserPage.LibraryHome)) return@LaunchedEffect
+        if (page is BrowserPage.LibraryHome || page is BrowserPage.LibrarySeries || page is BrowserPage.LibraryBook || page is BrowserPage.LibraryReader) searchOpenedFromGallery = false
+        when (page) {
             is BrowserPage.LibraryHome -> {
                 lastMainDestination = MainDestination.Library.route
                 navController.popBackStack("main", inclusive = false)
@@ -168,6 +207,10 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 }
             }
             is BrowserPage.OnlineGallery -> navController.navigate("gallery/${page.galleryId}") {
+                popUpTo("main")
+                launchSingleTop = true
+            }
+            is BrowserPage.LibrarySeries -> navController.navigate("library-series/${Uri.encode(page.name)}") {
                 popUpTo("main")
                 launchSingleTop = true
             }
@@ -226,7 +269,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 MainShell(
                     viewModel = viewModel,
                     initialDestinationRoute = lastMainDestination,
-                    onDestinationChanged = { lastMainDestination = it },
+                    onDestinationChanged = { lastMainDestination = it; viewModel.rememberMainDestination(it) },
                     onGalleryClick = {
                         val libraryBookId = viewModel.libraryBookIdForGallery(it)
                         if (libraryBookId != null) {
@@ -257,6 +300,14 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     },
                 )
             }
+            composable("library-series/{seriesName}") { entry ->
+                val initial = remember(entry.id) { viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibrarySeries } ?: return@composable
+                val page = (viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibrarySeries)?.takeIf { it.key == initial.key } ?: initial
+                BackHandler(onBack = galleryBack)
+                LibraryTabContent(viewModel, PaddingValues(0.dp), viewModel::openLibraryBookTab, galleryBack,
+                    onSearchFacet = { searchOpenedFromGallery = true; viewModel.searchFromFacet(it) },
+                    onSearchLanguage = { searchOpenedFromGallery = true; viewModel.searchFromLanguage(it) }, seriesPage = page)
+            }
             composable("library-detail/{bookId}") { entry ->
                 val bookId = entry.arguments?.getString("bookId") ?: return@composable
                 BackHandler(onBack = galleryBack)
@@ -267,7 +318,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 val nextBook = currentBook?.let { viewModel.nextLibrarySeriesBook(it.id) }
                 val previousBook = currentBook?.let { viewModel.previousLibrarySeriesBook(it.id) }
                 val isSeriesBook = currentBook?.id in viewModel.uiState.customSeriesByBookId
+                val detail = remember(entry.id) { viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryBook }
                 LibraryDetailScreen(
+                    pageKey = detail?.key ?: entry.id,
+                    initialPreviewPosition = detail?.previewPosition ?: com.doujinmenu.android.model.ReaderPosition(0),
+                    onPreviewPositionChange = { viewModel.updatePreviewScroll(detail?.key ?: entry.id, it) },
                     book = currentBook,
                     previousBook = previousBook,
                     nextBook = nextBook,
@@ -286,10 +341,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     onOpenSeriesList = {
                         currentBook?.id?.let { id ->
                             viewModel.uiState.customSeriesByBookId[id]?.name?.let { series ->
-                                viewModel.setLibrarySeriesMode(true)
-                                viewModel.selectLibrarySeries(series)
-                                lastMainDestination = MainDestination.Library.route
-                                navController.popBackStack("main", inclusive = false)
+                                viewModel.openLibrarySeriesList(series)
                             }
                         }
                     },
@@ -301,6 +353,14 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         searchOpenedFromGallery = true
                         viewModel.searchFromLanguage(language)
                     },
+                    options = {
+                        currentBook?.let { book -> runCatching { book.presentation() }.getOrNull()?.let { value ->
+                            WorkPresentationActions(viewModel, value,
+                                book.pages.filter { it.uri.isNotBlank() }.map { page -> com.doujinmenu.android.model.ReaderImageSource(page.uri,
+                                    if (book.isCloud && book.cloudToken != null) mapOf("Authorization" to "Bearer ${book.cloudToken}") else emptyMap()) }, setOf(book.id))
+                        } }
+                    },
+                    webtoon = currentBook?.let { book -> runCatching { viewModel.uiState.presentations[book.presentationKey()]?.value?.webtoon == true }.getOrDefault(false) } == true,
                     tabBar = { AppGalleryTabStrip(viewModel, onBack = galleryBack) },
                 )
             }
@@ -319,9 +379,13 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 }
                 val nextBook = book?.let { viewModel.nextLibrarySeriesBook(it.id) }
                 val requestedPage = entry.arguments?.getInt("startPage") ?: -1
+                val session = remember(entry.id) { (viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryReader)?.takeIf { it.bookId == bookId } }
+                val sessionKey = session?.key ?: entry.id
                 LocalReaderScreen(
+                    sessionKey = sessionKey,
+                    initialOffset = session?.position?.offset ?: 0,
                     book = book,
-                    initialPage = if (requestedPage >= 0) requestedPage
+                    initialPage = session?.position?.page ?: if (requestedPage >= 0) requestedPage
                         else book?.let { viewModel.uiState.libraryProgress[it.id] } ?: 0,
                     isLoading = viewModel.uiState.isLibraryBookLoading,
                     error = viewModel.uiState.libraryScanError,
@@ -329,7 +393,10 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     preferences = viewModel.uiState.viewerPreferences,
                     onBack = galleryBack,
                     onToggleFavorite = { book?.let { viewModel.toggleLibraryFavorite(it.id) } },
-                    onProgress = { page -> book?.let { viewModel.updateLibraryProgress(it.id, page) } },
+                    onProgress = { position ->
+                        viewModel.updateReaderSession(sessionKey, position.page, position.offset)
+                        book?.let { viewModel.updateLibraryProgress(it.id, position.page) }
+                    },
                     nextBookTitle = nextBook?.title,
                     onOpenNextBook = {
                         nextBook?.let {
@@ -337,6 +404,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         }
                     },
                     onPreferencesChange = viewModel::updateViewerPreferences,
+                    onReadingModeResolved = { viewModel.classifyLibraryBook(bookId, it) },
                 )
             }
             composable("gallery/{galleryId}") { entry ->
@@ -344,7 +412,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     ?: return@composable
                 LaunchedEffect(galleryId) { viewModel.ensureGalleryLoaded(galleryId) }
                 BackHandler(onBack = searchBack)
+                val detail = remember(entry.id) { viewModel.uiState.browserWorkspace.activeTab.currentPage as? BrowserPage.OnlineGallery }
                 GalleryDetailScreen(
+                    pageKey = detail?.key ?: entry.id,
+                    initialPreviewPosition = detail?.previewPosition ?: com.doujinmenu.android.model.ReaderPosition(0),
+                    onPreviewPositionChange = { viewModel.updatePreviewScroll(detail?.key ?: entry.id, it) },
                     gallery = viewModel.uiState.galleryCache[galleryId]
                         ?: viewModel.uiState.galleries.firstOrNull { it.id == galleryId },
                     state = viewModel.uiState,
@@ -358,6 +430,17 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         viewModel.searchFromLanguage(language)
                     },
                     onDownload = viewModel::downloadGallery,
+                    options = {
+                        val gallery = viewModel.uiState.galleryCache[galleryId] ?: viewModel.uiState.galleries.firstOrNull { it.id == galleryId }
+                        gallery?.let {
+                            val sources = viewModel.uiState.readerPagesByGalleryId[galleryId].orEmpty().map { url ->
+                                com.doujinmenu.android.model.ReaderImageSource(url, mapOf("Referer" to "https://hitomi.la/reader/$galleryId.html"))
+                            }
+                            val ids = viewModel.uiState.libraryBooks.filter { it.metadata.hitomiId == galleryId.toString() }.mapTo(linkedSetOf()) { it.id }
+                            WorkPresentationActions(viewModel, it.presentation(), sources, ids)
+                        }
+                    },
+                    webtoon = viewModel.uiState.presentations["hitomi:$galleryId"]?.value?.webtoon == true,
                     tabBar = { AppSearchTabStrip(viewModel, onBack = searchBack) },
                 )
             }
@@ -374,29 +457,38 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     ?: return@composable
                 BackHandler(onBack = searchBack)
                 val requestedPage = entry.arguments?.getInt("startPage") ?: -1
+                val session = remember(entry.id) { (viewModel.uiState.browserWorkspace.activeTab.currentPage as? BrowserPage.OnlineReader)?.takeIf { it.galleryId == galleryId } }
+                val sessionKey = session?.key ?: entry.id
                 ReaderScreen(
+                    sessionKey = sessionKey,
+                    initialOffset = session?.position?.offset ?: 0,
                     galleryId = galleryId,
-                    initialPage = if (requestedPage >= 0) requestedPage
+                    initialPage = session?.position?.page ?: if (requestedPage >= 0) requestedPage
                         else viewModel.uiState.onlineReaderProgress[galleryId] ?: 0,
                     state = viewModel.uiState,
                     preferences = viewModel.uiState.viewerPreferences,
                     onLoad = viewModel::loadReader,
                     onBack = searchBack,
-                    onProgress = { page -> viewModel.updateOnlineReaderProgress(galleryId, page) },
+                    onProgress = { position ->
+                        viewModel.updateReaderSession(sessionKey, position.page, position.offset)
+                        viewModel.updateOnlineReaderProgress(galleryId, position.page)
+                    },
                     onPreferencesChange = viewModel::updateViewerPreferences,
+                    onReadingModeResolved = { viewModel.classifyGallery(galleryId, it) },
                 )
             }
         }
 
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(12.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = 88.dp),
         ) { data ->
+            val isError = appMessageIsError && data.visuals.message == appMessage
             Snackbar(
                 snackbarData = data,
-                containerColor = if (appMessageIsError) MaterialTheme.colorScheme.errorContainer
+                containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
                     else MaterialTheme.colorScheme.inverseSurface,
-                contentColor = if (appMessageIsError) MaterialTheme.colorScheme.onErrorContainer
+                contentColor = if (isError) MaterialTheme.colorScheme.onErrorContainer
                     else MaterialTheme.colorScheme.inverseOnSurface,
             )
         }
@@ -422,13 +514,18 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
+    DownloadPrompts(viewModel) { section ->
+        viewModel.requestSettingsSection(section)
+        navController.navigate("main") { popUpTo("main"); launchSingleTop = true }
+    }
+
     viewModel.uiState.availableUpdate?.let { release ->
         AlertDialog(
             onDismissRequest = { viewModel.dismissAvailableUpdate(skipVersion = false) },
-            title = { Text("새 버전 ${release.versionName}") },
+            title = { Text(strings[R.string.ui_new_version, (release.versionName)]) },
             text = {
                 Text(
-                    release.notes.ifBlank { "새 버전을 사용할 수 있습니다." }.take(600),
+                    release.notes.ifBlank { strings[R.string.ui_a_new_version_is_available] }.take(600),
                 )
             },
             confirmButton = {
@@ -437,15 +534,15 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.pageUrl)))
                         viewModel.dismissAvailableUpdate(skipVersion = false)
                     },
-                ) { Text("업데이트") }
+                ) { Text(strings[R.string.ui_update]) }
             },
             dismissButton = {
                 Row {
                     TextButton(onClick = { viewModel.dismissAvailableUpdate(skipVersion = true) }) {
-                        Text("이 버전 건너뛰기")
+                        Text(strings[R.string.ui_skip_this_version])
                     }
                     TextButton(onClick = { viewModel.dismissAvailableUpdate(skipVersion = false) }) {
-                        Text("나중에")
+                        Text(strings[R.string.ui_later])
                     }
                 }
             },
@@ -454,28 +551,35 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
 }
 
 @Composable
-private fun AppSearchTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null) {
+private fun AppSearchTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null, titleContent: (@Composable () -> Unit)? = null, actions: @Composable () -> Unit = {}) {
     BrowserTabStrip(
         workspace = viewModel.uiState.browserWorkspace,
         onNew = viewModel::newBrowserTab,
         onShowOverview = { viewModel.showTabOverview(isGallery = false) },
         previews = viewModel.tabPreviews,
         onBack = onBack,
+        titleContent = titleContent,
+        extraActions = { actions() },
     )
 }
 
 @Composable
-private fun AppGalleryTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null, showSync: Boolean = false) {
+private fun AppGalleryTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = null, showSync: Boolean = false, titleContent: (@Composable () -> Unit)? = null, actions: @Composable () -> Unit = {}) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    val series = viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibrarySeries
     BrowserTabStrip(
         workspace = viewModel.uiState.galleryWorkspace,
         onNew = viewModel::newGalleryTab,
         onShowOverview = { viewModel.showTabOverview(isGallery = true) },
         previews = viewModel.tabPreviews,
         onBack = onBack,
+        titleOverride = series?.let { viewModel.uiState.presentations[seriesPresentationKey(it.name)]?.value?.title },
+        titleContent = titleContent,
         extraActions = {
+            actions()
             if (showSync) IconButton(onClick = viewModel::syncLibraryNow,
                 enabled = !viewModel.uiState.isLibrarySyncing && viewModel.uiState.selectedProfileId != null,
-                modifier = Modifier.semantics { contentDescription = "라이브러리 동기화, 대기 ${viewModel.uiState.librarySyncPendingCount}개" }) {
+                modifier = Modifier.semantics { contentDescription = strings[R.string.ui_sync_library_pending, (viewModel.uiState.librarySyncPendingCount)] }) {
                 if (viewModel.uiState.isLibrarySyncing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else {
                     val pending = viewModel.uiState.librarySyncPendingCount
@@ -497,7 +601,9 @@ private fun MainShell(
     onLibraryBookClick: (String) -> Unit,
     onBackToOrigin: (() -> Unit)? = null,
 ) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
     var selectedRoute by rememberSaveable(initialDestinationRoute) { mutableStateOf(initialDestinationRoute) }
+    val inlineSearch = remember(selectedRoute) { InlineSearchState() }
     val selected = MainDestination.entries.firstOrNull { it.route == selectedRoute }
         ?: MainDestination.Browser
     LaunchedEffect(selectedRoute) {
@@ -505,6 +611,7 @@ private fun MainShell(
     }
     val navigate: (MainDestination) -> Unit = { destination ->
         if (destination != selected) {
+            viewModel.activateMainWorkspace(destination.route)
             selectedRoute = destination.route
         }
     }
@@ -516,6 +623,7 @@ private fun MainShell(
             },
         onBack = {
             when {
+                selected == MainDestination.Browser && viewModel.canReturnFromNewTab(false) -> viewModel.goBackInBrowserTab()
                 onBackToOrigin != null -> onBackToOrigin()
                 selected == MainDestination.Browser -> viewModel.goBackInBrowserTab()
                 else -> viewModel.goBackInGalleryTab()
@@ -523,6 +631,9 @@ private fun MainShell(
         },
     )
 
+    LaunchedEffect(viewModel.uiState.settingsSectionRequest) {
+        if (viewModel.uiState.settingsSectionRequest != null) selectedRoute = MainDestination.Settings.route
+    }
     val content: @Composable (PaddingValues) -> Unit = { padding ->
         MainTabContent(
             destination = selected,
@@ -532,23 +643,23 @@ private fun MainShell(
             onGalleryLongClick = onGalleryLongClick,
             onLibraryBookClick = onLibraryBookClick,
             onNavigate = navigate,
+            onBackToOrigin = onBackToOrigin,
         )
     }
     val topBar: @Composable () -> Unit = {
         Column {
             if (selected != MainDestination.Browser && selected != MainDestination.Library) {
-                TopAppBar(title = { Text(selected.label) })
+                TopAppBar(title = { Text(strings[selected.labelResource]) })
             }
             when (selected) {
-                MainDestination.Browser -> AppSearchTabStrip(viewModel, onBack = onBackToOrigin
-                    ?: if (viewModel.canGoBackInBrowserTab()) ({ viewModel.goBackInBrowserTab(); Unit }) else null)
-                MainDestination.Library -> AppGalleryTabStrip(viewModel, showSync = true,
-                    onBack = if (viewModel.canGoBackInGalleryTab()) ({ viewModel.goBackInGalleryTab(); Unit }) else null)
+                MainDestination.Browser -> Unit
+                MainDestination.Library -> Unit
                 else -> Unit
             }
         }
     }
 
+    CompositionLocalProvider(LocalInlineSearch provides inlineSearch) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth >= 700.dp) {
             Row(modifier = Modifier.fillMaxSize()) {
@@ -558,7 +669,7 @@ private fun MainShell(
                             selected = destination == selected,
                             onClick = { navigate(destination) },
                             icon = { MainDestinationIcon(destination) },
-                            label = { Text(destination.label) },
+                            label = { Text(strings[destination.labelResource]) },
                         )
                     }
                 }
@@ -571,18 +682,28 @@ private fun MainShell(
             Scaffold(
                 topBar = topBar,
                 bottomBar = {
-                    NavigationBar {
-                        MainDestination.entries.forEach { destination ->
-                            NavigationBarItem(
-                                selected = destination == selected,
-                                onClick = { navigate(destination) },
-                                icon = { MainDestinationIcon(destination) },
-                                label = { Text(destination.label) },
-                            )
-                        }
-                    }
+                    MainBottomNavigation(selected, navigate)
                 },
             ) { padding -> content(padding) }
+        }
+    }
+    }
+}
+
+@Composable
+internal fun MainBottomNavigation(selected: MainDestination, navigate: (MainDestination) -> Unit) {
+    val strings = androidx.compose.ui.platform.LocalResources.current
+    val labelHeight = with(androidx.compose.ui.platform.LocalDensity.current) { MaterialTheme.typography.labelMedium.lineHeight.toDp() }
+    NavigationBar(modifier = Modifier.heightIn(min = 56.dp + labelHeight * 2)) {
+        MainDestination.entries.forEach { destination ->
+            NavigationBarItem(
+                selected = destination == selected,
+                onClick = { navigate(destination) },
+                icon = { MainDestinationIcon(destination) },
+                label = { Text(strings[if (destination == MainDestination.History) R.string.ui_history_navigation else destination.labelResource], modifier = Modifier.fillMaxWidth(),
+                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+            )
         }
     }
 }
@@ -628,6 +749,11 @@ private fun MainDestinationIcon(destination: MainDestination) {
                     cornerRadius = CornerRadius(size.width * 0.04f),
                 )
             }
+            MainDestination.History -> {
+                drawCircle(color, size.width * 0.37f, style = Stroke(width = size.width * 0.1f))
+                drawLine(color, Offset(size.width * 0.5f, size.height * 0.25f), Offset(size.width * 0.5f, size.height * 0.52f), size.width * 0.08f)
+                drawLine(color, Offset(size.width * 0.5f, size.height * 0.52f), Offset(size.width * 0.7f, size.height * 0.62f), size.width * 0.08f)
+            }
             MainDestination.Downloads -> {
                 drawLine(color, Offset(size.width * 0.5f, size.height * 0.1f), Offset(size.width * 0.5f, size.height * 0.62f), size.width * 0.12f)
                 drawLine(color, Offset(size.width * 0.5f, size.height * 0.62f), Offset(size.width * 0.28f, size.height * 0.4f), size.width * 0.12f)
@@ -641,19 +767,23 @@ private fun MainDestinationIcon(destination: MainDestination) {
             }
             MainDestination.Settings -> {
                 val center = Offset(size.width / 2f, size.height / 2f)
-                drawCircle(color, size.width * 0.25f, center, style = Stroke(width = size.width * 0.12f))
-                drawCircle(color, size.width * 0.08f, center)
-                repeat(8) { index ->
-                    val angle = index * Math.PI / 4.0
-                    val start = size.width * 0.34f
-                    val end = size.width * 0.46f
-                    drawLine(
-                        color,
-                        Offset(center.x + cos(angle).toFloat() * start, center.y + sin(angle).toFloat() * start),
-                        Offset(center.x + cos(angle).toFloat() * end, center.y + sin(angle).toFloat() * end),
-                        strokeWidth = size.width * 0.14f,
-                    )
+                val gear = Path().apply {
+                    val angles = floatArrayOf(-22.5f, -13f, -10f, 10f, 13f, 22.5f)
+                    val radii = floatArrayOf(0.34f, 0.34f, 0.46f, 0.46f, 0.34f, 0.34f)
+                    repeat(8) { tooth ->
+                        angles.forEachIndexed { point, degrees ->
+                            val angle = (tooth * 45 + degrees) * Math.PI / 180
+                            val radius = size.width * radii[point]
+                            val x = center.x + cos(angle).toFloat() * radius
+                            val y = center.y + sin(angle).toFloat() * radius
+                            if (tooth == 0 && point == 0) moveTo(x, y) else lineTo(x, y)
+                        }
+                    }
+                    close()
+                    addOval(Rect(center, size.width * 0.16f))
+                    fillType = PathFillType.EvenOdd
                 }
+                drawPath(gear, color)
             }
         }
     }
@@ -668,8 +798,10 @@ private fun MainTabContent(
     onGalleryLongClick: (Long) -> Unit,
     onLibraryBookClick: (String) -> Unit,
     onNavigate: (MainDestination) -> Unit,
+    onBackToOrigin: (() -> Unit)? = null,
 ) {
     var connectionSettingsRequested by rememberSaveable { mutableStateOf(false) }
+    val pageStates = rememberSaveableStateHolder()
     val openConnectionSettings: () -> Unit = {
         connectionSettingsRequested = true
         onNavigate(MainDestination.Settings)
@@ -687,12 +819,20 @@ private fun MainTabContent(
         },
         label = "mainFragmentTransition",
     ) { current ->
+        val pageStateKey = when (current) {
+            MainDestination.Browser -> "browser:${viewModel.uiState.browserWorkspace.currentOrPreviousPage<BrowserPage.Search>()?.key}"
+            MainDestination.Library -> "library:${viewModel.uiState.galleryWorkspace.currentOrPreviousPage<BrowserPage.LibraryHome>()?.key}"
+            else -> current.route
+        }
+        pageStates.SaveableStateProvider(pageStateKey) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (current) {
         MainDestination.Browser -> {
-            val search = viewModel.uiState.browserWorkspace.activeTab.currentPage as? BrowserPage.Search
+            val search = viewModel.uiState.browserWorkspace.currentOrPreviousPage<BrowserPage.Search>()
             BrowserScreen(
                 state = viewModel.uiState,
+                tabHeader = { query, actions -> AppSearchTabStrip(viewModel,
+                    titleContent = query, actions = actions) },
                 contentPadding = contentPadding,
                 onQueryChange = viewModel::setSearchQuery,
                 onFavoriteNameChange = viewModel::setFavoriteName,
@@ -700,67 +840,46 @@ private fun MainTabContent(
                 onSaveFavorite = viewModel::saveSearchFavorite,
                 onRemoveFavorite = viewModel::removeSearchFavorite,
                 onFavoriteSearch = viewModel::searchFavorite,
+                onRecentSearch = viewModel::repeatSearch,
+                onClearSearchHistory = viewModel::clearSearchQueryHistory,
                 onToggleLanguage = viewModel::togglePreferredLanguage,
-                onAddCustomLanguage = viewModel::addCustomLanguage,
+                onLoadLanguages = viewModel::loadAvailableLanguages,
+                onSelectAnyLanguage = viewModel::selectAnyLanguage,
                 onRemoveCustomLanguage = viewModel::removeCustomLanguage,
                 onSelectSuggestion = viewModel::selectFilterSuggestion,
                 onRefresh = viewModel::refresh,
                 onLoadNextPage = viewModel::loadNextPage,
+                onLoadPreviousPage = viewModel::loadPreviousSearchPage,
+                onJumpToPage = viewModel::jumpToSearchPage,
                 onGalleryClick = onGalleryClick,
                 onGalleryLongClick = onGalleryLongClick,
                 onSearchFacet = viewModel::searchFromFacet,
                 onToggleLibraryFavorite = viewModel::toggleLibraryFavorite,
+                onUnhideGallery = { viewModel.setLibraryBooksHidden(setOf("online:$it"), false) },
                 onConnect = openConnectionSettings,
-                pageKey = "${search?.key.orEmpty()}:${search?.resultSessionId.orEmpty()}",
+                pageKey = "${search?.key.orEmpty()}:${search?.resultSessionId.orEmpty()}:${viewModel.uiState.searchJumpRevision}",
                 initialScrollAnchorKey = search?.scrollAnchorKey,
                 initialScrollIndex = search?.scrollIndex ?: 0,
                 initialScrollOffset = search?.scrollOffset ?: 0,
-                onScrollChange = viewModel::updateBrowserScroll,
+                onScrollChange = { anchor, index, offset, page ->
+                    search?.let { viewModel.updateBrowserScroll(it.key, it.resultSessionId, anchor, index, offset, page) }
+                },
                 onEnsureResults = viewModel::ensureSearchResults,
                 onVisibleResultsChange = viewModel::loadVisibleSearchResults,
             )
         }
-        MainDestination.Library -> {
-            val libraryHome = viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome
-            LibraryScreen(
-                state = viewModel.uiState,
-                contentPadding = contentPadding,
-                onQueryChange = viewModel::setLibraryQuery,
-                onToggleFavoritesFilter = viewModel::toggleLibraryFavoritesFilter,
-                onReadFilterChange = viewModel::setLibraryReadFilter,
-                onVisibilityFilterChange = viewModel::setLibraryVisibilityFilter,
-                onSortChange = viewModel::setLibrarySort,
-                onLocationChange = viewModel::toggleLibraryLocation,
-                onRefresh = viewModel::refreshLibrary,
-                onOpenBook = onLibraryBookClick,
-                onToggleFavorite = viewModel::toggleLibraryFavorite,
-                onToggleSeriesFavorite = viewModel::toggleLibrarySeriesFavorite,
-                onToggleRead = viewModel::toggleLibraryRead,
-                onAddFavorites = viewModel::addLibraryFavorites,
-                onMarkRead = viewModel::markLibraryBooksRead,
-                onMarkUnread = viewModel::markLibraryBooksUnread,
-                onAssignSeries = viewModel::assignLibrarySeries,
-                onReorderSeriesBooks = viewModel::reorderLibrarySeriesBooks,
-                onSetBooksHidden = viewModel::setLibraryBooksHidden,
-                onDeleteBooks = viewModel::deleteLibraryBooks,
-                onRenameBook = viewModel::renameLibraryBook,
-                onRemoveBooksFromSeries = viewModel::removeLibraryBooksFromSeries,
-                onRenameSeries = viewModel::renameLibrarySeries,
-                onMergeSeries = viewModel::mergeLibrarySeries,
-                onDeleteSeries = viewModel::deleteLibrarySeries,
-                onAutoCreateSeries = viewModel::autoCreateLibrarySeries,
-                onSeriesModeChange = viewModel::setLibrarySeriesMode,
-                onSelectedSeriesChange = viewModel::selectLibrarySeries,
-                onBackToSearch = {
-                    onNavigate(MainDestination.Browser)
-                },
-                pageKey = libraryHome?.key.orEmpty(),
-                initialScrollAnchorKey = libraryHome?.scrollAnchorKey,
-                initialScrollIndex = libraryHome?.scrollIndex ?: 0,
-                initialScrollOffset = libraryHome?.scrollOffset ?: 0,
-                onScrollChange = viewModel::updateGalleryScroll,
-            )
-        }
+        MainDestination.Library -> LibraryTabContent(
+            viewModel, contentPadding, onLibraryBookClick,
+            onBack = { if (viewModel.canReturnFromNewTab(true)) viewModel.goBackInGalleryTab() else onNavigate(MainDestination.Browser) },
+            onSearchFacet = { viewModel.searchFromFacet(it); onNavigate(MainDestination.Browser) },
+            onSearchLanguage = { viewModel.searchFromLanguage(it); onNavigate(MainDestination.Browser) },
+        )
+        MainDestination.History -> RecentHistoryScreen(
+            state = viewModel.uiState, contentPadding = contentPadding,
+            onOpen = viewModel::openHistory, onRemove = viewModel::removeHistory,
+            onClear = viewModel::clearHistory, onRecordingChange = viewModel::setHistoryRecording,
+            onLoadMetadata = viewModel::loadHistoryMetadata,
+        )
         MainDestination.Downloads -> {
             DownloadsScreen(
                 state = viewModel.uiState,
@@ -798,12 +917,88 @@ private fun MainTabContent(
                 onClearDownloadLocation = viewModel::clearDownloadLocation,
                 onViewerPreferencesChange = viewModel::updateViewerPreferences,
                 onThemeModeChange = viewModel::setThemeMode,
+                onAppStyleChange = viewModel::setAppStyle,
+                onFontSizeChange = viewModel::setFontSize,
+                onGalleryBorderChange = viewModel::setGalleryBorder,
                 onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
                 openConnectionRequested = connectionSettingsRequested,
                 onConnectionRequestHandled = { connectionSettingsRequested = false },
+                onDownloadDestinationChange = viewModel::setDownloadDestination,
+                requestedSection = viewModel.uiState.settingsSectionRequest,
+                onSectionRequestHandled = viewModel::consumeSettingsSectionRequest,
             )
         }
         }
         }
+        }
     }
+}
+
+@Composable
+private fun LibraryTabContent(
+    viewModel: MainViewModel,
+    contentPadding: PaddingValues,
+    onOpenBook: (String) -> Unit,
+    onBack: () -> Unit,
+    onSearchFacet: (String) -> Unit,
+    onSearchLanguage: (String) -> Unit,
+    seriesPage: BrowserPage.LibrarySeries? = null,
+) {
+            val libraryHome = viewModel.uiState.galleryWorkspace.currentOrPreviousPage<BrowserPage.LibraryHome>()
+            LibraryScreen(
+                state = viewModel.uiState,
+                tabHeader = { query, actions -> if (seriesPage == null) AppGalleryTabStrip(viewModel,
+                    titleContent = query, actions = actions) else AppGalleryTabStrip(viewModel) },
+                onSync = viewModel::syncLibraryNow,
+                contentPadding = contentPadding,
+                onQueryChange = viewModel::setLibraryQuery,
+                onSubmitSearch = { viewModel.submitLibrarySearch() },
+                onRecentSearch = { viewModel.submitLibrarySearch(it) },
+                onClearSearchHistory = viewModel::clearLibrarySearchHistory,
+                onToggleFavoritesFilter = viewModel::toggleLibraryFavoritesFilter,
+                onExcludeSeriesChange = viewModel::setLibraryExcludeSeries,
+                onReadFilterChange = viewModel::setLibraryReadFilter,
+                onVisibilityFilterChange = viewModel::setLibraryVisibilityFilter,
+                onSortChange = viewModel::setLibrarySort,
+                onLocationChange = viewModel::toggleLibraryLocation,
+                onRefresh = viewModel::refreshLibrary,
+                onOpenBook = onOpenBook,
+                onToggleFavorite = viewModel::toggleLibraryFavorite,
+                onToggleSeriesFavorite = viewModel::toggleLibrarySeriesFavorite,
+                onToggleRead = viewModel::toggleLibraryRead,
+                onAddFavorites = viewModel::addLibraryFavorites,
+                onMarkRead = viewModel::markLibraryBooksRead,
+                onMarkUnread = viewModel::markLibraryBooksUnread,
+                onAssignSeries = viewModel::assignLibrarySeries,
+                onAppendSeries = viewModel::appendLibrarySeries,
+                onCommitSeriesEdit = viewModel::commitLibrarySeriesEdit,
+                onLoadSeriesPreview = viewModel::loadSeriesBookPreview,
+                onSaveSeriesPresentation = viewModel::saveGalleryPresentation,
+                onSeriesCover = viewModel::changePresentationCover,
+                onAcceptRemoteSeriesPresentation = viewModel::acceptRemotePresentation,
+                onSelectSuggestion = viewModel::selectLibrarySuggestion,
+                onReadBook = viewModel::openLibraryReaderTab,
+                onSearchFacet = onSearchFacet,
+                onSearchLanguage = onSearchLanguage,
+                onSeriesListChange = viewModel::setLibrarySeriesEpisodeList,
+                onSetBooksHidden = viewModel::setLibraryBooksHidden,
+                onDeleteBooks = viewModel::deleteLibraryBooks,
+                onRenameBook = viewModel::renameLibraryBook,
+                onRemoveBooksFromSeries = viewModel::removeLibraryBooksFromSeries,
+                onRenameSeries = viewModel::renameLibrarySeries,
+                onMergeSeries = viewModel::mergeLibrarySeries,
+                onDeleteSeries = viewModel::deleteLibrarySeries,
+                onAutoCreateSeries = viewModel::autoCreateLibrarySeries,
+                onSeriesModeChange = viewModel::setLibrarySeriesMode,
+                onSelectedSeriesChange = viewModel::selectLibrarySeries,
+                onBackToSearch = onBack,
+                pageKey = seriesPage?.key ?: libraryHome?.key.orEmpty(),
+                initialScrollAnchorKey = libraryHome?.scrollAnchorKey,
+                initialScrollIndex = libraryHome?.scrollIndex ?: 0,
+                initialScrollOffset = libraryHome?.scrollOffset ?: 0,
+                onScrollChange = { anchor, index, offset -> viewModel.updateGalleryScroll(libraryHome?.key.orEmpty(), anchor, index, offset) },
+                seriesPage = seriesPage,
+                onSeriesPreviewPosition = { position -> seriesPage?.let { viewModel.updatePreviewScroll(it.key, position) } },
+                onSeriesEpisodePosition = { index, offset -> seriesPage?.let { viewModel.updateSeriesEpisodeScroll(it.key, index, offset) } },
+            )
 }

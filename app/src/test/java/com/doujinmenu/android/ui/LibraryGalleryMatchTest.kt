@@ -8,6 +8,16 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class LibraryGalleryMatchTest {
+    @Test fun searchIndexPreservesDevicePreferenceAndHiddenCopiesInOnePass() {
+        val cloud = book("cloud", "12345", true)
+        val device = book("device", "12345", false)
+        val other = book("other", "67890", true)
+        val invalid = book("invalid", "not-a-gallery-id", false)
+        val books = listOf(cloud, device, other, invalid)
+        assertEquals(mapOf(12345L to device, 67890L to other), preferredLibraryBooksByGalleryId(books, emptySet()))
+        assertEquals(mapOf(12345L to cloud), preferredLibraryBooksByGalleryId(books, setOf("device", "other")))
+        assertEquals(device, preferredLibraryBooksByGalleryId(listOf(device, cloud), emptySet())[12345])
+    }
     @Test
     fun matchesSearchGalleryToCloudLibraryBookByHitomiId() {
         val cloud = book(id = "cloud:12345", hitomiId = "12345", isCloud = true)

@@ -24,7 +24,7 @@ class SearchResultPagerTest {
             var networkDetails = 0
             val pager = SearchResultPager(cache, { _, page ->
                 networkSearches++
-                SearchResult(ids(page), page < 200)
+                SearchResult(ids(page), page < 200, 6000)
             }, { requested -> networkDetails += requested.size; requested.map(::gallery) })
             var window = SearchResultWindow(SearchResultIndex("session", listOf("a", "b")))
             repeat(200) {
@@ -74,8 +74,9 @@ class SearchResultPagerTest {
                 SearchResult(ids(page), true)
             }, { error("restore index must not fetch gallery details") })
             val index = pager.restore("missing", listOf("saved-query"), 100)
-            assertEquals(100, index.pages.size)
-            assertEquals(3000, index.ids.size)
+            assertEquals(99, index.firstPage)
+            assertEquals(100, index.lastPage)
+            assertEquals(60, index.ids.size)
         } finally { directory.deleteRecursively() }
     }
 
@@ -88,6 +89,69 @@ class SearchResultPagerTest {
                 assertEquals(listOf("new"), queries); SearchResult(listOf(2), false)
             }, { error("no details during index restore") })
             assertEquals(listOf(2L), pager.restore("session", listOf("new"), 1).ids)
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `jump to page 100 loads only target and previous then extends on demand`() = runBlocking {
+        val directory = Files.createTempDirectory("search-jump").toFile()
+        try {
+            val searches = mutableListOf<Int>()
+            val details = mutableListOf<Long>()
+            val cache = SearchResultCache(directory, minimumFreeBytes = 0)
+            val pager = SearchResultPager(cache, { _, page ->
+                searches += page; SearchResult(ids(page), true, 6000)
+            }, { requested -> details += requested; requested.map(::gallery) })
+            val window = pager.seek("jump", listOf("query"), 100)
+            assertEquals(listOf(100, 99), searches)
+            assertEquals(6000, window.index.totalCount)
+            assertEquals(200, window.index.maxPage)
+            assertEquals(60, details.size)
+            assertEquals(setOf(99, 100), window.residentPages.keys)
+            assertEquals(100, window.index.pageAt(30))
+            val previous = pager.prepend(window.index)
+            assertEquals(98, searches.last())
+            assertEquals(98, previous.index.firstPage)
+            assertEquals(ids(100), previous.index.pageIds(100))
+            val next = pager.append(previous.index)
+            assertEquals(101, searches.last())
+            assertEquals(101, next.index.lastPage)
+            assertEquals(ids(100).map(::gallery), cache.readPage(next.index, 100))
+            assertEquals(next.index, cache.readIndex("jump"))
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `out of range jump does not crawl earlier pages`() = runBlocking {
+        val directory = Files.createTempDirectory("search-jump").toFile()
+        try {
+            val searches = mutableListOf<Int>()
+            val pager = SearchResultPager(SearchResultCache(directory, minimumFreeBytes = 0), { _, page ->
+                searches += page; SearchResult(emptyList(), false)
+            }, { error("empty target must not fetch details") })
+            try { pager.seek("jump", listOf("query"), 1000); fail("must reject empty page") }
+            catch (_: IllegalArgumentException) { }
+            assertEquals(listOf(1000), searches)
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `older cache gains totals without replacing its slots and remains usable offline`() = runBlocking {
+        val directory = Files.createTempDirectory("search-totals").toFile()
+        try {
+            val cache = SearchResultCache(directory, minimumFreeBytes = 0)
+            val old = SearchResultIndex("old", listOf("")).appendIds(ids(1), true)
+            cache.writeIndex(old)
+            val pager = SearchResultPager(cache, { queries, page ->
+                assertEquals(listOf(""), queries)
+                assertEquals(1, page)
+                SearchResult(ids(1), true, 1000)
+            }, { error("counts must not reload gallery details") })
+            val restored = pager.restore("old", listOf(""), 1)
+            assertEquals(old.ids, restored.ids)
+            assertEquals(1000, restored.totalCount)
+            assertEquals(34, restored.maxPage)
+            assertEquals(restored, cache.readIndex("old"))
+            cache.writeIndex(old)
+            val offline = SearchResultPager(cache, { _, _ -> error("offline") }, { error("no details") })
+            assertEquals(old, offline.restore("old", listOf(""), 1))
         } finally { directory.deleteRecursively() }
     }
 

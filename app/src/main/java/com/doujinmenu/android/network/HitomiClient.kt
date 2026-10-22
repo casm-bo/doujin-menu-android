@@ -22,13 +22,23 @@ class HitomiClient {
     suspend fun search(searchQuery: String, page: Int = 1): SearchResult = withContext(Dispatchers.IO) {
         require(page > 0)
         val query = searchQuery.trim().lowercase(Locale.ROOT)
-        val terms = query.split(Regex("\\s+")).filter(String::isNotBlank)
+        val order = parseHitomiSearchOrder(query)
+        val terms = order.terms
         val directId = terms.firstNotNullOfOrNull { it.removePrefix("id:").toLongOrNull()?.takeIf { id -> id > 0 } }
-        if (directId != null) return@withContext SearchResult(if (page == 1) listOf(directId) else emptyList(), false)
-        if (terms.size == 1 && ':' in terms[0] && !terms[0].startsWith('-')) {
+        if (directId != null) return@withContext SearchResult(if (page == 1) listOf(directId) else emptyList(), false, 1)
+        if (terms.isEmpty() || (terms.size == 1 && ':' in terms[0] && !terms[0].startsWith('-'))) {
+            val path = if (terms.isEmpty()) "/n/index-all.nozomi" else hitomiNozomiPath(terms[0])
+            var count = 0
+            if (order.oldest) {
+                readResource(path, 0L..3L, missingIsEmpty = true, onRangeCount = { count = it })
+                val range = oldestNozomiRange(count, page)
+                    ?: return@withContext SearchResult(emptyList(), false, count)
+                val ids = decodeHitomiIds(readResource(path, range, missingIsEmpty = true)).reversed()
+                return@withContext SearchResult(ids, page.toLong() * 30 < count, count)
+            }
             val start = (page.toLong() - 1) * 30 * 4
-            val ids = decodeHitomiIds(readResource(hitomiNozomiPath(terms[0]), start..start + 123, missingIsEmpty = true))
-            return@withContext SearchResult(ids.take(30), ids.size > 30)
+            val ids = decodeHitomiIds(readResource(path, start..start + 123, missingIsEmpty = true, onRangeCount = { count = it }))
+            return@withContext SearchResult(ids.take(30), page.toLong() * 30 < count, count)
         }
         val cached = synchronized(searches) { searches[query] }
         val ids = if (cached != null && System.currentTimeMillis() - cached.first < 300_000) cached.second else {
@@ -43,7 +53,7 @@ class HitomiClient {
             }
             if (result == null) result = nozomi("/n/index-all.nozomi").toMutableSet()
             for (term in negative) result.removeAll(termIds(term).toSet())
-            result.sortedDescending().also { found ->
+            order.sortIds(result).also { found ->
                 synchronized(searches) {
                     if (searches.size >= 3) searches.remove(searches.keys.first())
                     searches[query] = System.currentTimeMillis() to found
@@ -51,7 +61,7 @@ class HitomiClient {
             }
         }
         val start = ((page.toLong() - 1) * 30).coerceAtMost(ids.size.toLong()).toInt()
-        SearchResult(ids.subList(start, minOf(start + 30, ids.size)), start + 30 < ids.size)
+        SearchResult(ids.subList(start, minOf(start + 30, ids.size)), start + 30 < ids.size, ids.size)
     }
 
     private suspend fun termIds(term: String): List<Long> {
@@ -98,7 +108,7 @@ class HitomiClient {
         List(files.length()) { index -> context.imageUrl(files.getJSONObject(index).getString("hash")) }
     }
 
-    private suspend fun readResource(path: String, range: LongRange? = null, missingIsEmpty: Boolean = false): ByteArray =
+    private suspend fun readResource(path: String, range: LongRange? = null, missingIsEmpty: Boolean = false, onRangeCount: ((Int) -> Unit)? = null): ByteArray =
         withContext(Dispatchers.IO) {
             coroutineContext.ensureActive()
             val connection = URL("https://ltn.gold-usergeneratedcontent.net$path").openConnection() as HttpURLConnection
@@ -111,6 +121,8 @@ class HitomiClient {
                     connection.setRequestProperty("Accept-Encoding", "identity")
                 }
                 val status = connection.responseCode
+                if (onRangeCount != null && status in listOf(206, 416)) onRangeCount(nozomiResultCount(connection.getHeaderField("Content-Range").orEmpty()))
+                if (onRangeCount != null && status == 404) onRangeCount(0)
                 if (status in listOf(404, 416) && missingIsEmpty) return@withContext byteArrayOf()
                 if (status !in listOf(200, 206)) throw IOException("Hitomi 요청 실패 (HTTP $status)")
                 if (range != null && (status != 206 || !connection.getHeaderField("Content-Range").orEmpty().startsWith("bytes ${range.first}-"))) {
@@ -130,6 +142,19 @@ class HitomiClient {
                 }
             } finally { connection.disconnect() }
         }
+}
+
+internal fun nozomiResultCount(contentRange: String): Int {
+    val bytes = contentRange.substringAfterLast('/').toLongOrNull()
+    require(bytes != null && bytes >= 0 && bytes % 4 == 0L && bytes / 4 <= Int.MAX_VALUE) { "검색 결과 전체 건수를 읽을 수 없습니다." }
+    return (bytes / 4).toInt()
+}
+
+internal fun oldestNozomiRange(count: Int, page: Int): LongRange? {
+    require(count >= 0 && page > 0)
+    val end = count.toLong() - (page.toLong() - 1) * 30
+    if (end <= 0) return null
+    return (end - 30).coerceAtLeast(0) * 4..end * 4 - 1
 }
 
 internal fun decodeHitomiIds(bytes: ByteArray): List<Long> {
@@ -188,6 +213,7 @@ internal fun parseDirectGallery(raw: JSONObject, id: Long): GallerySummary {
     return GallerySummary(
         id = id, title = raw.optString("title", "Gallery #$id"),
         artists = names("artists", "artist"), series = names("parodys", "parody"),
+        groups = names("groups", "group"), characters = names("characters", "character"),
         galleryType = raw.optString("type").takeIf(String::isNotBlank),
         tags = List(tags?.length() ?: 0) { index ->
             val tag = tags!!.getJSONObject(index)
@@ -214,4 +240,13 @@ internal fun hitomiNozomiPath(term: String): String {
         "male", "female" -> "/n/tag/$type:$encoded-all.nozomi"
         else -> "/n/$type/$encoded-all.nozomi"
     }
+}
+
+internal data class HitomiSearchOrder(val terms: List<String>, val oldest: Boolean) {
+    fun sortIds(ids: Collection<Long>): List<Long> = if (oldest) ids.sorted() else ids.sortedDescending()
+}
+
+internal fun parseHitomiSearchOrder(query: String): HitomiSearchOrder {
+    val tokens = query.trim().lowercase(Locale.ROOT).split(Regex("\\s+")).filter(String::isNotBlank)
+    return HitomiSearchOrder(tokens.filterNot { it == "sort:oldest" || it == "sort:newest" }, tokens.lastOrNull { it.startsWith("sort:") } == "sort:oldest")
 }

@@ -21,8 +21,13 @@ data class SearchResultIndex(
     val queries: List<String>,
     val pages: List<List<Long>> = emptyList(),
     val hasNextPage: Boolean = false,
+    val firstPage: Int = 1,
+    val totalCount: Int? = null,
+    val maxPage: Int? = null,
 ) {
     val ids: List<Long> get() = pages.flatten()
+    val lastPage: Int get() = firstPage + pages.size - 1
+    fun pageIds(page: Int): List<Long>? = pages.getOrNull(page - firstPage)
 
     fun append(galleries: List<GallerySummary>, hasNext: Boolean): SearchResultIndex {
         return appendIds(galleries.map { it.id }, hasNext)
@@ -36,16 +41,16 @@ data class SearchResultIndex(
     fun pageAt(resultIndex: Int): Int {
         var remaining = resultIndex.coerceAtLeast(0)
         pages.forEachIndexed { index, ids ->
-            if (remaining < ids.size) return index + 1
+            if (remaining < ids.size) return firstPage + index
             remaining -= ids.size
         }
-        return pages.size.coerceAtLeast(1)
+        return lastPage.coerceAtLeast(firstPage)
     }
 
     fun window(firstResult: Int, lastResult: Int): IntRange {
         val first = pageAt(firstResult)
         val last = pageAt(lastResult).coerceAtMost(first + 2)
-        return (first - 1).coerceAtLeast(1)..(last + 1).coerceAtMost(pages.size)
+        return (first - 1).coerceAtLeast(firstPage)..(last + 1).coerceAtMost(lastPage)
     }
 }
 
@@ -59,22 +64,25 @@ class SearchResultCache(
 
     suspend fun readIndex(sessionId: String): SearchResultIndex? = io {
         read(file(sessionId, "index"))?.let { raw ->
-            require(raw.getInt("version") == 1 && raw.getString("sessionId") == sessionId)
+            require(raw.getInt("version") in 1..3 && raw.getString("sessionId") == sessionId)
             SearchResultIndex(sessionId, raw.getJSONArray("queries").strings(),
                 raw.getJSONArray("pages").let { pages -> List(pages.length()) { page ->
                     pages.getJSONArray(page).let { ids -> List(ids.length()) { ids.getLong(it).also { id -> require(id > 0) } } }
-                } }, raw.getBoolean("hasNextPage"))
+                } }, raw.getBoolean("hasNextPage"), raw.optInt("firstPage", 1).also { require(it > 0) },
+                raw.takeIf { it.has("totalCount") }?.getInt("totalCount")?.also { require(it >= 0) },
+                raw.takeIf { it.has("maxPage") }?.getInt("maxPage")?.also { require(it >= 0) })
         }
     }
 
     suspend fun writeIndex(index: SearchResultIndex): Boolean = io {
-        write(file(index.sessionId, "index"), JSONObject().put("version", 1)
+        write(file(index.sessionId, "index"), JSONObject().put("version", 3)
             .put("sessionId", index.sessionId).put("queries", JSONArray(index.queries))
-            .put("pages", JSONArray(index.pages.map(::JSONArray))).put("hasNextPage", index.hasNextPage))
+            .put("firstPage", index.firstPage).put("pages", JSONArray(index.pages.map(::JSONArray))).put("hasNextPage", index.hasNextPage)
+            .put("totalCount", index.totalCount).put("maxPage", index.maxPage))
     } ?: false
 
     suspend fun readPage(index: SearchResultIndex, page: Int): List<GallerySummary>? = io {
-        val expected = index.pages.getOrNull(page - 1) ?: return@io null
+        val expected = index.pageIds(page) ?: return@io null
         read(file(index.sessionId, "page-$page"))?.getJSONArray("galleries")?.let { items ->
             List(items.length()) { items.getJSONObject(it).gallery() }.also { galleries ->
                 require(galleries.map { it.id } == expected)
@@ -86,7 +94,7 @@ class SearchResultCache(
         // Offline/error placeholders must not replace a usable page or become permanent cached results.
         if (galleries.any { it.loadError != null }) return@io false
         val byId = galleries.associateBy { it.id }
-        val ordered = index.pages[page - 1].map { requireNotNull(byId[it]) }
+        val ordered = requireNotNull(index.pageIds(page)).map { requireNotNull(byId[it]) }
         write(file(index.sessionId, "page-$page"), JSONObject().put("galleries", JSONArray(ordered.map { it.json() })))
     } ?: false
 
@@ -150,6 +158,7 @@ class SearchResultCache(
 private fun JSONArray.strings(): List<String> = List(length()) { getString(it) }
 private fun GallerySummary.json(): JSONObject = JSONObject().put("id", id).put("title", title)
     .put("artists", JSONArray(artists)).put("series", JSONArray(series)).put("galleryType", galleryType)
+    .put("groups", JSONArray(groups)).put("characters", JSONArray(characters))
     .put("tags", JSONArray(tags.map { JSONObject().put("type", it.type).put("name", it.name).put("negative", it.isNegative) }))
     .put("thumbnailUrl", thumbnailUrl).put("pageCount", pageCount).put("language", language)
     .put("publishedDate", publishedDate).put("loadError", loadError)
@@ -161,4 +170,6 @@ private fun JSONObject.gallery(): GallerySummary = GallerySummary(
         tags.getJSONObject(it).let { tag -> GalleryTag(tag.getString("type"), tag.getString("name"), tag.getBoolean("negative")) }
     } }, thumbnailUrl = optionalString("thumbnailUrl"), pageCount = getInt("pageCount"),
     language = optionalString("language"), publishedDate = optionalString("publishedDate"), loadError = optionalString("loadError"),
+    groups = optJSONArray("groups")?.let { list -> List(list.length()) { list.getString(it) } }.orEmpty(),
+    characters = optJSONArray("characters")?.let { list -> List(list.length()) { list.getString(it) } }.orEmpty(),
 )

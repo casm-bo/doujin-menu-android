@@ -1,5 +1,7 @@
 package com.doujinmenu.android.security
 
+import com.doujinmenu.android.model.updateLibraryScroll
+
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserWorkspace
 import com.doujinmenu.android.model.openTab
@@ -9,16 +11,88 @@ import com.doujinmenu.android.model.archiveGroup
 import com.doujinmenu.android.model.moveOverviewItem
 import com.doujinmenu.android.model.overviewItems
 import com.doujinmenu.android.model.pushPage
+import com.doujinmenu.android.model.ReaderPosition
+import com.doujinmenu.android.model.updateReaderPosition
+import com.doujinmenu.android.model.updatePreviewPosition
+import com.doujinmenu.android.model.goBack
+import com.doujinmenu.android.model.renameSeriesPages
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
+    @Test fun seriesPagesKeepIndependentDetailsEpisodesAndNamesAfterRestore() {
+        val first = BrowserPage.LibrarySeries("First / series", episodeList = true, previewPosition = ReaderPosition(8, 19), episodePosition = ReaderPosition(12, 27))
+        val second = BrowserPage.LibrarySeries("Second")
+        val workspace = BrowserWorkspace.initial(BrowserPage.LibraryHome()).pushPage(first).openTab(second)
+            .renameSeriesPages("First / series", "Renamed")
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(workspace)).galleryWorkspace()
+        assertEquals(first.copy(name = "Renamed"), restored.tabs.first().currentPage)
+        assertEquals(second, restored.activeTab.currentPage)
+    }
+    @Test fun galleryQuerySurvivesScrollAndProcessRestorePerTab() {
+        val page = BrowserPage.LibraryHome(query = "tag:hi")
+        val workspace = BrowserWorkspace.initial(page).openTab(BrowserPage.LibraryHome(query = "artist:other"))
+            .updateLibraryScroll(page.key, "book:20", 19, 30)
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(workspace))
+        assertEquals("tag:hi", (restored.tabs.first().currentPage as BrowserPage.LibraryHome).query)
+        assertEquals(19, (restored.tabs.first().currentPage as BrowserPage.LibraryHome).scrollIndex)
+        assertEquals("artist:other", (restored.activeTab.currentPage as BrowserPage.LibraryHome).query)
+    }
+    @Test fun finalReaderAndPreviewPositionsFollowArchivedTabs() {
+        val detail = BrowserPage.LibraryBook("pc:1", "Book")
+        val reader = BrowserPage.LibraryReader("pc:1", "Book", 3)
+        val workspace = BrowserWorkspace.initial(detail).pushPage(reader)
+            .let { it.createGroup(setOf(it.activeTabId), "Archive") }
+            .let { it.archiveGroup(it.groups.single().id, BrowserPage.LibraryHome()) }
+            .updateReaderPosition(reader.key, ReaderPosition(49, 5000))
+            .updatePreviewPosition(detail.key, ReaderPosition(40, 20))
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(workspace))
+        val history = restored.groups.single().archivedTabs.single().history
+        assertEquals(ReaderPosition(49, 5000), (history.last() as BrowserPage.LibraryReader).position)
+        assertEquals(ReaderPosition(40, 20), (history.first() as BrowserPage.LibraryBook).previewPosition)
+    }
+    @Test fun previewAnchorSurvivesReaderNavigationAndProcessRestore() {
+        listOf(BrowserPage.OnlineGallery(1, "Book"), BrowserPage.LibraryBook("pc:1", "Book")).forEach { detail ->
+            val original = BrowserWorkspace.initial(detail)
+            val saved = original.pushPage(BrowserPage.OnlineReader(1, "Book", 49))
+                .updatePreviewPosition(detail.key, ReaderPosition(43, 80))
+            val restored = browserWorkspaceFromJson(browserWorkspaceToJson(saved)).goBack().activeTab.currentPage
+            val position = when (restored) {
+                is BrowserPage.OnlineGallery -> restored.previewPosition
+                is BrowserPage.LibraryBook -> restored.previewPosition
+                else -> error("Detail lost")
+            }
+            assertEquals(ReaderPosition(43, 80), position)
+            assertEquals(original, original.updatePreviewPosition("another-tab", ReaderPosition(1)))
+        }
+    }
+    @Test fun readerSessionRestoresLatestPositionWithoutChangingExplicitEntryPage() {
+        val reader = BrowserPage.OnlineReader(42, "Book", 3)
+        val original = BrowserWorkspace.initial(reader)
+        val advanced = original.updateReaderPosition(reader.key, ReaderPosition(49, 125))
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(advanced))
+        assertEquals(reader.copy(position = ReaderPosition(49, 125)), restored.activeTab.currentPage)
+        val next = restored.pushPage(BrowserPage.OnlineReader(42, "Book", 8))
+        assertEquals(null, (next.activeTab.currentPage as BrowserPage.OnlineReader).position)
+        assertEquals(8, (next.activeTab.currentPage as BrowserPage.OnlineReader).startPage)
+        assertEquals(original, original.updateReaderPosition("stale-key", ReaderPosition(0)))
+    }
+
+    @Test fun localReaderPositionIsIsolatedAcrossTabs() {
+        val reader = BrowserPage.LibraryReader("local", "Book", 3)
+        val other = BrowserPage.LibraryReader("local", "Book", 8)
+        val workspace = BrowserWorkspace.initial(reader).openTab(other)
+            .updateReaderPosition(reader.key, ReaderPosition(49))
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(workspace))
+        assertEquals(ReaderPosition(49), (restored.tabs.first().currentPage as BrowserPage.LibraryReader).position)
+        assertEquals(null, (restored.activeTab.currentPage as BrowserPage.LibraryReader).position)
+    }
     @Test
     fun cachedSearchSessionSurvivesHistoryAndGroupArchivingWithoutResultPayloads() {
         val page = BrowserPage.Search(query = "draft", submittedQuery = "tag:full_color",
             submittedQueries = listOf("tag:full_color language:korean"), resultSessionId = "cached-search",
-            currentPage = 40, scrollAnchorKey = "gallery:1200", scrollIndex = 1201, scrollOffset = 35)
+            currentPage = 40, scrollPage = 40, scrollAnchorKey = "gallery:1200", scrollIndex = 1201, scrollOffset = 35)
         val workspace = BrowserWorkspace.initial(page).let {
             it.createGroup(setOf(it.activeTabId), "Saved")
         }.let { it.archiveGroup(it.groups.single().id) }
