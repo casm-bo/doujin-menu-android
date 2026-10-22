@@ -1,6 +1,8 @@
 package com.doujinmenu.android.ui
 
 import com.doujinmenu.android.R
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
@@ -151,6 +153,8 @@ fun BrowserScreen(
     onEnsureResults: () -> Unit,
     onVisibleResultsChange: (Int, Int) -> Unit,
     onUnhideGallery: (Long) -> Unit = {},
+    onOpenSubscriptions: () -> Unit = {},
+    onSubscribeCurrent: () -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -285,6 +289,9 @@ fun BrowserScreen(
             UnifiedSearchField(state.searchQuery, { expandedPanel = null; onQueryChange(it) }, strings[R.string.ui_search_conditions], { editing = false; expandedPanel = null }, { submitSearch() },
                 state.searchQueryHistory, state.filterSuggestions, state.isLoadingFilterSuggestions, onRecentSearch, onClearSearchHistory, onSelectSuggestion)
         }, {
+            IconButton(onOpenSubscriptions,modifier=Modifier.semantics { contentDescription=strings[R.string.sub_notifications] }) {
+                BadgedBox(badge={if(state.subscriptionNotices.any { !it.read }) Badge()}) { ActionIcon(ActionSymbol.BELL) }
+            }
             Box {
                 IconButton(onClick = { menu = "root" }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_search_options] }) { Text("⋯") }
                 DropdownMenu(expanded = menu != null, onDismissRequest = { menu = null }) {
@@ -298,6 +305,8 @@ fun BrowserScreen(
                         DropdownMenuItem(text = { Text(strings[R.string.ui_go_to_page]) }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
                         DropdownMenuItem(text = { Text(strings[R.string.ui_view]) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, onClick = { menu = "view" })
                         HorizontalDivider()
+                        DropdownMenuItem(text={Text(strings[R.string.sub_current])},leadingIcon={ActionIcon(ActionSymbol.BELL)},onClick={menu=null;onSubscribeCurrent()})
+                        DropdownMenuItem(text={Text(strings[R.string.sub_title])},leadingIcon={ActionIcon(ActionSymbol.LIST)},onClick={menu=null;onOpenSubscriptions()})
                         DropdownMenuItem(text = { Text(strings[R.string.ui_refresh]) }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { menu = null; onRefresh() })
                         DropdownMenuItem(text = { Text(strings[R.string.ui_clear_search]) }, leadingIcon = { ActionIcon(ActionSymbol.CLEAR) }, onClick = { onQueryChange(""); menu = null; editing = true })
                     }
@@ -316,7 +325,7 @@ fun BrowserScreen(
             }
             OutlinedButton(onClick = { togglePanel("favorites") }, contentPadding = PaddingValues(horizontal = 10.dp),
                 colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "favorites") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
-                ActionIcon(ActionSymbol.STAR); Spacer(Modifier.width(4.dp)); Text(strings[R.string.ui_favorites])
+                ActionIcon(ActionSymbol.BELL); Spacer(Modifier.width(4.dp)); Text(strings[R.string.sub_title])
             }
             Spacer(Modifier.weight(1f))
             SearchSortMenu(state.searchQuery, enabled = !state.isLoadingPage) { oldest ->
@@ -395,7 +404,7 @@ fun BrowserScreen(
                     }
 
                     if (expandedPanel == "favorites") {
-                        Text(strings[R.string.ui_saved_searches], style = MaterialTheme.typography.titleSmall)
+                        TextButton(onOpenSubscriptions) { Text(strings[R.string.sub_title]) }
                         state.searchFavorites.forEach { favorite ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),

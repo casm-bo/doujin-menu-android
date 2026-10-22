@@ -17,6 +17,7 @@ data class SubscriptionNotice(val galleryId: Long, val title: String, val artist
     val read: Boolean, val subscriptions: List<String>)
 
 class SubscriptionStore internal constructor(context: Context, databaseName: String? = "subscriptions.db") : SQLiteOpenHelper(context, databaseName, null, 1) {
+    val changes = kotlinx.coroutines.flow.MutableStateFlow(0L)
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE subscriptions(scope TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,mutation TEXT,conflict TEXT,baseline INTEGER,checked INTEGER NOT NULL DEFAULT 0,error TEXT,PRIMARY KEY(scope,id))")
         db.execSQL("CREATE TABLE notices(scope TEXT NOT NULL,gallery INTEGER NOT NULL,title TEXT NOT NULL,artist TEXT NOT NULL,thumbnail TEXT,PRIMARY KEY(scope,gallery))")
@@ -82,6 +83,7 @@ class SubscriptionStore internal constructor(context: Context, databaseName: Str
     }
     @Synchronized fun failed(scope: String, id: String, error: String) {
         writableDatabase.execSQL("UPDATE subscriptions SET error=? WHERE scope=? AND id=?", arrayOf(error.take(300), scope, id))
+        changes.value++
     }
     @Synchronized fun notices(scope: String): List<SubscriptionNotice> = readableDatabase.rawQuery(
         "SELECT n.gallery,n.title,n.artist,n.thumbnail,EXISTS(SELECT 1 FROM reads r WHERE r.scope=n.scope AND r.gallery=n.gallery) FROM notices n WHERE n.scope=? ORDER BY n.gallery DESC", arrayOf(scope)).use { c -> buildList {
@@ -95,6 +97,7 @@ class SubscriptionStore internal constructor(context: Context, databaseName: Str
     @Synchronized fun markRead(scope: String, id: Long, dirty: Boolean = true) {
         require(id > 0)
         writableDatabase.execSQL("INSERT OR IGNORE INTO reads VALUES(?,?,?)", arrayOf<Any>(scope,id,if(dirty) 1 else 0))
+        changes.value++
     }
     @Synchronized fun pendingReads(scope: String): List<Long> = readableDatabase.rawQuery("SELECT gallery FROM reads WHERE scope=? AND dirty=1 LIMIT 200", arrayOf(scope)).use { c -> buildList { while(c.moveToNext()) add(c.getLong(0)) } }
     @Synchronized fun acknowledgeReads(scope: String, ids: List<Long>) = transaction {
@@ -125,11 +128,11 @@ class SubscriptionStore internal constructor(context: Context, databaseName: Str
         put(scope, if(keepPhone) old.value.copy(id=remote.id,version=remote.version) else remote, if(keepPhone) UUID.randomUUID().toString() else null)
     }
     @Synchronized fun state(key: String): String? = readableDatabase.rawQuery("SELECT value FROM state WHERE key=?", arrayOf(key)).use { if(it.moveToFirst()) it.getString(0) else null }
-    @Synchronized fun setState(key: String, value: String) { writableDatabase.execSQL("INSERT OR REPLACE INTO state VALUES(?,?)", arrayOf(key,value)) }
+    @Synchronized fun setState(key: String, value: String) { writableDatabase.execSQL("INSERT OR REPLACE INTO state VALUES(?,?)", arrayOf(key,value)); changes.value++ }
     private fun <T> transaction(block: () -> T): T {
         val db = writableDatabase
         db.beginTransaction()
-        return try { block().also { db.setTransactionSuccessful() } } finally { db.endTransaction() }
+        return try { block().also { db.setTransactionSuccessful() } } finally { db.endTransaction(); changes.value++ }
     }
     companion object {
         @Volatile private var instance: SubscriptionStore? = null

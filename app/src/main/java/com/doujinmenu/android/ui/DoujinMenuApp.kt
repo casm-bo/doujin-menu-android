@@ -145,6 +145,19 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
     var lastMainDestination by rememberSaveable { mutableStateOf(viewModel.initialMainDestination()) }
     var searchOpenedFromGallery by rememberSaveable { mutableStateOf(false) }
     var lastShownNewTabNotice by rememberSaveable { mutableStateOf(0) }
+    if(viewModel.uiState.showSubscriptions) androidx.compose.ui.window.Dialog(onDismissRequest=viewModel::closeSubscriptions,
+        properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false,securePolicy=androidx.compose.ui.window.SecureFlagPolicy.Inherit)) {
+        Surface(Modifier.fillMaxSize()) {
+            SubscriptionScreen(viewModel.uiState,viewModel::closeSubscriptions,{viewModel.openSubscriptions(it)},
+                {viewModel.refreshSubscriptions(true)}, {viewModel.markSubscriptionRead(it)}, viewModel::editSubscription,
+                viewModel::saveSubscription,viewModel::resolveSubscription,{ value ->
+                    viewModel.closeSubscriptions()
+                    lastMainDestination=MainDestination.Browser.route
+                    viewModel.searchFavorite(com.doujinmenu.android.model.SearchFavorite(value.id,value.name,value.query,value.languages))
+                    navController.navigate("main") { popUpTo("main");launchSingleTop=true }
+                })
+        }
+    }
     val newTabNotice = viewModel.uiState.newTabNotice
     LaunchedEffect(newTabNotice) {
         if (newTabNotice > 0 && newTabNotice != lastShownNewTabNotice) {
@@ -838,6 +851,8 @@ private fun MainTabContent(
                 onFavoriteNameChange = viewModel::setFavoriteName,
                 onSearch = viewModel::search,
                 onSaveFavorite = viewModel::saveSearchFavorite,
+                onOpenSubscriptions = { viewModel.openSubscriptions() },
+                onSubscribeCurrent = viewModel::subscribeCurrentSearch,
                 onRemoveFavorite = viewModel::removeSearchFavorite,
                 onFavoriteSearch = viewModel::searchFavorite,
                 onRecentSearch = viewModel::repeatSearch,
@@ -926,6 +941,8 @@ private fun MainTabContent(
                 onDownloadDestinationChange = viewModel::setDownloadDestination,
                 requestedSection = viewModel.uiState.settingsSectionRequest,
                 onSectionRequestHandled = viewModel::consumeSettingsSectionRequest,
+                onSubscriptionOptionsChange = viewModel::setSubscriptionOptions,
+                onManageSubscriptions = {viewModel.openSubscriptions(1)},
             )
         }
         }

@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 internal enum class ActionSymbol {
     FILTER, SORT, GRID, LIST, FOLDER, SERIES, SELECT, REFRESH, SYNC, STAR, HEART,
     PAGE, CLEAR, DELETE, LANGUAGE, EDIT, READ, MERGE, SAVE, HIDE, PLAY, PAUSE,
-    SEARCH, DEVICE, PC, BACK, SETTINGS, ADD,
+    SEARCH, DEVICE, PC, BACK, SETTINGS, ADD, BELL,
 }
 
 /** Small vector icons share the surrounding button's color and accessible label. */
@@ -40,6 +40,7 @@ internal fun ActionIcon(symbol: ActionSymbol, modifier: Modifier = Modifier) {
                 if (fill) drawPath(path, color) else drawPath(path, color, style = outline)
             }
             when (symbol) {
+                ActionSymbol.BELL -> { drawPath(Path().apply { moveTo(4f,18f); lineTo(6f,15f); lineTo(6f,10f); cubicTo(6f,2f,18f,2f,18f,10f); lineTo(18f,15f); lineTo(20f,18f); close() },color,style=outline); drawArc(color,0f,180f,false,Offset(10f,19f),Size(4f,3f),style=outline) }
                 ActionSymbol.FILTER -> path(3f to 4f, 21f to 4f, 14f to 12f, 14f to 21f, 10f to 18f, 10f to 12f, close = true, fill = true)
                 ActionSymbol.SORT -> { line(3f, 6f, 15f, 6f); line(3f, 12f, 12f, 12f); line(3f, 18f, 9f, 18f) }
                 ActionSymbol.GRID -> { box(3f, 3f, 7f, 7f); box(14f, 3f, 7f, 7f); box(3f, 14f, 7f, 7f); box(14f, 14f, 7f, 7f) }

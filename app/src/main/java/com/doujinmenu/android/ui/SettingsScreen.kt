@@ -65,6 +65,7 @@ private enum class SettingsSection {
     APPEARANCE,
     LANGUAGE,
     LOCK,
+    SUBSCRIPTIONS,
     VIEWER,
     LIBRARY,
     CONNECTION,
@@ -99,6 +100,8 @@ fun SettingsScreen(
     onDownloadDestinationChange: (DownloadDestination) -> Unit = {},
     requestedSection: String? = null,
     onSectionRequestHandled: () -> Unit = {},
+    onSubscriptionOptionsChange: (com.doujinmenu.android.security.SubscriptionOptions) -> Unit = {},
+    onManageSubscriptions: () -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.HOME.name) }
@@ -124,6 +127,9 @@ fun SettingsScreen(
     }
 
     when (section) {
+        SettingsSection.SUBSCRIPTIONS -> SettingsDetailLayout(strings[R.string.sub_settings],contentPadding,{openSection(SettingsSection.HOME)}) {
+            SectionCard(strings[R.string.sub_settings]) { SubscriptionSettings(state.subscriptionOptions,onSubscriptionOptionsChange,onManageSubscriptions) }
+        }
         SettingsSection.LANGUAGE -> SettingsDetailLayout(strings[R.string.app_language], contentPadding, { openSection(SettingsSection.HOME) }) { SectionCard(strings[R.string.app_language]) { LanguageSettings() } }
         SettingsSection.LOCK -> SettingsDetailLayout(strings[R.string.ui_app_lock], contentPadding, { openSection(SettingsSection.HOME) }) { SectionCard(strings[R.string.ui_app_lock]) { AppLockSettings() } }
         SettingsSection.HOME -> SettingsHomeScreen(
@@ -204,6 +210,7 @@ private fun SettingsHomeScreen(
         item {
             SettingsCategoryCard(title = strings[R.string.ui_app_lock], description = strings[R.string.ui_pin_password_pattern_and_biometrics], onClick = { onOpenSection(SettingsSection.LOCK) })
         }
+        item { SettingsCategoryCard(title=strings[R.string.sub_settings],description=strings[R.string.sub_interval],onClick={onOpenSection(SettingsSection.SUBSCRIPTIONS)}) }
         item {
             SettingsCategoryCard(
                 title = strings[R.string.ui_appearance],

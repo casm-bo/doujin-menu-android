@@ -149,6 +149,14 @@ private data class PreparedLibraryRefresh(
 )
 
 data class MainUiState(
+    val subscriptions: List<com.doujinmenu.android.data.SubscriptionRecord> = emptyList(),
+    val subscriptionNotices: List<com.doujinmenu.android.data.SubscriptionNotice> = emptyList(),
+    val subscriptionOptions: com.doujinmenu.android.security.SubscriptionOptions = com.doujinmenu.android.security.SubscriptionOptions(),
+    val subscriptionsBusy: Boolean = false,
+    val subscriptionError: String? = null,
+    val showSubscriptions: Boolean = false,
+    val subscriptionTab: Int = 0,
+    val subscriptionEditor: com.doujinmenu.android.model.SearchSubscription? = null,
     val isStarting: Boolean = false,
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val appStyle: com.doujinmenu.android.model.AppStyle = com.doujinmenu.android.model.AppStyle(),
@@ -260,6 +268,9 @@ data class MainUiState(
 enum class DesktopConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val subscriptionStore = com.doujinmenu.android.data.SubscriptionStore.get(application)
+    private val subscriptionPreferences = com.doujinmenu.android.security.SubscriptionPreferences(application)
+    private var subscriptionJob: Job? = null
     private val strings get() = androidx.core.content.ContextCompat.getContextForLanguage(getApplication()).resources
     val tabPreviews = BrowserTabPreviewCache(application)
     private val requestStore = DownloadRequestStore.get(application)
@@ -326,6 +337,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun readInitialState(): Pair<MainUiState, BrowserPage> {
         val profiles = profileStore.load()
+        val subscriptionScope = profiles.firstOrNull()?.id.orEmpty()
+        subscriptionStore.migrateFavorites(getApplication(),subscriptionScope)
+        subscriptionStore.adoptLocal(subscriptionScope)
         val savedLanguages = browserPreferenceStore.loadPreferredLanguages()
         val loadedWorkspace = browserPreferenceStore.loadBrowserWorkspace()
         val galleryWorkspace = browserPreferenceStore.loadGalleryWorkspace()
@@ -355,7 +369,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             submittedSearchQueries = activeSearch?.submittedQueries.orEmpty(),
             currentPage = activeSearch?.currentPage ?: 0,
             hasNextPage = activeSearch?.hasNextPage == true,
-            searchFavorites = browserPreferenceStore.loadFavorites(),
+            searchFavorites = subscriptionStore.records(subscriptionScope).filterNot { it.value.deleted }.map { SearchFavorite(it.value.id,it.value.name,it.value.query,it.value.languages) },
+            subscriptionOptions = subscriptionPreferences.load(),
             searchQueryHistory = browserPreferenceStore.loadSearchQueryHistory(),
             preferredLanguages = activeLanguages,
             customLanguages = browserPreferenceStore.loadCustomLanguages(),
@@ -386,6 +401,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val (initial, page) = withContext(Dispatchers.IO) { readInitialState() }
             uiState = initial
+            viewModelScope.launch { subscriptionStore.changes.collect { reloadSubscriptions() } }
             navigationPage = page
             viewModelScope.launch { runOperation { reloadPresentations() } }
             viewModelScope.launch {
@@ -403,6 +419,80 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             refreshLibrarySilently()
             checkForUpdates(manual = false)
+        }
+    }
+
+    private suspend fun reloadSubscriptions() {
+        val scope = uiState.selectedProfileId.orEmpty()
+        val snapshot = withContext(Dispatchers.IO) { subscriptionStore.records(scope) to subscriptionStore.notices(scope) }
+        if(scope != uiState.selectedProfileId.orEmpty()) return
+        uiState=uiState.copy(subscriptions=snapshot.first,subscriptionNotices=snapshot.second,
+            searchFavorites=snapshot.first.filterNot { it.value.deleted }.map { SearchFavorite(it.value.id,it.value.name,it.value.query,it.value.languages) })
+    }
+    fun openSubscriptions(tab: Int = 0) {
+        uiState=uiState.copy(showSubscriptions=true,subscriptionTab=tab,subscriptionError=null)
+        viewModelScope.launch { reloadSubscriptions() }
+    }
+    fun closeSubscriptions() { uiState=uiState.copy(showSubscriptions=false,subscriptionEditor=null) }
+    fun editSubscription(value: com.doujinmenu.android.model.SearchSubscription?) { uiState=uiState.copy(subscriptionEditor=value,subscriptionError=null) }
+    fun subscribeCurrentSearch() {
+        openSubscriptions(1)
+        editSubscription(com.doujinmenu.android.model.SearchSubscription(name=uiState.favoriteName.trim().ifBlank { uiState.searchQuery.trim() },
+            query=uiState.searchQuery.trim(),languages=uiState.preferredLanguages,enabled=true))
+    }
+    fun saveSubscription(value: com.doujinmenu.android.model.SearchSubscription) {
+        val scope=uiState.selectedProfileId.orEmpty()
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { subscriptionStore.save(scope,value) }
+                if(scope == uiState.selectedProfileId.orEmpty()) uiState=uiState.copy(subscriptionEditor=null,favoriteName="",subscriptionError=null)
+                refreshSubscriptions()
+            } catch(error: Exception) {
+                if(error is CancellationException) throw error
+                uiState=uiState.copy(subscriptionError=error.message,message=error.message,isError=true)
+            }
+        }
+    }
+    fun resolveSubscription(id:String,keepPhone:Boolean) {
+        val scope=uiState.selectedProfileId.orEmpty()
+        viewModelScope.launch { withContext(Dispatchers.IO) { subscriptionStore.resolve(scope,id,keepPhone) }; refreshSubscriptions() }
+    }
+    fun refreshSubscriptions(force:Boolean=false) {
+        if(subscriptionJob?.isActive == true) return
+        val profile=selectedProfile()
+        val scope=profile?.id.orEmpty()
+        uiState=uiState.copy(subscriptionsBusy=true,subscriptionError=null)
+        subscriptionJob=viewModelScope.launch {
+            var syncError:String?=null
+            try {
+                withContext(Dispatchers.IO) {
+                    subscriptionStore.adoptLocal(scope)
+                    if(profile != null) try { com.doujinmenu.android.data.SubscriptionSync(subscriptionStore,client).sync(profile) }
+                    catch(error: CancellationException) { throw error }
+                    catch(error: Exception) { syncError=error.message }
+                    com.doujinmenu.android.data.SubscriptionChecker(subscriptionStore).check(scope,uiState.subscriptionOptions.intervalMinutes*60_000L,force)
+                }
+            } finally {
+                if(scope == uiState.selectedProfileId.orEmpty()) uiState=uiState.copy(subscriptionsBusy=false,subscriptionError=syncError)
+                reloadSubscriptions()
+            }
+        }
+    }
+    fun setSubscriptionOptions(options: com.doujinmenu.android.security.SubscriptionOptions) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { subscriptionPreferences.save(options) }
+            uiState=uiState.copy(subscriptionOptions=options)
+        }
+    }
+    fun markSubscriptionRead(id:Long?=null) {
+        val scope=uiState.selectedProfileId.orEmpty()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                val ids=id?.let { listOf(it) } ?: subscriptionStore.notices(scope).filterNot { it.read }.map { it.galleryId }
+                ids.forEach { subscriptionStore.markRead(scope,it) }
+            }
+            if(id != null && scope == uiState.selectedProfileId.orEmpty()) { closeSubscriptions(); selectGallery(id) }
+            refreshSubscriptions()
         }
     }
 
@@ -560,29 +650,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             uiState = uiState.copy(message = strings[R.string.msg_enter_search_conditions_to_save], isError = true)
             return
         }
-        val favorite = SearchFavorite(
-            id = UUID.randomUUID().toString(),
-            name = uiState.favoriteName.trim().ifBlank { query },
-            query = query,
-        )
-        val favorites = uiState.searchFavorites + favorite
-        browserPreferenceStore.saveFavorites(favorites)
-        uiState = uiState.copy(
-            favoriteName = "",
-            searchFavorites = favorites,
-            message = strings[R.string.msg_saved_search_conditions_to_favorites],
-            isError = false,
-        )
+        saveSubscription(com.doujinmenu.android.model.SearchSubscription(name=uiState.favoriteName.trim().ifBlank { query },query=query,languages=uiState.preferredLanguages))
     }
 
     fun removeSearchFavorite(id: String) {
-        val favorites = uiState.searchFavorites.filterNot { it.id == id }
-        browserPreferenceStore.saveFavorites(favorites)
-        uiState = uiState.copy(searchFavorites = favorites)
+        uiState.subscriptions.find { it.value.id == id }?.let { saveSubscription(it.value.copy(deleted=true)) }
     }
 
     fun searchFavorite(favorite: SearchFavorite) {
-        uiState = uiState.copy(searchQuery = favorite.query)
+        uiState = uiState.copy(searchQuery = favorite.query,preferredLanguages=favorite.languages)
         syncActiveSearch()
         search()
     }
@@ -734,6 +810,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun reloadProfileLibrary() {
+        subscriptionJob?.cancel()
+        uiState=uiState.copy(subscriptionsBusy=false)
+        uiState = uiState.copy(subscriptions=emptyList(),subscriptionNotices=emptyList(),searchFavorites=emptyList(),subscriptionEditor=null)
+        viewModelScope.launch { reloadSubscriptions() }
         libraryProfileGeneration++
         librarySuggestionIndex = null
         importantLibraryRefreshJob?.cancel()
@@ -3237,6 +3317,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onAppForegrounded() {
+        viewModelScope.launch { reloadSubscriptions() }
         startConnectionMonitoring()
         if (!hasEnteredForeground) {
             hasEnteredForeground = true

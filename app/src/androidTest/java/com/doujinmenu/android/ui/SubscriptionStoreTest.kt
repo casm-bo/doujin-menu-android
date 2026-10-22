@@ -10,6 +10,24 @@ import org.junit.Test
 class SubscriptionStoreTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private fun gallery(id: Long) = GallerySummary(id,"Example $id",listOf("Example"),emptyList(),null,emptyList(),null,12,"korean")
+    @Test fun favoritesMigrateOnceAndRemainInactiveWithNamesAndQueriesUnchanged() {
+        val isolated=object:android.content.ContextWrapper(context) {
+            override fun getSharedPreferences(name:String,mode:Int)=context.getSharedPreferences("synthetic_subscription_favorites",mode)
+        }
+        val preferences=com.doujinmenu.android.security.BrowserPreferenceStore(isolated)
+        try {
+            preferences.saveFavorites(listOf(com.doujinmenu.android.model.SearchFavorite("synthetic-favorite","Saved title","title words")))
+            SubscriptionStore(context,null).use { store ->
+                store.migrateFavorites(isolated,"")
+                store.migrateFavorites(isolated,"")
+                val record=store.records("").single()
+                assertEquals("Saved title",record.value.name);assertEquals("title words",record.value.query);assertFalse(record.value.enabled)
+                store.adoptLocal("pc")
+                assertEquals("title words",store.records("pc").single().value.query)
+                assertTrue(store.records("").isEmpty())
+            }
+        } finally { isolated.getSharedPreferences("unused",0).edit().clear().commit() }
+    }
     @Test fun baselineFailureDeduplicationReadAndScopeIsolation() {
         SubscriptionStore(context,null).use { store ->
             val value = SearchSubscription(name="Example",query="artist:example",enabled=true)
