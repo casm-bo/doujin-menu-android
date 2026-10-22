@@ -569,4 +569,10 @@
     <string name="search_block_loli">로리 차단</string>
     <string name="sub_tags">구독 태그</string>
     <string name="sub_tags_placeholder">artist:작가, tag:태그</string>
+    <string name="sub_sync_options">동기화 옵션</string>
+    <string name="sub_check_now">지금 신작 확인</string>
+    <string name="sub_sync_now">지금 PC와 동기화</string>
+    <string name="sub_auto_sync">자동 PC 동기화</string>
+    <string name="sub_sync_interval">PC 동기화 주기</string>
+    <string name="sub_sync_hint">오프라인 변경은 휴대폰에 보관합니다. 실패 시 다음 주기에 재시도하며, 지원하지 않는 PC 버전은 하루 뒤 다시 확인합니다.</string>
 </resources>

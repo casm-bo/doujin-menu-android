@@ -41,7 +41,7 @@ class SubscriptionUiTest {
         compose.onNodeWithTag("subscription-hide-locked").assertIsOn().performClick().assertIsOff()
         compose.runOnIdle { assertFalse(options.hideWhenLocked) }
         val minutes=InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.sub_minutes,180)
-        compose.onNodeWithText(minutes).performClick()
+        compose.onNodeWithTag("subscription-check-interval-180").performClick()
         compose.runOnIdle { assertEquals(180,options.intervalMinutes) }
     }
     @Test fun subscriptionEditorUsesLanguagePickerAndTagSuggestions() {
@@ -63,5 +63,23 @@ class SubscriptionUiTest {
         compose.onNodeWithContentDescription(text(R.string.ui_return)).performClick()
         compose.onNodeWithText(text(R.string.ui_save)).performClick()
         compose.runOnIdle { assertEquals("tag:example",saved!!.query);assertEquals(setOf("english"),saved!!.languages) }
+    }
+    @Test fun syncErrorsStayInsideOptionsAndAutomaticSyncCanBeConfigured() {
+        val error="Synthetic offline sync status"
+        var synced=0
+        var options=SubscriptionOptions()
+        compose.setContent { var current by remember { mutableStateOf(options) }; MaterialTheme {
+            SubscriptionScreen(MainUiState(selectedProfileId="synthetic-desktop",subscriptionSyncError=error,subscriptionOptions=current),
+                {}, {}, {}, {}, {}, {}, {_,_->}, {}, onOptions={current=it;options=it},onSyncNow={synced++})
+        } }
+        compose.onNodeWithText(error).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.sub_sync_options)).performClick()
+        compose.onNodeWithText(error).assertExists()
+        compose.onNodeWithTag("subscription-sync-interval-60").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(60,options.syncIntervalMinutes) }
+        compose.onNodeWithTag("subscription-auto-sync").performScrollTo().performClick().assertIsOff()
+        compose.runOnIdle { assertFalse(options.syncEnabled) }
+        compose.onNodeWithTag("subscription-sync-now").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1,synced) }
     }
 }

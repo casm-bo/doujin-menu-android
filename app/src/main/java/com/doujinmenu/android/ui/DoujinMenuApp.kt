@@ -155,7 +155,8 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     lastMainDestination=MainDestination.Browser.route
                     viewModel.searchFavorite(com.doujinmenu.android.model.SearchFavorite(value.id,value.name,value.query,value.languages))
                     navController.navigate("main") { popUpTo("main");launchSingleTop=true }
-                }, onQueryChange=viewModel::setSubscriptionQuery,onLoadLanguages=viewModel::loadAvailableLanguages)
+                }, onQueryChange=viewModel::setSubscriptionQuery,onLoadLanguages=viewModel::loadAvailableLanguages,
+                onOptions=viewModel::setSubscriptionOptions,onSyncNow={viewModel.refreshSubscriptions(syncNow=true)})
         }
     }
     val newTabNotice = viewModel.uiState.newTabNotice

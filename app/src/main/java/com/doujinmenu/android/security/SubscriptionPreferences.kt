@@ -2,14 +2,24 @@ package com.doujinmenu.android.security
 
 import android.content.Context
 
-data class SubscriptionOptions(val intervalMinutes: Int = 60, val notifications: Boolean = true, val hideWhenLocked: Boolean = true)
+data class SubscriptionOptions(val intervalMinutes: Int = 60, val notifications: Boolean = true, val hideWhenLocked: Boolean = true,
+    val syncEnabled: Boolean = true, val syncIntervalMinutes: Int = 15)
+
+internal fun subscriptionSyncDue(options: SubscriptionOptions, now: Long, lastAttempt: Long?, unsupported: Boolean, manual: Boolean = false): Boolean {
+    if(manual) return true
+    if(!options.syncEnabled) return false
+    val interval = if(unsupported) maxOf(options.syncIntervalMinutes,1440) else options.syncIntervalMinutes
+    return lastAttempt == null || now < lastAttempt || now-lastAttempt >= interval*60_000L
+}
 class SubscriptionPreferences(context: Context) {
     private val preferences = context.getSharedPreferences("subscription_options",Context.MODE_PRIVATE)
     fun load() = SubscriptionOptions(preferences.getInt("interval",60).takeIf { it in intervals } ?: 60,
-        preferences.getBoolean("notifications",true),preferences.getBoolean("hide_locked",true))
+        preferences.getBoolean("notifications",true),preferences.getBoolean("hide_locked",true),preferences.getBoolean("sync_enabled",true),
+        preferences.getInt("sync_interval",15).takeIf { it in intervals } ?: 15)
     fun save(value: SubscriptionOptions) {
-        require(value.intervalMinutes in intervals)
-        check(preferences.edit().putInt("interval",value.intervalMinutes).putBoolean("notifications",value.notifications).putBoolean("hide_locked",value.hideWhenLocked).commit())
+        require(value.intervalMinutes in intervals && value.syncIntervalMinutes in intervals)
+        check(preferences.edit().putInt("interval",value.intervalMinutes).putBoolean("notifications",value.notifications).putBoolean("hide_locked",value.hideWhenLocked)
+            .putBoolean("sync_enabled",value.syncEnabled).putInt("sync_interval",value.syncIntervalMinutes).commit())
     }
     companion object { val intervals = listOf(15,30,60,180,360,720,1440) }
 }

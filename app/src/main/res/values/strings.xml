@@ -569,4 +569,10 @@
     <string name="search_block_loli">Block lolicon</string>
     <string name="sub_tags">Tags</string>
     <string name="sub_tags_placeholder">artist:example, tag:example</string>
+    <string name="sub_sync_options">Sync options</string>
+    <string name="sub_check_now">Check new releases now</string>
+    <string name="sub_sync_now">Sync with PC now</string>
+    <string name="sub_auto_sync">Automatic PC synchronization</string>
+    <string name="sub_sync_interval">PC synchronization interval</string>
+    <string name="sub_sync_hint">Offline changes stay on this phone. Failed attempts wait for the next interval; unsupported PC versions retry daily.</string>
 </resources>

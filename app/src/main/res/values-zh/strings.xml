@@ -569,4 +569,10 @@
     <string name="search_block_loli">屏蔽萝莉</string>
     <string name="sub_tags">订阅标签</string>
     <string name="sub_tags_placeholder">artist:作者, tag:标签</string>
+    <string name="sub_sync_options">同步选项</string>
+    <string name="sub_check_now">立即检查新作品</string>
+    <string name="sub_sync_now">立即与电脑同步</string>
+    <string name="sub_auto_sync">自动与电脑同步</string>
+    <string name="sub_sync_interval">电脑同步间隔</string>
+    <string name="sub_sync_hint">离线修改保留在手机上。失败后在下个周期重试，不支持同步的电脑版每天重试一次。</string>
 </resources>

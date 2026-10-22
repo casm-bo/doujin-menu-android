@@ -569,4 +569,10 @@
     <string name="search_block_loli">ロリをブロック</string>
     <string name="sub_tags">購読タグ</string>
     <string name="sub_tags_placeholder">artist:作家, tag:タグ</string>
+    <string name="sub_sync_options">同期オプション</string>
+    <string name="sub_check_now">新作を今すぐ確認</string>
+    <string name="sub_sync_now">PCと今すぐ同期</string>
+    <string name="sub_auto_sync">PCと自動同期</string>
+    <string name="sub_sync_interval">PCの同期間隔</string>
+    <string name="sub_sync_hint">オフラインの変更は端末に保存されます。失敗時は次の間隔で再試行し、未対応のPCバージョンは翌日に再確認します。</string>
 </resources>

@@ -14,19 +14,27 @@ import java.util.concurrent.TimeUnit
 
 object SubscriptionRefresh {
     private val mutex=Mutex()
-    suspend fun run(context:Context,profile:DesktopProfile?,force:Boolean=false):String? = mutex.withLock {
+    suspend fun run(context:Context,profile:DesktopProfile?,force:Boolean=false,forceSync:Boolean=false):String? = mutex.withLock {
         withContext(Dispatchers.IO) {
             val store=SubscriptionStore.get(context)
             val scope=profile?.id.orEmpty()
             store.adoptLocal(scope)
-            var syncError:String?=null
-            if(profile != null) try { SubscriptionSync(store).sync(profile) }
-            catch(error:CancellationException) { throw error }
-            catch(error:Exception) { syncError=if(error is com.doujinmenu.android.network.CompanionApiException && error.statusCode==404)
-                context.getString(com.doujinmenu.android.R.string.sub_update_pc) else context.getString(com.doujinmenu.android.R.string.sub_sync_offline) }
-            SubscriptionChecker(store).check(scope,SubscriptionPreferences(context).load().intervalMinutes*60_000L,force)
+            val options=SubscriptionPreferences(context).load()
+            val now=System.currentTimeMillis()
+            if(profile != null && com.doujinmenu.android.security.subscriptionSyncDue(options,now,
+                store.state("sync-attempt/$scope")?.toLongOrNull(),store.state("sync-error/$scope")=="unsupported",forceSync)) {
+                store.setState("sync-attempt/$scope",now.toString())
+                try { SubscriptionSync(store).sync(profile);store.setState("sync-error/$scope","") }
+                catch(error:CancellationException) { throw error }
+                catch(error:Exception) { store.setState("sync-error/$scope",if(error is com.doujinmenu.android.network.CompanionApiException && error.statusCode==404) "unsupported" else "offline") }
+            }
+            SubscriptionChecker(store).check(scope,options.intervalMinutes*60_000L,force)
             SubscriptionNotifications.refresh(context)
-            syncError
+            when(store.state("sync-error/$scope")) {
+                "unsupported" -> context.getString(com.doujinmenu.android.R.string.sub_update_pc)
+                "offline" -> context.getString(com.doujinmenu.android.R.string.sub_sync_offline)
+                else -> null
+            }
         }
     }
 }
@@ -45,10 +53,14 @@ class SubscriptionWorker(context:Context,parameters:WorkerParameters):CoroutineW
         fun schedule(context:Context):Operation {
             val store=SubscriptionStore.get(context)
             val manager=WorkManager.getInstance(context)
-            if(SecureProfileStore(context).load().isEmpty() && store.records("").none { it.value.enabled && !it.value.deleted }) {
+            val profiles=SecureProfileStore(context).load()
+            val options=SubscriptionPreferences(context).load()
+            val hasChecks=(listOf("")+profiles.map { it.id }).any { scope -> store.records(scope).any { it.value.enabled && !it.value.deleted } }
+            if(!hasChecks && (profiles.isEmpty() || !options.syncEnabled)) {
                 return manager.cancelUniqueWork(WORK_NAME)
             }
-            val request=PeriodicWorkRequestBuilder<SubscriptionWorker>(SubscriptionPreferences(context).load().intervalMinutes.toLong(),TimeUnit.MINUTES)
+            val minutes=if(options.syncEnabled && profiles.isNotEmpty()) minOf(options.intervalMinutes,options.syncIntervalMinutes) else options.intervalMinutes
+            val request=PeriodicWorkRequestBuilder<SubscriptionWorker>(minutes.toLong(),TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
             return manager.enqueueUniquePeriodicWork(WORK_NAME,ExistingPeriodicWorkPolicy.UPDATE,request)
         }

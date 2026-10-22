@@ -155,6 +155,7 @@ data class MainUiState(
     val subscriptionOptions: com.doujinmenu.android.security.SubscriptionOptions = com.doujinmenu.android.security.SubscriptionOptions(),
     val subscriptionsBusy: Boolean = false,
     val subscriptionError: String? = null,
+    val subscriptionSyncError: String? = null,
     val showSubscriptions: Boolean = false,
     val subscriptionTab: Int = 0,
     val subscriptionEditor: com.doujinmenu.android.model.SearchSubscription? = null,
@@ -473,19 +474,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val scope=uiState.selectedProfileId.orEmpty()
         viewModelScope.launch { withContext(Dispatchers.IO) { subscriptionStore.resolve(scope,id,keepPhone) }; refreshSubscriptions() }
     }
-    fun refreshSubscriptions(force:Boolean=false) {
+    fun refreshSubscriptions(force:Boolean=false,syncNow:Boolean=false) {
         if(subscriptionJob?.isActive == true) return
         val profile=selectedProfile()
         val scope=profile?.id.orEmpty()
         uiState=uiState.copy(subscriptionsBusy=true,subscriptionError=null)
         subscriptionJob=viewModelScope.launch {
             var syncError:String?=null
+            var checkError:String?=null
             try {
-                syncError=com.doujinmenu.android.data.SubscriptionRefresh.run(getApplication(),profile,force)
+                syncError=com.doujinmenu.android.data.SubscriptionRefresh.run(getApplication(),profile,force,syncNow)
             } catch(error:CancellationException) { throw error }
-            catch(error:Exception) { syncError=error.message ?: strings[R.string.sub_sync_offline]
+            catch(error:Exception) { checkError=error.message
             } finally {
-                if(scope == uiState.selectedProfileId.orEmpty()) uiState=uiState.copy(subscriptionsBusy=false,subscriptionError=syncError)
+                if(scope == uiState.selectedProfileId.orEmpty()) uiState=uiState.copy(subscriptionsBusy=false,subscriptionError=checkError,subscriptionSyncError=syncError)
                 reloadSubscriptions()
             }
         }
@@ -855,7 +857,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun reloadProfileLibrary() {
         subscriptionJob?.cancel()
-        uiState=uiState.copy(subscriptionsBusy=false)
+        uiState=uiState.copy(subscriptionsBusy=false,subscriptionSyncError=null)
         uiState = uiState.copy(subscriptions=emptyList(),subscriptionNotices=emptyList(),searchFavorites=emptyList(),subscriptionEditor=null)
         viewModelScope.launch { reloadSubscriptions() }
         viewModelScope.launch { withContext(Dispatchers.IO) {
@@ -1242,9 +1244,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val connected = status != null
                 if (connected && !wasDesktopConnected) {
                     requestReconnectLibraryRefresh()
+                    refreshSubscriptions()
                 }
                 if (status != null) {
-                    refreshSubscriptions()
                     when {
                         !hasDesktopSyncGenerationBaseline ||
                             status.syncGeneration < lastDesktopSyncGeneration -> {
