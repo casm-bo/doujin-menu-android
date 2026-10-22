@@ -73,4 +73,3 @@ class ReaderControlsTest {
         file.delete()
     }
 }
-

@@ -580,4 +580,5 @@
     <string name="search_custom_tag_error">tag:, female:, male: 형식의 태그를 최대 50개 입력하세요.</string>
     <string name="sub_hours">%1$d시간</string>
     <string name="sub_day">하루</string>
+    <string name="ui_pull_next_chapter">끝에서 위로 밀어 다음화로 이동</string>
 </resources>

@@ -580,4 +580,5 @@
     <string name="search_custom_tag_error">tag:、female:、male: 形式で最大50個のタグを入力してください。</string>
     <string name="sub_hours">%1$d時間</string>
     <string name="sub_day">1日</string>
+    <string name="ui_pull_next_chapter">最後まで読んだら上にスワイプして次の話へ</string>
 </resources>

@@ -580,4 +580,5 @@
     <string name="search_custom_tag_error">请输入 tag:、female: 或 male: 格式的标签，最多50个。</string>
     <string name="sub_hours">%1$d小时</string>
     <string name="sub_day">一天</string>
+    <string name="ui_pull_next_chapter">在底部向上滑动以打开下一话</string>
 </resources>

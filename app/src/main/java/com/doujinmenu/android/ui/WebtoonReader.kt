@@ -3,6 +3,8 @@ package com.doujinmenu.android.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -11,6 +13,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -43,6 +51,10 @@ internal fun WebtoonReader(
     val files = remember(readerKey) { mutableStateMapOf<Int, File>() }
     val retries = remember(readerKey) { mutableStateMapOf<Int, Int>() }
     val errors = remember(readerKey) { mutableStateMapOf<Int, Boolean>() }
+    val nextBook by rememberUpdatedState(onNextBook)
+    var endPull by remember(readerKey) { mutableFloatStateOf(0f) }
+    var endPrompted by remember(readerKey) { mutableStateOf(false) }
+    var touching by remember(readerKey) { mutableStateOf(false) }
     val state = remember(readerKey) { LazyListState() }
     var resume by remember(readerKey) { mutableStateOf(initial) }
     var restoreTarget by remember(readerKey) { mutableStateOf(initial) }
@@ -60,6 +72,24 @@ internal fun WebtoonReader(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val width = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
+        val endPullThreshold = with(density) { 64.dp.toPx() }
+        val endScroll = remember(readerKey, endPullThreshold) {
+            object : NestedScrollConnection {
+                override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                    if (!touching || source != NestedScrollSource.UserInput) return Offset.Zero
+                    if (!restored || state.canScrollForward || nextBook == null || pages.lastIndex !in files) {
+                        endPull = 0f
+                    } else if (available.y < 0f && !endPrompted) {
+                        endPull -= available.y
+                        if (endPull >= endPullThreshold) {
+                            endPrompted = true
+                            nextBook?.invoke()
+                        }
+                    } else if (available.y > 0f) endPull = 0f
+                    return Offset.Zero
+                }
+            }
+        }
         val tiles = remember(readerKey, width, dimensions.toMap()) {
             pages.indices.flatMap { page ->
                 val size = dimensions[page] ?: ImageDimensions(width, width)
@@ -95,7 +125,21 @@ internal fun WebtoonReader(
         DisposableEffect(readerKey, width, tiles, restored) {
             onDispose { if (restored) position()?.let { resume = it; onProgress(it) } }
         }
-        LazyColumn(state = state, modifier = Modifier.fillMaxSize().testTag("webtoon-reader")) {
+        LazyColumn(state = state, modifier = Modifier.fillMaxSize().testTag("webtoon-reader")
+            .nestedScroll(endScroll)
+            .pointerInput(readerKey) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    endPull = 0f
+                    endPrompted = false
+                    touching = true
+                    try {
+                        do {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                        } while (event.changes.any { it.pressed })
+                    } finally { touching = false }
+                }
+            }) {
             itemsIndexed(tiles, key = { _, tile -> "${pages[tile.page].key}:${tile.top}" }) { _, tile ->
                 LaunchedEffect(tile.page, errors[tile.page], retries[tile.page]) { prepare(tile.page) }
                 val file = files[tile.page]
@@ -118,7 +162,8 @@ internal fun WebtoonReader(
                 }
             }
             if (onNextBook != null) item(key = "next-book") {
-                TextButton(onClick = onNextBook, modifier = Modifier.fillMaxWidth().padding(16.dp)) { Text(strings[R.string.ui_next_book]) }
+                Text(strings[R.string.ui_pull_next_chapter], color = Color.White,
+                    modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
         DynamicVerticalScrollbar(state, color = Color.White)

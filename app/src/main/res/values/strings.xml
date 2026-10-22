@@ -580,4 +580,5 @@
     <string name="search_custom_tag_error">Enter tag:, female:, or male: tags (up to 50).</string>
     <string name="sub_hours">%1$d hr</string>
     <string name="sub_day">1 day</string>
+    <string name="ui_pull_next_chapter">Scroll up at the end to open the next chapter</string>
 </resources>
