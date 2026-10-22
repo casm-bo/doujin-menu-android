@@ -58,9 +58,13 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
         }
         if(state.subscriptionsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.subscriptionError?.let { Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall) }
-        TextButton(onRefresh,enabled=!state.subscriptionsBusy) { Text(strings[R.string.sub_check_now]) }
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+            TextButton(onRefresh,enabled=!state.subscriptionsBusy) { Text(strings[R.string.sub_check_now]) }
+            if(state.subscriptionTab==0) {
+                TextButton({onRead(null)},enabled=state.subscriptionNotices.any { !it.read }) { Text(strings[R.string.sub_all_read]) }
+            }
+        }
         if(state.subscriptionTab==0) {
-            TextButton({onRead(null)},enabled=state.subscriptionNotices.any { !it.read }) { Text(strings[R.string.sub_all_read]) }
             LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=16.dp)) {
                 if(state.subscriptionNotices.isEmpty()) item { Text(strings[R.string.sub_empty]) }
                 items(state.subscriptionNotices,key={it.galleryId}) { notice ->
