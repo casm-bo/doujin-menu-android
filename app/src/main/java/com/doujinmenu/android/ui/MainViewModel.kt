@@ -158,6 +158,8 @@ data class MainUiState(
     val showSubscriptions: Boolean = false,
     val subscriptionTab: Int = 0,
     val subscriptionEditor: com.doujinmenu.android.model.SearchSubscription? = null,
+    val subscriptionSuggestions: List<FilterSuggestion> = emptyList(),
+    val isLoadingSubscriptionSuggestions: Boolean = false,
     val isStarting: Boolean = false,
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val appStyle: com.doujinmenu.android.model.AppStyle = com.doujinmenu.android.model.AppStyle(),
@@ -437,8 +439,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState=uiState.copy(showSubscriptions=true,subscriptionTab=tab,subscriptionError=null)
         viewModelScope.launch { reloadSubscriptions() }
     }
-    fun closeSubscriptions() { uiState=uiState.copy(showSubscriptions=false,subscriptionEditor=null) }
-    fun editSubscription(value: com.doujinmenu.android.model.SearchSubscription?) { uiState=uiState.copy(subscriptionEditor=value,subscriptionError=null) }
+    fun closeSubscriptions() { editSubscription(null);uiState=uiState.copy(showSubscriptions=false) }
+    fun editSubscription(value: com.doujinmenu.android.model.SearchSubscription?) {
+        suggestionJob?.cancel()
+        uiState=uiState.copy(subscriptionEditor=value,subscriptionError=null,subscriptionSuggestions=emptyList(),isLoadingSubscriptionSuggestions=false)
+        if(value!=null) { loadAvailableLanguages();refreshFilterSuggestions(value.query,editor=true) }
+    }
+    fun setSubscriptionQuery(query: String) {
+        val value=uiState.subscriptionEditor ?: return
+        uiState=uiState.copy(subscriptionEditor=value.copy(query=query))
+        refreshFilterSuggestions(query,editor=true)
+    }
     fun subscribeCurrentSearch() {
         val query=com.doujinmenu.android.network.parseHitomiSearchOrder(normalizeSearchSeparators(uiState.searchQuery)).terms.joinToString(" ")
         openSubscriptions(1)
@@ -3162,10 +3173,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return "$prefix:$value"
     }
 
-    private fun refreshFilterSuggestions(query: String, library: Boolean = false) {
+    private fun refreshFilterSuggestions(query: String, library: Boolean = false, editor: Boolean = false) {
         suggestionJob?.cancel()
         fun publish(values: List<FilterSuggestion>, loading: Boolean) {
-            uiState = if (library) uiState.copy(libraryFilterSuggestions = values, isLoadingLibrarySuggestions = loading)
+            uiState = if (editor) uiState.copy(subscriptionSuggestions=values,isLoadingSubscriptionSuggestions=loading)
+                else if (library) uiState.copy(libraryFilterSuggestions = values, isLoadingLibrarySuggestions = loading)
                 else uiState.copy(filterSuggestions = values, isLoadingFilterSuggestions = loading)
         }
         val rawToken = query.substring(searchTokenStart(query)).removePrefix("-").trim().lowercase()
@@ -3179,7 +3191,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         fun merged(remote: List<FilterSuggestion>) = if (untyped) mergeUntypedSuggestions(hints, local, remote, partial) else mergeSuggestions(local, remote, partial)
         val cacheKey = if (untyped) "untyped:$partial" else "$type:${partial.first().let { if (it.isDigit()) "0-9" else it.toString() }}"
         val generation = libraryProfileGeneration
-        fun current() = generation == libraryProfileGeneration && (if (library) uiState.libraryQueryDraft else uiState.searchQuery) == query
+        fun current() = generation == libraryProfileGeneration && (if (editor) uiState.subscriptionEditor?.query else if (library) uiState.libraryQueryDraft else uiState.searchQuery) == query
         publish(merged(suggestionCache[cacheKey].orEmpty()), true)
         suggestionJob = viewModelScope.launch {
             val books = uiState.libraryBooks
@@ -3202,7 +3214,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (!current()) return@launch
             suggestionCache[cacheKey] = remote
             val known = rememberKnownFilterTokens(remote.mapTo(linkedSetOf()) { it.token })
-            if ((if (library) uiState.libraryQueryDraft else uiState.searchQuery) == query) publish(merged(remote), false)
+            if (current()) publish(merged(remote), false)
             if (known != uiState.knownFilterTokens) uiState = uiState.copy(knownFilterTokens = known)
         }
     }

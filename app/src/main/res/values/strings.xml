@@ -531,7 +531,7 @@
     <string name="sub_title">Search subscriptions</string>
     <string name="sub_settings">Subscription settings</string>
     <string name="sub_notifications">Notifications</string>
-    <string name="sub_current">Subscribe to current search</string>
+    <string name="sub_current">Subscribe to this search</string>
     <string name="sub_monitor">Check for new releases</string>
     <string name="sub_interval">Automatic check interval</string>
     <string name="sub_minutes">%1$d min</string>
@@ -567,4 +567,6 @@
     <string name="search_block_bl">Block BL</string>
     <string name="search_block_gore">Block gore</string>
     <string name="search_block_loli">Block lolicon</string>
+    <string name="sub_tags">Tags</string>
+    <string name="sub_tags_placeholder">artist:example, tag:example</string>
 </resources>

@@ -155,7 +155,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     lastMainDestination=MainDestination.Browser.route
                     viewModel.searchFavorite(com.doujinmenu.android.model.SearchFavorite(value.id,value.name,value.query,value.languages))
                     navController.navigate("main") { popUpTo("main");launchSingleTop=true }
-                })
+                }, onQueryChange=viewModel::setSubscriptionQuery,onLoadLanguages=viewModel::loadAvailableLanguages)
         }
     }
     val newTabNotice = viewModel.uiState.newTabNotice
@@ -848,14 +848,10 @@ private fun MainTabContent(
                     titleContent = query, actions = actions) },
                 contentPadding = contentPadding,
                 onQueryChange = viewModel::setSearchQuery,
-                onFavoriteNameChange = viewModel::setFavoriteName,
                 onSearch = viewModel::search,
-                onSaveFavorite = viewModel::saveSearchFavorite,
                 onOpenSubscriptions = { viewModel.openSubscriptions() },
                 onSubscribeCurrent = viewModel::subscribeCurrentSearch,
                 onToggleTagFilter = viewModel::toggleSearchTagFilter,
-                onRemoveFavorite = viewModel::removeSearchFavorite,
-                onFavoriteSearch = viewModel::searchFavorite,
                 onRecentSearch = viewModel::repeatSearch,
                 onClearSearchHistory = viewModel::clearSearchQueryHistory,
                 onToggleLanguage = viewModel::togglePreferredLanguage,

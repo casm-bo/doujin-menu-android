@@ -531,7 +531,7 @@
     <string name="sub_title">検索購読</string>
     <string name="sub_settings">購読設定</string>
     <string name="sub_notifications">通知一覧</string>
-    <string name="sub_current">現在の検索条件を購読</string>
+    <string name="sub_current">この検索を購読</string>
     <string name="sub_monitor">新作を確認</string>
     <string name="sub_interval">自動確認間隔</string>
     <string name="sub_minutes">%1$d分</string>
@@ -567,4 +567,6 @@
     <string name="search_block_bl">BLをブロック</string>
     <string name="search_block_gore">グロをブロック</string>
     <string name="search_block_loli">ロリをブロック</string>
+    <string name="sub_tags">購読タグ</string>
+    <string name="sub_tags_placeholder">artist:作家, tag:タグ</string>
 </resources>

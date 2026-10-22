@@ -108,7 +108,6 @@ import coil3.request.crossfade
 import coil3.size.Precision
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
-import com.doujinmenu.android.model.SearchFavorite
 import androidx.compose.material3.Switch
 import com.doujinmenu.android.model.SearchQueryEntry
 import com.doujinmenu.android.model.resolveScrollIndex
@@ -125,11 +124,7 @@ fun BrowserScreen(
     tabHeader: @Composable (@Composable () -> Unit, @Composable () -> Unit) -> Unit,
     contentPadding: PaddingValues,
     onQueryChange: (String) -> Unit,
-    onFavoriteNameChange: (String) -> Unit,
     onSearch: () -> Unit,
-    onSaveFavorite: () -> Unit,
-    onRemoveFavorite: (String) -> Unit,
-    onFavoriteSearch: (SearchFavorite) -> Unit,
     onRecentSearch: (SearchQueryEntry) -> Unit,
     onClearSearchHistory: () -> Unit,
     onToggleLanguage: (String) -> Unit,
@@ -303,11 +298,10 @@ fun BrowserScreen(
                             onMode = { gridView = it; viewPreferences.saveSearchGridView(it); menu = null },
                             onSize = { gridColumns = it; viewPreferences.saveSearchGridColumns(it) })
                     } else {
-                        DropdownMenuItem(text = { Text(strings[R.string.ui_favorite_this_search]) }, leadingIcon = { ActionIcon(ActionSymbol.STAR) }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; editing = true; expandedPanel = "favorites" })
+                        DropdownMenuItem(text = { Text(strings[R.string.sub_current]) }, leadingIcon = { ActionIcon(ActionSymbol.BELL) }, enabled = state.searchQuery.isNotBlank(), onClick = { menu = null; onSubscribeCurrent() })
                         DropdownMenuItem(text = { Text(strings[R.string.ui_go_to_page]) }, leadingIcon = { ActionIcon(ActionSymbol.PAGE) }, enabled = resultIds.isNotEmpty(), onClick = { menu = null; pageDialog = true })
                         DropdownMenuItem(text = { Text(strings[R.string.ui_view]) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, onClick = { menu = "view" })
                         HorizontalDivider()
-                        DropdownMenuItem(text={Text(strings[R.string.sub_current])},leadingIcon={ActionIcon(ActionSymbol.BELL)},onClick={menu=null;onSubscribeCurrent()})
                         DropdownMenuItem(text={Text(strings[R.string.sub_title])},leadingIcon={ActionIcon(ActionSymbol.LIST)},onClick={menu=null;onOpenSubscriptions()})
                         DropdownMenuItem(text = { Text(strings[R.string.ui_refresh]) }, leadingIcon = { ActionIcon(ActionSymbol.REFRESH) }, onClick = { menu = null; onRefresh() })
                         DropdownMenuItem(text = { Text(strings[R.string.ui_clear_search]) }, leadingIcon = { ActionIcon(ActionSymbol.CLEAR) }, onClick = { onQueryChange(""); menu = null; editing = true })
@@ -377,92 +371,11 @@ fun BrowserScreen(
                                 Text(strings[R.string.ui_confirm])
                             }
                         }
-                        Text(
-                            if (state.preferredLanguages.isEmpty())
-                                strings[R.string.ui_any_search_all_languages]
-                            else strings[R.string.ui_search_each_selected_language_and_merge_results],
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(strings[R.string.ui_available_selected_multiple_selection, (state.availableLanguages.size), (state.preferredLanguages.size)], style = MaterialTheme.typography.labelMedium)
-                        if (state.isLoadingLanguages) LoadingRow(strings[R.string.ui_loading_all_languages])
-                        state.languageLoadError?.let { error ->
-                            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = onLoadLanguages) { Text(strings[R.string.ui_try_again]) }
-                        }
-                        val languages = remember(state.availableLanguages, state.customLanguages, state.preferredLanguages) {
-                            val known = state.availableLanguages.mapTo(hashSetOf()) { it.code }
-                            state.availableLanguages + (state.customLanguages + state.preferredLanguages - known).sorted().map {
-                                AvailableLanguage(it, it.replace('_', ' ').replaceFirstChar { char -> char.uppercase() })
-                            }
-                        }
-                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
-                            item(key = "any") {
-                                Row(Modifier.fillMaxWidth().toggleable(value = state.preferredLanguages.isEmpty(), role = Role.Checkbox,
-                                    onValueChange = { onSelectAnyLanguage() }), verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = state.preferredLanguages.isEmpty(), onCheckedChange = null, modifier = Modifier.padding(12.dp))
-                                    Text(strings[R.string.ui_any_all_languages], style = MaterialTheme.typography.bodyMedium)
-                                }
-                            }
-                            items(languages, key = { it.code }) { language ->
-                                val selected = language.code in state.preferredLanguages
-                                Row(Modifier.fillMaxWidth().toggleable(value = selected, role = Role.Checkbox,
-                                    onValueChange = { onToggleLanguage(language.code) }), verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = selected, onCheckedChange = null, modifier = Modifier.padding(12.dp))
-                                    Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
-                                        Text(language.label, style = MaterialTheme.typography.bodyMedium)
-                                        Text(language.code, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    if (language.code in state.customLanguages) TextButton(onClick = { deleteLanguage = language.code }) { Text(strings[R.string.ui_delete]) }
-                                }
-                            }
-                        }
+                        SearchLanguageList(state, state.preferredLanguages, onToggleLanguage, onSelectAnyLanguage,
+                            onLoadLanguages, { deleteLanguage = it })
                     }
 
-                    if (expandedPanel == "favorites") {
-                        TextButton(onOpenSubscriptions) { Text(strings[R.string.sub_title]) }
-                        state.searchFavorites.forEach { favorite ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                TextButton(
-                                    onClick = {
-                                        expandedPanel = null
-                                        editing = false
-                                        focusManager.clearFocus()
-                                        onFavoriteSearch(favorite)
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        Text(favorite.name, fontWeight = FontWeight.SemiBold)
-                                        Text(
-                                            favorite.query,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                }
-                                TextButton(onClick = { onRemoveFavorite(favorite.id) }) {
-                                    Text(strings[R.string.ui_delete])
-                                }
-                            }
-                        }
-                        OutlinedTextField(
-                            value = state.favoriteName,
-                            onValueChange = onFavoriteNameChange,
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text(strings[R.string.ui_name_for_current_search]) },
-                            singleLine = true,
-                        )
-                        Button(
-                            onClick = onSaveFavorite,
-                            enabled = state.searchQuery.isNotBlank(),
-                            modifier = Modifier.padding(top = 8.dp),
-                        ) { Text(strings[R.string.ui_save_current_search]) }
-                    }
+
             }
             }
         }

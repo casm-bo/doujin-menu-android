@@ -44,4 +44,24 @@ class SubscriptionUiTest {
         compose.onNodeWithText(minutes).performClick()
         compose.runOnIdle { assertEquals(180,options.intervalMinutes) }
     }
+    @Test fun subscriptionEditorUsesLanguagePickerAndTagSuggestions() {
+        var saved:SearchSubscription?=null
+        var changed=""
+        compose.setContent { MaterialTheme {
+            SubscriptionScreen(MainUiState(subscriptionTab=1,
+                availableLanguages=listOf(com.doujinmenu.android.network.AvailableLanguage("english","English"),com.doujinmenu.android.network.AvailableLanguage("korean","한국어")),
+                subscriptionEditor=SearchSubscription(name="Synthetic tags",query="tag:exam",enabled=true),
+                subscriptionSuggestions=listOf(com.doujinmenu.android.network.FilterSuggestion("tag:example","example"))),
+                {}, {}, {}, {}, {}, {saved=it}, {_,_->}, {}, onQueryChange={changed=it})
+        } }
+        compose.onNodeWithText(text(R.string.ui_language)+" (0)").performClick()
+        compose.onNodeWithText("English").performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.ui_language)+" (1)").performScrollTo().performClick()
+        compose.onNodeWithContentDescription(text(R.string.sub_tags_placeholder)).performScrollTo().performClick()
+        compose.onNodeWithText("tag:example",useUnmergedTree=true).performScrollTo().performClick()
+        compose.runOnIdle { assertEquals("tag:example, ",changed) }
+        compose.onNodeWithContentDescription(text(R.string.ui_return)).performClick()
+        compose.onNodeWithText(text(R.string.ui_save)).performClick()
+        compose.runOnIdle { assertEquals("tag:example",saved!!.query);assertEquals(setOf("english"),saved!!.languages) }
+    }
 }

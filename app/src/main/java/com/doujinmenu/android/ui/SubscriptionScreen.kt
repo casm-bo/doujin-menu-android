@@ -33,7 +33,8 @@ import java.util.Date
 @Composable
 internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: (Int) -> Unit,
     onRefresh: () -> Unit, onRead: (Long?) -> Unit, onEdit: (SearchSubscription?) -> Unit,
-    onSave: (SearchSubscription) -> Unit, onResolve: (String,Boolean) -> Unit, onSearch: (SearchSubscription) -> Unit) {
+    onSave: (SearchSubscription) -> Unit, onResolve: (String,Boolean) -> Unit, onSearch: (SearchSubscription) -> Unit,
+    onQueryChange: (String) -> Unit = {}, onLoadLanguages: () -> Unit = {}) {
     val strings=androidx.compose.ui.platform.LocalResources.current
     val context=LocalContext.current
     val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -98,34 +99,42 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
             }
         }
     }
-    state.subscriptionEditor?.let { value -> SubscriptionEditor(value,state.subscriptionError,{onEdit(null)},save) }
+    state.subscriptionEditor?.let { value -> SubscriptionEditor(value,state,{onEdit(null)},save,onQueryChange,onLoadLanguages) }
     deleting?.let { value -> AlertDialog(onDismissRequest={deleting=null},title={Text(strings[R.string.ui_delete])},text={Text(value.name)},
         confirmButton={TextButton({onSave(value.copy(deleted=true));deleting=null}) { Text(strings[R.string.ui_delete]) }},
         dismissButton={TextButton({deleting=null}) { Text(strings[R.string.ui_cancel]) }}) }
 }
 
 @Composable
-private fun SubscriptionEditor(value:SearchSubscription,externalError:String?,onDismiss:()->Unit,onSave:(SearchSubscription)->Unit) {
+private fun SubscriptionEditor(value:SearchSubscription,state:MainUiState,onDismiss:()->Unit,onSave:(SearchSubscription)->Unit,
+    onQueryChange:(String)->Unit,onLoadLanguages:()->Unit) {
     val strings=androidx.compose.ui.platform.LocalResources.current
     var name by rememberSaveable(value.id) { mutableStateOf(value.name) }
     var query by rememberSaveable(value.id) { mutableStateOf(value.query) }
-    var languages by rememberSaveable(value.id) { mutableStateOf(value.languages.sorted().joinToString(", ")) }
+    var languages by rememberSaveable(value.id) { mutableStateOf(value.languages.toList()) }
+    var showLanguages by rememberSaveable { mutableStateOf(false) }
+    val expansion=remember { InlineSearchState() }
     var enabled by rememberSaveable(value.id) { mutableStateOf(value.enabled) }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest=onDismiss,title={Text(strings[R.string.sub_title])},text={
         Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(name,{name=it},label={Text(strings[R.string.sub_name])},singleLine=true)
-            CompositionLocalProvider(LocalInlineSearch provides remember { InlineSearchState() }) {
-                UnifiedSearchField(query,{query=it},strings[R.string.ui_search],{}, {})
+            OutlinedTextField(name,{name=it},label={Text(strings[R.string.sub_name])},singleLine=true,modifier=Modifier.fillMaxWidth())
+            Text(strings[R.string.sub_tags],style=MaterialTheme.typography.titleSmall)
+            CompositionLocalProvider(LocalInlineSearch provides expansion) {
+                UnifiedSearchField(query,{query=it;onQueryChange(it)},strings[R.string.sub_tags_placeholder],{}, {},
+                    suggestions=state.subscriptionSuggestions,loading=state.isLoadingSubscriptionSuggestions,
+                    onSuggestion={ val next=com.doujinmenu.android.model.applySearchSuggestion(query,it.token);query=next;onQueryChange(next) })
             }
-            OutlinedTextField(languages,{languages=it},label={Text(strings[R.string.sub_languages])})
+            OutlinedButton({showLanguages=!showLanguages}) { ActionIcon(ActionSymbol.LANGUAGE);Spacer(Modifier.width(8.dp));Text(strings[R.string.ui_language]+" (${languages.size})") }
+            if(showLanguages) SearchLanguageList(state,languages.toSet(),
+                { code -> languages=if(code in languages) languages-code else languages+code },{languages=emptyList()},onLoadLanguages)
             Row(verticalAlignment=Alignment.CenterVertically) { Text(strings[R.string.sub_monitor],Modifier.weight(1f)); Switch(enabled,{enabled=it},modifier=Modifier.testTag("subscription-editor-monitor")) }
             Text(strings[R.string.sub_hint],style=MaterialTheme.typography.bodySmall)
             error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
-            externalError?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+            state.subscriptionError?.let { Text(it,color=MaterialTheme.colorScheme.error) }
         }
     },confirmButton={TextButton({
-        val edited=value.copy(name=name.trim().ifBlank { query.trim() },query=query.trim(),languages=languages.split(',').map { it.trim() }.filter(String::isNotBlank).toSet(),enabled=enabled)
+        val edited=value.copy(name=name.trim().ifBlank { query.trim() },query=com.doujinmenu.android.model.normalizeSearchSeparators(query),languages=languages.toSet(),enabled=enabled)
         try { edited.validate();onSave(edited) } catch(e:IllegalArgumentException) { error=e.message }
     }) { Text(strings[R.string.ui_save]) }},dismissButton={TextButton(onDismiss) { Text(strings[R.string.ui_cancel]) }})
 }

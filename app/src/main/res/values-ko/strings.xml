@@ -531,7 +531,7 @@
     <string name="sub_title">검색구독</string>
     <string name="sub_settings">구독 설정</string>
     <string name="sub_notifications">알림 모음</string>
-    <string name="sub_current">현재 검색조건 구독</string>
+    <string name="sub_current">이 검색 구독하기</string>
     <string name="sub_monitor">신작 확인</string>
     <string name="sub_interval">자동 확인 주기</string>
     <string name="sub_minutes">%1$d분</string>
@@ -567,4 +567,6 @@
     <string name="search_block_bl">BL 차단</string>
     <string name="search_block_gore">고어 차단</string>
     <string name="search_block_loli">로리 차단</string>
+    <string name="sub_tags">구독 태그</string>
+    <string name="sub_tags_placeholder">artist:작가, tag:태그</string>
 </resources>
