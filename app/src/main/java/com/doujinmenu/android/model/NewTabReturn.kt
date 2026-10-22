@@ -1,17 +1,13 @@
 package com.doujinmenu.android.model
 
-const val NEW_TAB_RETURN_WINDOW_MS = 30_000L
-
 data class NewTabReturn(
     val tabId: String,
     val isGallery: Boolean,
     val originTabId: String,
     val originIsGallery: Boolean,
-    val openedAtMillis: Long? = null,
 ) {
-    fun isAvailable(nowMillis: Long): Boolean = openedAtMillis?.let {
-        nowMillis - it in 0 until NEW_TAB_RETURN_WINDOW_MS
-    } == true
+    fun isAtRoot(workspace: BrowserWorkspace, gallery: Boolean): Boolean =
+        isGallery == gallery && workspace.activeTabId == tabId && !workspace.activeTab.canGoBack
 }
 
 fun BrowserWorkspace.closeTabReturningTo(

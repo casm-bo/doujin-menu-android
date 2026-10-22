@@ -108,6 +108,7 @@ data class BrowserTab(
     val history: List<BrowserPage> = listOf(BrowserPage.Search()),
     val currentIndex: Int = 0,
     val groupId: String? = null,
+    val returnTo: NewTabReturn? = null,
 ) {
     val currentPage: BrowserPage
         get() = history[currentIndex.coerceIn(history.indices)]
@@ -236,7 +237,7 @@ fun BrowserWorkspace.closeTab(
 }
 
 fun BrowserWorkspace.pushPage(page: BrowserPage): BrowserWorkspace = updateActiveTab { tab ->
-    val history = (tab.history.take(tab.currentIndex + 1) + page).takeLast(MAX_TAB_HISTORY)
+    val history = (tab.history.take(tab.currentIndex + 1) + page).boundedTabHistory()
     tab.copy(history = history, currentIndex = history.lastIndex)
 }
 
@@ -246,8 +247,11 @@ private fun List<BrowserPage>.withLibraryReader(page: BrowserPage.LibraryReader)
     val origin = if (seriesOrigin != null) take(seriesOrigin + 1).mapIndexed { index, entry ->
         if (index == seriesOrigin) (entry as BrowserPage.LibrarySeries).copy(episodeList = false) else entry
     } else this
-    return (origin + page).takeLast(MAX_TAB_HISTORY)
+    return (origin + page).boundedTabHistory()
 }
+
+internal fun List<BrowserPage>.boundedTabHistory(): List<BrowserPage> =
+    if (size <= MAX_TAB_HISTORY) this else take(1) + takeLast(MAX_TAB_HISTORY - 1)
 
 fun BrowserWorkspace.openLibraryReader(page: BrowserPage.LibraryReader): BrowserWorkspace = updateActiveTab { tab ->
     val history = tab.history.take(tab.currentIndex + 1).withLibraryReader(page)

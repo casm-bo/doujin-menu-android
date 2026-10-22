@@ -7,6 +7,8 @@ import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserTab
 import com.doujinmenu.android.model.BrowserTabGroup
 import com.doujinmenu.android.model.BrowserWorkspace
+import com.doujinmenu.android.model.NewTabReturn
+import com.doujinmenu.android.model.boundedTabHistory
 import com.doujinmenu.android.model.normalizeGroups
 import com.doujinmenu.android.model.SearchFavorite
 import com.doujinmenu.android.model.SearchQueryEntry
@@ -261,6 +263,10 @@ internal fun browserWorkspaceFromJson(raw: String): BrowserWorkspace = runCatchi
 private fun List<BrowserTab>.toJson(): JSONArray = JSONArray().apply {
     this@toJson.forEach { tab ->
         put(JSONObject().put("id", tab.id).put("currentIndex", tab.currentIndex)
+            .put("returnTo", tab.returnTo?.let { entry ->
+                JSONObject().put("isGallery", entry.isGallery).put("originTabId", entry.originTabId)
+                    .put("originIsGallery", entry.originIsGallery)
+            })
             .put("groupId", tab.groupId).put("history", JSONArray().apply {
                 tab.history.forEach { put(it.toJson()) }
             }))
@@ -279,15 +285,21 @@ private fun JSONArray?.browserTabs(): List<BrowserTab> {
                     historyJson.optJSONObject(pageIndex)?.toBrowserPage()?.let(::add)
                 }
             }
-            val history = rawHistory.takeLast(50)
+            val history = rawHistory.boundedTabHistory()
             if (history.isEmpty()) return@repeat
             val droppedHistoryCount = rawHistory.size - history.size
+            val savedIndex = item.optInt("currentIndex", 0).coerceIn(rawHistory.indices)
             add(BrowserTab(
                 id = id,
                 history = history,
-                currentIndex = (item.optInt("currentIndex", 0) - droppedHistoryCount)
+                currentIndex = (savedIndex - droppedHistoryCount).coerceAtLeast(if (savedIndex == 0) 0 else 1)
                     .coerceIn(history.indices),
                 groupId = item.optString("groupId").takeIf { it.isNotBlank() && it != "null" },
+                returnTo = item.optJSONObject("returnTo")?.let { entry ->
+                    entry.optString("originTabId").takeIf { it.isNotBlank() && it != "null" && it != id }?.let { origin ->
+                        NewTabReturn(id, entry.optBoolean("isGallery"), origin, entry.optBoolean("originIsGallery"))
+                    }
+                },
             ))
         }
     }.distinctBy { it.id }
@@ -431,7 +443,7 @@ private fun BrowserWorkspace.onlyPages(
         val pages = tab.history.filter(keep)
         if (pages.isEmpty()) return@mapNotNull null
         val keptThroughCurrent = tab.history.take(tab.currentIndex + 1).count(keep)
-        val history = if (prependLibraryHome && pages.first() !is BrowserPage.LibraryHome) {
+        val history = if (prependLibraryHome && tab.returnTo == null && pages.first() !is BrowserPage.LibraryHome) {
             listOf(BrowserPage.LibraryHome()) + pages
         } else {
             pages

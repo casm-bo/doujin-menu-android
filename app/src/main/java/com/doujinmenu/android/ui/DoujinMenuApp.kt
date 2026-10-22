@@ -637,7 +637,8 @@ private fun MainShell(
             },
         onBack = {
             when {
-                selected == MainDestination.Browser && viewModel.canReturnFromNewTab(false) -> viewModel.goBackInBrowserTab()
+                selected == MainDestination.Browser && viewModel.canGoBackInBrowserTab() -> viewModel.goBackInBrowserTab()
+                selected == MainDestination.Library && viewModel.canGoBackInGalleryTab() -> viewModel.goBackInGalleryTab()
                 onBackToOrigin != null -> onBackToOrigin()
                 selected == MainDestination.Browser -> viewModel.goBackInBrowserTab()
                 else -> viewModel.goBackInGalleryTab()
@@ -884,7 +885,7 @@ private fun MainTabContent(
         }
         MainDestination.Library -> LibraryTabContent(
             viewModel, contentPadding, onLibraryBookClick,
-            onBack = { if (viewModel.canReturnFromNewTab(true)) viewModel.goBackInGalleryTab() else onNavigate(MainDestination.Browser) },
+            onBack = { if (!viewModel.goBackInGalleryTab()) onNavigate(MainDestination.Browser) },
             onSearchFacet = { viewModel.searchFromFacet(it); onNavigate(MainDestination.Browser) },
             onSearchLanguage = { viewModel.searchFromLanguage(it); onNavigate(MainDestination.Browser) },
         )

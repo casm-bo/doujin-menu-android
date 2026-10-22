@@ -4,7 +4,9 @@ import com.doujinmenu.android.model.updateLibraryScroll
 
 import com.doujinmenu.android.model.BrowserPage
 import com.doujinmenu.android.model.BrowserWorkspace
+import com.doujinmenu.android.model.NewTabReturn
 import com.doujinmenu.android.model.openTab
+import com.doujinmenu.android.model.openLibraryReader
 import com.doujinmenu.android.model.openGalleryInBackground
 import com.doujinmenu.android.model.createGroup
 import com.doujinmenu.android.model.archiveGroup
@@ -21,6 +23,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserWorkspacePersistenceTest {
+    @Test fun automaticTabRootsAndOpenersSurviveRestoreAndArchiving() {
+        listOf(BrowserPage.Search(query = "artist:fixture"), BrowserPage.LibraryBook("fixture", "Fixture")).forEach { root ->
+            val gallery = root is BrowserPage.LibraryBook
+            val opened = BrowserWorkspace.initial(root)
+            val returnTo = NewTabReturn(opened.activeTabId, gallery, "fixture-opener", !gallery)
+            val workspace = opened.copy(tabs = opened.tabs.map { it.copy(returnTo = returnTo) })
+            fun restore(saved: BrowserWorkspace): BrowserWorkspace = browserWorkspaceFromJson(browserWorkspaceToJson(saved))
+                .let { if (gallery) it.galleryWorkspace() else it.searchWorkspace() }
+            val restored = restore(workspace)
+            assertEquals(workspace, restored)
+            assertTrue(returnTo.isAtRoot(restored, gallery))
+            val archived = workspace.createGroup(setOf(workspace.activeTabId), "Fixture")
+                .let { it.archiveGroup(it.groups.single().id, if (gallery) BrowserPage.LibraryHome() else BrowserPage.Search()) }
+            assertEquals(returnTo, restore(archived).groups.single().archivedTabs.single().returnTo)
+        }
+    }
+
+    @Test fun automaticGalleryDetailReturnsToItsSavedRootAfterReaderRestore() {
+        val root = BrowserPage.LibraryBook("fixture", "Fixture")
+        val opened = BrowserWorkspace.initial(root)
+        val returnTo = NewTabReturn(opened.activeTabId, true, "fixture-search", false)
+        val workspace = opened.copy(tabs = opened.tabs.map { it.copy(returnTo = returnTo) })
+            .openLibraryReader(BrowserPage.LibraryReader("fixture", "Fixture", 0))
+        val restored = browserWorkspaceFromJson(browserWorkspaceToJson(workspace)).galleryWorkspace()
+        assertEquals(workspace, restored)
+        assertTrue(returnTo.isAtRoot(restored.goBack(), true))
+        assertEquals(root, restored.goBack().activeTab.currentPage)
+    }
+
     @Test fun seriesPagesKeepIndependentDetailsEpisodesAndNamesAfterRestore() {
         val first = BrowserPage.LibrarySeries("First / series", episodeList = true, previewPosition = ReaderPosition(8, 19), episodePosition = ReaderPosition(12, 27))
         val second = BrowserPage.LibrarySeries("Second")

@@ -4,14 +4,38 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NewTabReturnTest {
-    @Test fun `return window starts on first activation and expires at thirty seconds`() {
-        val pending = NewTabReturn("new", false, "origin", false)
-        assertFalse(pending.isAvailable(100_000))
-        val opened = pending.copy(openedAtMillis = 100_000)
-        assertFalse(opened.isAvailable(99_999))
-        assertTrue(opened.isAvailable(100_000))
-        assertTrue(opened.isAvailable(129_999))
-        assertFalse(opened.isAvailable(130_000))
+    @Test fun `only the opening root closes a tab while descendants navigate back`() {
+        val origin = BrowserWorkspace.initial()
+        val root = origin.openTab(BrowserPage.Search(query = "artist:fixture"))
+        val entry = NewTabReturn(root.activeTabId, false, origin.activeTabId, false)
+        assertTrue(entry.isAtRoot(root, false))
+        assertFalse(entry.isAtRoot(root, true))
+        assertFalse(entry.isAtRoot(origin, false))
+        val detail = root.pushPage(BrowserPage.OnlineGallery(42, "Fixture"))
+        val reader = detail.pushPage(BrowserPage.OnlineReader(42, "Fixture", 0))
+        assertFalse(entry.isAtRoot(detail, false))
+        assertFalse(entry.isAtRoot(reader, false))
+        assertFalse(entry.isAtRoot(reader.goBack(), false))
+        assertTrue(entry.isAtRoot(reader.goBack().goBack(), false))
+    }
+
+    @Test fun `deep navigation retains its opening root at the history limit`() {
+        val rootPage = BrowserPage.Search(query = "artist:fixture")
+        val root = BrowserWorkspace.initial(rootPage)
+        val deep = (1L..100L).fold(root) { workspace, id -> workspace.pushPage(BrowserPage.OnlineGallery(id, "Fixture")) }
+        assertEquals(50, deep.activeTab.history.size)
+        var returned = deep
+        while (returned.activeTab.canGoBack) returned = returned.goBack()
+        assertEquals(rootPage, returned.activeTab.currentPage)
+    }
+
+    @Test fun `nested child returns through each opener in order`() {
+        val first = BrowserWorkspace.initial().openTab(BrowserPage.Search(query = "artist:fixture"))
+            .pushPage(BrowserPage.OnlineGallery(42, "Fixture"))
+        val second = first.openTab(BrowserPage.Search(query = "tag:fixture"))
+        val returned = second.closeTabReturningTo(second.activeTabId, first.activeTabId)
+        assertEquals(first, returned)
+        assertTrue(returned.activeTab.currentPage is BrowserPage.OnlineGallery)
     }
 
     @Test fun `closing child returns to its opener instead of the first group neighbor`() {
