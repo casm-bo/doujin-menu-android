@@ -59,19 +59,23 @@ class SubscriptionNotificationTest {
             instrumentation.runOnMainSync { viewModel=AppLockViewModel(context.applicationContext as Application) }
             SubscriptionNotifications.session(context,true)
             SubscriptionNotifications.refresh(context)
-            fun notice()=manager.activeNotifications.first { it.tag=="subscription//$galleryId" }.notification
-            assertEquals("Synthetic private title",notice().extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+            fun notice(title:String):Notification {
+                // NotificationManager posts and updates are asynchronous on physical devices.
+                compose.waitUntil(5_000) { manager.activeNotifications.any { it.tag=="subscription//$galleryId" && it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString()==title } }
+                return manager.activeNotifications.first { it.tag=="subscription//$galleryId" }.notification
+            }
+            notice("Synthetic private title")
             instrumentation.runOnMainSync { viewModel.onBackground() }
-            val masked=notice()
+            val masked=notice(context.getString(R.string.sub_generic))
             assertEquals(context.getString(R.string.sub_generic),masked.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
             assertFalse(masked.extras.toString().contains("Synthetic private"))
             assertNull(masked.getLargeIcon())
             options.save(options.load().copy(hideWhenLocked=false))
             SubscriptionNotifications.refresh(context,false)
-            assertEquals("Synthetic private title",notice().extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+            notice("Synthetic private title")
             options.save(options.load().copy(notifications=false))
             SubscriptionNotifications.refresh(context)
-            assertTrue(manager.activeNotifications.none { it.tag?.startsWith("subscription/")==true })
+            compose.waitUntil(5_000) { manager.activeNotifications.none { it.tag?.startsWith("subscription/")==true } }
             assertTrue(SubscriptionStore.get(context).notices("").any { it.galleryId==galleryId })
         } finally {
             cleanup();options.save(oldOptions);if(previous==null) lock.clear() else lock.save(previous)
