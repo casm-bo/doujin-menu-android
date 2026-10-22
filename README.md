@@ -59,7 +59,6 @@
 
 Android Studio에서 저장소 루트를 열고 SDK 37을 설치한 뒤 Gradle Sync를 실행합니다.
 
-디버그 빌드는 `com.doujinmenu.android.debug` 패키지와 `Doujin Menu Debug` 이름을 사용해 릴리스 앱과 함께 설치할 수 있습니다. 두 앱의 설정·캐시는 별도이며, 연결 설정과 폴더 권한도 각각 지정해야 합니다.
 
 
 ## PC 없이 사용하기
