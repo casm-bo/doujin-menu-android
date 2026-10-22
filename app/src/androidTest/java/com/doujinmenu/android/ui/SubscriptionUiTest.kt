@@ -43,10 +43,12 @@ class SubscriptionUiTest {
         val context=InstrumentationRegistry.getInstrumentation().targetContext
         compose.onNodeWithTag("subscription-check-interval-60").assertTextContains(context.getString(R.string.sub_hours,1))
         compose.onNodeWithTag("subscription-check-interval-1440").assertTextContains(text(R.string.sub_day))
-        compose.onNodeWithTag("subscription-check-interval-5").performClick()
-        compose.runOnIdle { assertEquals(5,options.intervalMinutes) }
-        compose.onNodeWithTag("subscription-check-interval-10").performClick()
-        compose.runOnIdle { assertEquals(10,options.intervalMinutes) }
+        compose.onNodeWithTag("subscription-check-interval-5").assertDoesNotExist()
+        compose.onNodeWithTag("subscription-check-interval-10").assertDoesNotExist()
+        compose.onNodeWithTag("subscription-check-interval-15").performClick()
+        compose.runOnIdle { assertEquals(15,options.intervalMinutes) }
+        compose.onNodeWithTag("subscription-check-interval-30").performClick()
+        compose.runOnIdle { assertEquals(30,options.intervalMinutes) }
         compose.onNodeWithTag("subscription-check-interval-360").performClick()
         compose.runOnIdle { assertEquals(360,options.intervalMinutes) }
     }

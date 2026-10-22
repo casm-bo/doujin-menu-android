@@ -277,7 +277,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val subscriptionStore = com.doujinmenu.android.data.SubscriptionStore.get(application)
     private val subscriptionPreferences = com.doujinmenu.android.security.SubscriptionPreferences(application)
     private var subscriptionJob: Job? = null
-    private var subscriptionForegroundJob: Job? = null
     private val strings get() = androidx.core.content.ContextCompat.getContextForLanguage(getApplication()).resources
     val tabPreviews = BrowserTabPreviewCache(application)
     private val requestStore = DownloadRequestStore.get(application)
@@ -3388,18 +3387,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onAppForegrounded() {
         viewModelScope.launch { reloadSubscriptions() }
         refreshSubscriptions()
-        if(subscriptionForegroundJob?.isActive != true) subscriptionForegroundJob=viewModelScope.launch {
-            var lastAttempt=android.os.SystemClock.elapsedRealtime()
-            while(true) {
-                delay(60_000L)
-                // WorkManager cannot run short intervals; only the visible app checks these more often.
-                val now=android.os.SystemClock.elapsedRealtime()
-                if(com.doujinmenu.android.security.subscriptionForegroundCheckDue(uiState.subscriptionOptions,now,lastAttempt)) {
-                    lastAttempt=now
-                    refreshSubscriptions()
-                }
-            }
-        }
         startConnectionMonitoring()
         if (!hasEnteredForeground) {
             hasEnteredForeground = true
@@ -3408,8 +3395,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onAppBackgrounded() {
-        subscriptionForegroundJob?.cancel()
-        subscriptionForegroundJob=null
         syncActiveSearch(persist = true)
         browserPreferenceStore.saveGalleryWorkspace(uiState.galleryWorkspace)
         stopConnectionMonitoring()

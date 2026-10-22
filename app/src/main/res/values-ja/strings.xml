@@ -580,5 +580,4 @@
     <string name="search_custom_tag_error">tag:、female:、male: 形式で最大50個のタグを入力してください。</string>
     <string name="sub_hours">%1$d時間</string>
     <string name="sub_day">1日</string>
-    <string name="sub_short_interval_hint">5分・10分間隔はアプリ使用中に適用されます。バックグラウンドでは最短15分間隔で、Androidにより遅れる場合があります。</string>
 </resources>

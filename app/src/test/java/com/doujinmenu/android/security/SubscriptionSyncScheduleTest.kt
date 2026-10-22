@@ -5,14 +5,13 @@ import org.junit.Test
 
 class SubscriptionSyncScheduleTest {
     private val now=100_000_000L
-    @Test fun shortForegroundChecksWaitFiveOrTenMinutesIncludingAfterFailures() {
-        for(minutes in listOf(5,10)) {
-            val options=SubscriptionOptions(intervalMinutes=minutes)
-            assertFalse(subscriptionForegroundCheckDue(options,now+60_000,now))
-            assertFalse(subscriptionForegroundCheckDue(options,now+minutes*60_000-1,now))
-            assertTrue(subscriptionForegroundCheckDue(options,now+minutes*60_000,now))
-        }
-        assertFalse(subscriptionForegroundCheckDue(SubscriptionOptions(),now+60*60_000,now))
+    @Test fun retiredIntervalsMigrateToTheNextSupportedInterval() {
+        for(minutes in SubscriptionPreferences.checkIntervals) assertEquals(minutes,normalizeSubscriptionCheckInterval(minutes))
+        assertEquals(15,normalizeSubscriptionCheckInterval(5))
+        assertEquals(15,normalizeSubscriptionCheckInterval(10))
+        assertEquals(360,normalizeSubscriptionCheckInterval(180))
+        assertEquals(1440,normalizeSubscriptionCheckInterval(720))
+        assertEquals(60,normalizeSubscriptionCheckInterval(0))
     }
     @Test fun repeatedForegroundAndStatusChecksWaitForTheConfiguredInterval() {
         val options=SubscriptionOptions()

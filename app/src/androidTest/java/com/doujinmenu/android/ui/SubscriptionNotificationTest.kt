@@ -115,16 +115,16 @@ class SubscriptionNotificationTest {
             assertEquals(60*60_000L,work().periodicityInfo!!.repeatIntervalMillis)
             assertEquals(androidx.work.NetworkType.CONNECTED,work().constraints.requiredNetworkType)
             for(minutes in listOf(5,10)) {
-                options.save(previous.copy(intervalMinutes=minutes))
+                context.getSharedPreferences("subscription_options",android.content.Context.MODE_PRIVATE).edit().putInt("interval",minutes).commit()
                 SubscriptionWorker.schedule(context).result.get(10,java.util.concurrent.TimeUnit.SECONDS)
-                assertEquals(minutes,SubscriptionPreferences(context).load().intervalMinutes)
+                assertEquals(15,SubscriptionPreferences(context).load().intervalMinutes)
                 assertEquals(id,work().id)
                 assertEquals(15*60_000L,work().periodicityInfo!!.repeatIntervalMillis)
             }
-            options.save(previous.copy(intervalMinutes=180))
+            options.save(previous.copy(intervalMinutes=360))
             SubscriptionWorker.schedule(context).result.get(10,java.util.concurrent.TimeUnit.SECONDS)
             assertEquals(id,work().id)
-            assertEquals(180*60_000L,work().periodicityInfo!!.repeatIntervalMillis)
+            assertEquals(360*60_000L,work().periodicityInfo!!.repeatIntervalMillis)
         } finally { cleanup();options.save(previous);SubscriptionWorker.schedule(context).result.get(10,java.util.concurrent.TimeUnit.SECONDS) }
     }
     @Test fun publicLauncherIntentCannotForgeNotificationReadActions() {

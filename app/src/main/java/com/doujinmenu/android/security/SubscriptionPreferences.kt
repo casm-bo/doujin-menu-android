@@ -5,8 +5,13 @@ import android.content.Context
 data class SubscriptionOptions(val intervalMinutes: Int = 60, val notifications: Boolean = true, val hideWhenLocked: Boolean = true,
     val syncEnabled: Boolean = true, val syncIntervalMinutes: Int = 15)
 
-internal fun subscriptionForegroundCheckDue(options:SubscriptionOptions,now:Long,lastAttempt:Long):Boolean =
-    options.intervalMinutes<15 && now-lastAttempt>=options.intervalMinutes*60_000L
+internal fun normalizeSubscriptionCheckInterval(minutes:Int):Int = when(minutes) {
+    5,10 -> 15
+    180 -> 360
+    720 -> 1440
+    in SubscriptionPreferences.checkIntervals -> minutes
+    else -> 60
+}
 
 internal fun subscriptionSyncDue(options: SubscriptionOptions, now: Long, lastAttempt: Long?, unsupported: Boolean, manual: Boolean = false): Boolean {
     if(manual) return true
@@ -16,16 +21,16 @@ internal fun subscriptionSyncDue(options: SubscriptionOptions, now: Long, lastAt
 }
 class SubscriptionPreferences(context: Context) {
     private val preferences = context.getSharedPreferences("subscription_options",Context.MODE_PRIVATE)
-    fun load() = SubscriptionOptions(preferences.getInt("interval",60).takeIf { it in checkIntervals || it in intervals } ?: 60,
+    fun load() = SubscriptionOptions(normalizeSubscriptionCheckInterval(preferences.getInt("interval",60)),
         preferences.getBoolean("notifications",true),preferences.getBoolean("hide_locked",true),preferences.getBoolean("sync_enabled",true),
         preferences.getInt("sync_interval",15).takeIf { it in intervals } ?: 15)
     fun save(value: SubscriptionOptions) {
-        require((value.intervalMinutes in checkIntervals || value.intervalMinutes in intervals) && value.syncIntervalMinutes in intervals)
+        require(value.intervalMinutes in checkIntervals && value.syncIntervalMinutes in intervals)
         check(preferences.edit().putInt("interval",value.intervalMinutes).putBoolean("notifications",value.notifications).putBoolean("hide_locked",value.hideWhenLocked)
             .putBoolean("sync_enabled",value.syncEnabled).putInt("sync_interval",value.syncIntervalMinutes).commit())
     }
     companion object {
-        val checkIntervals = listOf(5,10,30,60,360,1440)
+        val checkIntervals = listOf(15,30,60,360,1440)
         val intervals = listOf(15,30,60,180,360,720,1440)
     }
 }
