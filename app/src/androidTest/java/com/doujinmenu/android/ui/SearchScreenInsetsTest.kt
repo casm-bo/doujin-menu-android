@@ -47,7 +47,7 @@ class SearchScreenInsetsTest {
         val history = List(30) { SearchQueryEntry("artist:fixture_$it") }
         var state by mutableStateOf(MainUiState(libraryBooks = books, libraryLocations = listOf(StorageLocation("fixture", "Fixture")),
             libraryQueryHistory = history, searchQueryHistory = history,
-            galleries = List(40) { GallerySummary(it.toLong() + 1, "Fixture $it", emptyList(), emptyList(), null, emptyList(), null, 1, null) }))
+            galleries = List(40) { GallerySummary(it.toLong() + 1, "Fixture $it", emptyList(), emptyList(), null, emptyList(), null, 1, null, publishedDate="2026-01-02") }))
         compose.setContent {
             val themed = remember { android.view.ContextThemeWrapper(context, R.style.Theme_DoujinMenu) }
             CompositionLocalProvider(LocalContext provides themed) { DoujinMenuTheme {
@@ -127,6 +127,7 @@ class SearchScreenInsetsTest {
                 }
             } }
         }
+        if(!gallery) compose.onAllNodesWithText(strings.getString(R.string.ui_uploaded,"2026.01.02")).onFirst().assertIsDisplayed()
         compose.onNode(hasScrollAction()).performScrollToIndex(39)
         val anchor = compose.onAllNodesWithText("Fixture ", substring = true).fetchSemanticsNodes()
             .filter { it.boundsInRoot.height > 30 }.minBy { it.boundsInRoot.top }
