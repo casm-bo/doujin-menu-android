@@ -112,6 +112,9 @@ internal fun UnifiedReader(
     onPreferencesChange: (ViewerPreferences) -> Unit,
     favorite: Boolean? = null,
     onToggleFavorite: (() -> Unit)? = null,
+    isSeries: Boolean = false,
+    previousBookTitle: String? = null,
+    onOpenPreviousBook: (() -> Unit)? = null,
     nextBookTitle: String? = null,
     onOpenNextBook: (() -> Unit)? = null,
     onReadingModeResolved: (ViewerReadingMode) -> Unit = {},
@@ -264,6 +267,12 @@ internal fun UnifiedReader(
         ) {
             ReaderTopBar(
                 title = title,
+                pageNumber = if (preferences.showPageNumber) "${currentPage + 1} / ${pages.size}" else null,
+                isSeries = isSeries || previousBookTitle != null || nextBookTitle != null,
+                previousBookTitle = previousBookTitle,
+                nextBookTitle = nextBookTitle,
+                onPrevious = onOpenPreviousBook,
+                onNext = onOpenNextBook,
                 favorite = favorite,
                 onBack = onBack,
                 onToggleFavorite = onToggleFavorite,
@@ -301,16 +310,7 @@ internal fun UnifiedReader(
             )
         }
 
-        if (!controlsVisible && preferences.showPageNumber) {
-            Text(
-                "${currentPage + 1} / ${pages.size}",
-                modifier = Modifier.align(Alignment.BottomCenter)
-                    .padding(bottom = if (thumbnailsVisible) 120.dp else 0.dp)
-                    .background(Color.Black.copy(alpha = 0.65f))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                color = Color.White,
-            )
-        }
+
     }
 
     if (settingsVisible) {
@@ -343,34 +343,57 @@ internal fun UnifiedReader(
 @Composable
 private fun ReaderTopBar(
     title: String,
+    pageNumber: String?,
+    isSeries: Boolean,
+    previousBookTitle: String?,
+    nextBookTitle: String?,
+    onPrevious: (() -> Unit)?,
+    onNext: (() -> Unit)?,
     favorite: Boolean?,
     onBack: () -> Unit,
     onToggleFavorite: (() -> Unit)?,
     onSettings: () -> Unit,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
-    Row(
-        modifier = Modifier.fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-            .background(Color.Black.copy(alpha = 0.84f))
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextButton(onClick = onBack) { Text("‹", color = Color.White) }
-        Text(
-            title,
-            modifier = Modifier.weight(1f),
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (favorite != null && onToggleFavorite != null) {
-            TextButton(onClick = onToggleFavorite) {
-                Text(if (favorite) "♥" else "♡", color = Color.White)
+    Column(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.84f))) {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = onBack) { Text("‹", color = Color.White) }
+            Text(title, modifier = Modifier.weight(1f), color = Color.White,
+                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (favorite != null && onToggleFavorite != null) {
+                TextButton(onClick = onToggleFavorite) { Text(if (favorite) "♥" else "♡", color = Color.White) }
+            }
+            TextButton(onClick = onSettings) { Text(strings[R.string.ui_settings], color = Color.White) }
+        }
+        if (isSeries || pageNumber != null) {
+            Row(
+                Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                if (isSeries) {
+                    TextButton(
+                        onClick = { onPrevious?.invoke() },
+                        enabled = previousBookTitle != null && onPrevious != null,
+                        modifier = Modifier.weight(1f).testTag("reader-previous-episode"),
+                    ) { Text("‹ ${strings[R.string.ui_previous_chapter]}", color = if (previousBookTitle != null) Color.White else Color.Gray) }
+                } else androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                if (pageNumber != null) Text(pageNumber, color = Color.White,
+                    modifier = Modifier.testTag("reader-page-number").padding(vertical = 8.dp))
+                if (isSeries) {
+                    TextButton(
+                        onClick = { onNext?.invoke() },
+                        enabled = nextBookTitle != null && onNext != null,
+                        modifier = Modifier.weight(1f).testTag("reader-next-episode"),
+                    ) { Text("${strings[R.string.ui_next_chapter]} ›", color = if (nextBookTitle != null) Color.White else Color.Gray) }
+                } else androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             }
         }
-        TextButton(onClick = onSettings) { Text(strings[R.string.ui_settings], color = Color.White) }
     }
 }
 

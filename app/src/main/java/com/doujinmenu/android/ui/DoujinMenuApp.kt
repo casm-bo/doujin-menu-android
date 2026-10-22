@@ -392,6 +392,7 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                     if (book != null) viewModel.openLibraryBook(bookId)
                 }
                 val nextBook = book?.let { viewModel.nextLibrarySeriesBook(it.id) }
+                val previousBook = book?.let { viewModel.previousLibrarySeriesBook(it.id) }
                 val requestedPage = entry.arguments?.getInt("startPage") ?: -1
                 val session = remember(entry.id) { (viewModel.uiState.galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryReader)?.takeIf { it.bookId == bookId } }
                 val sessionKey = session?.key ?: entry.id
@@ -411,6 +412,9 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         viewModel.updateReaderSession(sessionKey, position.page, position.offset)
                         book?.let { viewModel.updateLibraryProgress(it.id, position.page) }
                     },
+                    isSeries = bookId in viewModel.uiState.customSeriesByBookId,
+                    previousBookTitle = previousBook?.title,
+                    onOpenPreviousBook = { previousBook?.let { viewModel.openNextLibraryReaderTab(it.id) } },
                     nextBookTitle = nextBook?.title,
                     onOpenNextBook = {
                         nextBook?.let {
@@ -473,6 +477,9 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                 val requestedPage = entry.arguments?.getInt("startPage") ?: -1
                 val session = remember(entry.id) { (viewModel.uiState.browserWorkspace.activeTab.currentPage as? BrowserPage.OnlineReader)?.takeIf { it.galleryId == galleryId } }
                 val sessionKey = session?.key ?: entry.id
+                val libraryBookId = viewModel.libraryBookIdForGallery(galleryId)
+                val previousBook = libraryBookId?.let(viewModel::previousLibrarySeriesBook)
+                val nextBook = libraryBookId?.let(viewModel::nextLibrarySeriesBook)
                 ReaderScreen(
                     sessionKey = sessionKey,
                     initialOffset = session?.position?.offset ?: 0,
@@ -487,6 +494,11 @@ fun DoujinMenuApp(viewModel: MainViewModel = viewModel()) {
                         viewModel.updateReaderSession(sessionKey, position.page, position.offset)
                         viewModel.updateOnlineReaderProgress(galleryId, position.page)
                     },
+                    isSeries = libraryBookId in viewModel.uiState.customSeriesByBookId,
+                    previousBookTitle = previousBook?.title,
+                    nextBookTitle = nextBook?.title,
+                    onOpenPreviousBook = { previousBook?.let { viewModel.openLibraryReaderTab(it.id, 0) } },
+                    onOpenNextBook = { nextBook?.let { viewModel.openLibraryReaderTab(it.id, 0) } },
                     onPreferencesChange = viewModel::updateViewerPreferences,
                     onReadingModeResolved = { viewModel.classifyGallery(galleryId, it) },
                 )

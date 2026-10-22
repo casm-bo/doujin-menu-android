@@ -44,6 +44,11 @@ fun ReaderScreen(
     onBack: () -> Unit,
     onProgress: (ReaderPosition) -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
+    isSeries: Boolean = false,
+    previousBookTitle: String? = null,
+    nextBookTitle: String? = null,
+    onOpenPreviousBook: (() -> Unit)? = null,
+    onOpenNextBook: (() -> Unit)? = null,
     onReadingModeResolved: (com.doujinmenu.android.model.ViewerReadingMode) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
@@ -96,6 +101,11 @@ fun ReaderScreen(
                     onBack = onBack,
                     onProgress = onProgress,
                     onPreferencesChange = onPreferencesChange,
+                    isSeries = isSeries,
+                    previousBookTitle = previousBookTitle,
+                    nextBookTitle = nextBookTitle,
+                    onOpenPreviousBook = onOpenPreviousBook,
+                    onOpenNextBook = onOpenNextBook,
                     onReadingModeResolved = onReadingModeResolved,
                 )
             }

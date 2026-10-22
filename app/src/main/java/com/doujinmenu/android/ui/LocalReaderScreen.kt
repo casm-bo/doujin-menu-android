@@ -38,6 +38,9 @@ fun LocalReaderScreen(
     nextBookTitle: String?,
     onOpenNextBook: () -> Unit,
     onPreferencesChange: (ViewerPreferences) -> Unit,
+    isSeries: Boolean = false,
+    previousBookTitle: String? = null,
+    onOpenPreviousBook: (() -> Unit)? = null,
     onReadingModeResolved: (com.doujinmenu.android.model.ViewerReadingMode) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
@@ -85,6 +88,9 @@ fun LocalReaderScreen(
         onReadingModeResolved = onReadingModeResolved,
         favorite = favorite,
         onToggleFavorite = onToggleFavorite,
+        isSeries = isSeries,
+        previousBookTitle = previousBookTitle,
+        onOpenPreviousBook = onOpenPreviousBook,
         nextBookTitle = nextBookTitle,
         onOpenNextBook = onOpenNextBook,
     )
