@@ -142,9 +142,8 @@ class LibraryScanner(
     }
 
     private fun cacheArchiveCover(entry: DocumentEntry, imageName: String, zip: ZipInputStream): String {
-        val extension = imageName.substringAfterLast('.', "jpg").take(5)
         val directory = File(context.cacheDir, "library-covers").apply(File::mkdirs)
-        val file = File(directory, "${archiveFingerprint(entry.uri.toString(), entry.modifiedAt, entry.size)}.$extension")
+        val file = archiveCacheFile(directory, archiveFingerprint(entry.uri.toString(), entry.modifiedAt, entry.size), imageName)
         if (entry.modifiedAt <= 0 || entry.size <= 0 || !file.isFile || file.length() == 0L) {
             val temporary = File(directory, "${file.name}.tmp")
             try {
