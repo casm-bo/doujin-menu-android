@@ -180,6 +180,7 @@ data class MainUiState(
     val newTabReturns: Map<String, NewTabReturn> = emptyMap(),
     val searchQuery: String = "",
     val searchTagFilters: Set<com.doujinmenu.android.model.SearchTagFilter> = emptySet(),
+    val customBlockedTags: Set<String> = emptySet(),
     val favoriteName: String = "",
     val searchFavorites: List<SearchFavorite> = emptyList(),
     val searchQueryHistory: List<SearchQueryEntry> = emptyList(),
@@ -372,6 +373,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             libraryQueryHistory = browserPreferenceStore.loadSearchQueryHistory("library_query_history"),
             searchQuery = activeSearch?.query.orEmpty(),
             searchTagFilters = browserPreferenceStore.loadSearchTagFilters(),
+            customBlockedTags = browserPreferenceStore.loadCustomBlockedTags(),
             submittedSearchQuery = activeSearch?.submittedQuery.orEmpty(),
             submittedSearchQueries = activeSearch?.submittedQueries.orEmpty(),
             currentPage = activeSearch?.currentPage ?: 0,
@@ -674,10 +676,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleSearchTagFilter(value: com.doujinmenu.android.model.SearchTagFilter) {
         val filters = uiState.searchTagFilters.let { if (value in it) it - value else it + value }
         browserPreferenceStore.saveSearchTagFilters(filters)
+        uiState = uiState.copy(searchTagFilters = filters)
+        restartFilteredSearch()
+    }
+
+    fun setCustomBlockedTags(tags: Set<String>) {
+        val normalized=com.doujinmenu.android.model.parseBlockedSearchTags(tags.joinToString(" "))
+        browserPreferenceStore.saveCustomBlockedTags(normalized)
+        uiState=uiState.copy(customBlockedTags=normalized)
+        restartFilteredSearch()
+    }
+
+    private fun restartFilteredSearch() {
         val workspace = uiState.browserWorkspace.updateActiveSearch {
             it.copy(query = uiState.searchQuery, preferredLanguages = uiState.preferredLanguages)
         }.invalidateSearchResults()
-        uiState = uiState.copy(searchTagFilters = filters)
         applyBrowserWorkspace(workspace)
         startBrowserSearch(reset = true)
     }
@@ -2894,7 +2907,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun filteredSearchQueries(query: String, languages: Set<String>): List<String> =
-        queriesWithPreferredLanguages(query, languages).map { com.doujinmenu.android.model.applySearchTagFilters(it, uiState.searchTagFilters) }
+        queriesWithPreferredLanguages(query, languages).map { com.doujinmenu.android.model.applySearchTagFilters(it, uiState.searchTagFilters, uiState.customBlockedTags) }
 
     private fun openSearchTab(query: String, preferredLanguages: Set<String>) {
         browserSearchJob?.cancel()

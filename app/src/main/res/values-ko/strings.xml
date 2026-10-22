@@ -575,4 +575,7 @@
     <string name="sub_auto_sync">자동 PC 동기화</string>
     <string name="sub_sync_interval">PC 동기화 주기</string>
     <string name="sub_sync_hint">오프라인 변경은 휴대폰에 보관합니다. 실패 시 다음 주기에 재시도하며, 지원하지 않는 PC 버전은 하루 뒤 다시 확인합니다.</string>
+    <string name="search_custom_blocked_tags">사용자 지정 차단 태그</string>
+    <string name="search_add_blocked_tags">차단 태그 추가</string>
+    <string name="search_custom_tag_error">tag:, female:, male: 형식의 태그를 최대 50개 입력하세요.</string>
 </resources>

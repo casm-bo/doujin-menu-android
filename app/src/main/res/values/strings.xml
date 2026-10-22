@@ -575,4 +575,7 @@
     <string name="sub_auto_sync">Automatic PC synchronization</string>
     <string name="sub_sync_interval">PC synchronization interval</string>
     <string name="sub_sync_hint">Offline changes stay on this phone. Failed attempts wait for the next interval; unsupported PC versions retry daily.</string>
+    <string name="search_custom_blocked_tags">Custom blocked tags</string>
+    <string name="search_add_blocked_tags">Add blocked tags</string>
+    <string name="search_custom_tag_error">Enter tag:, female:, or male: tags (up to 50).</string>
 </resources>

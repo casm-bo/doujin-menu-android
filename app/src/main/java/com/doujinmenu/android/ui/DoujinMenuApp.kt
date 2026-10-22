@@ -853,6 +853,7 @@ private fun MainTabContent(
                 onOpenSubscriptions = { viewModel.openSubscriptions() },
                 onSubscribeCurrent = viewModel::subscribeCurrentSearch,
                 onToggleTagFilter = viewModel::toggleSearchTagFilter,
+                onCustomBlockedTags = viewModel::setCustomBlockedTags,
                 onRecentSearch = viewModel::repeatSearch,
                 onClearSearchHistory = viewModel::clearSearchQueryHistory,
                 onToggleLanguage = viewModel::togglePreferredLanguage,

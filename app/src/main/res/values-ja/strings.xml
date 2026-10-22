@@ -575,4 +575,7 @@
     <string name="sub_auto_sync">PCと自動同期</string>
     <string name="sub_sync_interval">PCの同期間隔</string>
     <string name="sub_sync_hint">オフラインの変更は端末に保存されます。失敗時は次の間隔で再試行し、未対応のPCバージョンは翌日に再確認します。</string>
+    <string name="search_custom_blocked_tags">カスタムブロックタグ</string>
+    <string name="search_add_blocked_tags">ブロックタグを追加</string>
+    <string name="search_custom_tag_error">tag:、female:、male: 形式で最大50個のタグを入力してください。</string>
 </resources>

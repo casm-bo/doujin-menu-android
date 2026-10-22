@@ -152,6 +152,7 @@ fun BrowserScreen(
     onOpenSubscriptions: () -> Unit = {},
     onSubscribeCurrent: () -> Unit = {},
     onToggleTagFilter: (com.doujinmenu.android.model.SearchTagFilter) -> Unit = {},
+    onCustomBlockedTags: (Set<String>) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -320,7 +321,7 @@ fun BrowserScreen(
                     ?: code.replace('_', ' ') } ?: strings[R.string.ui_language])
             }
             OutlinedButton(onClick = { togglePanel("tag-filters") }, contentPadding = PaddingValues(horizontal = 10.dp),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (state.searchTagFilters.isNotEmpty() || editing && expandedPanel == "tag-filters") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (state.searchTagFilters.isNotEmpty() || state.customBlockedTags.isNotEmpty() || editing && expandedPanel == "tag-filters") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
                 ActionIcon(ActionSymbol.FILTER); Spacer(Modifier.width(4.dp)); Text(strings[R.string.search_tag_filters])
             }
             Spacer(Modifier.weight(1f))
@@ -341,19 +342,9 @@ fun BrowserScreen(
                     }, onClearSearchHistory)
                 }
                 if (expandedPanel == "tag-filters") {
-                    Text(strings[R.string.search_tag_filter_hint], style = MaterialTheme.typography.bodySmall)
-                    com.doujinmenu.android.model.SearchTagFilter.entries.forEach { filter ->
-                        Row(Modifier.fillMaxWidth().toggleable(filter in state.searchTagFilters, role = Role.Switch,
-                            onValueChange = { onToggleTagFilter(filter) }), verticalAlignment = Alignment.CenterVertically) {
-                            Text(strings[when(filter) {
-                                com.doujinmenu.android.model.SearchTagFilter.BL -> R.string.search_block_bl
-                                com.doujinmenu.android.model.SearchTagFilter.GORE -> R.string.search_block_gore
-                                com.doujinmenu.android.model.SearchTagFilter.LOLI -> R.string.search_block_loli
-                            }], Modifier.weight(1f))
-                            Switch(filter in state.searchTagFilters, null)
-                        }
-                    }
+                    SearchTagFilters(state.searchTagFilters,state.customBlockedTags,onToggleTagFilter,onCustomBlockedTags)
                 }
+
                 if (expandedPanel == null && (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions)) {
                     state.filterSuggestions.forEach { suggestion ->
                         TextButton(onClick = { onSelectSuggestion(suggestion) }) { Text(suggestion.token) }

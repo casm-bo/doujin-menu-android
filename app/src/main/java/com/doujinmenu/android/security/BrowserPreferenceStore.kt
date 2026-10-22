@@ -22,6 +22,11 @@ class BrowserPreferenceStore(context: Context) {
         com.doujinmenu.android.model.SearchTagFilter.entries.filter { it.name in preferences.getStringSet("search_tag_filters", emptySet()).orEmpty() }.toSet()
     fun saveSearchTagFilters(value: Set<com.doujinmenu.android.model.SearchTagFilter>) =
         preferences.edit().putStringSet("search_tag_filters", value.map { it.name }.toSet()).apply()
+    fun loadCustomBlockedTags(): Set<String> = runCatching {
+        com.doujinmenu.android.model.parseBlockedSearchTags(preferences.getStringSet("custom_blocked_tags",emptySet()).orEmpty().joinToString(" "))
+    }.getOrDefault(emptySet())
+    fun saveCustomBlockedTags(value: Set<String>) = preferences.edit().putStringSet("custom_blocked_tags",
+        com.doujinmenu.android.model.parseBlockedSearchTags(value.joinToString(" "))).apply()
 
     fun loadDownloadDestination(): com.doujinmenu.android.model.DownloadDestination = runCatching {
         com.doujinmenu.android.model.DownloadDestination.valueOf(preferences.getString("download_destination", null).orEmpty())
