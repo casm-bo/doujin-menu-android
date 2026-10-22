@@ -162,8 +162,12 @@ internal fun SubscriptionSettings(options:SubscriptionOptions,onChange:(Subscrip
         Text(strings[R.string.sub_interval],style=MaterialTheme.typography.titleMedium)
         @OptIn(ExperimentalLayoutApi::class)
         FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            SubscriptionPreferences.intervals.forEach { minutes -> FilterChip(options.intervalMinutes==minutes,{onChange(options.copy(intervalMinutes=minutes))},label={Text(strings[R.string.sub_minutes,minutes])},modifier=Modifier.testTag("subscription-check-interval-$minutes")) }
+            (SubscriptionPreferences.checkIntervals + options.intervalMinutes).distinct().sorted().forEach { minutes ->
+                FilterChip(options.intervalMinutes==minutes,{onChange(options.copy(intervalMinutes=minutes))},
+                    label={Text(subscriptionIntervalLabel(strings,minutes))},modifier=Modifier.testTag("subscription-check-interval-$minutes"))
+            }
         }
+        Text(strings[R.string.sub_short_interval_hint],style=MaterialTheme.typography.bodySmall)
         Row(verticalAlignment=Alignment.CenterVertically) { Text(strings[R.string.sub_system],Modifier.weight(1f)); Switch(options.notifications,{
             onChange(options.copy(notifications=it))
             if(it && Build.VERSION.SDK_INT>=33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -193,7 +197,13 @@ internal fun SubscriptionSyncSettings(options:SubscriptionOptions,onChange:(Subs
         @OptIn(ExperimentalLayoutApi::class)
         FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             SubscriptionPreferences.intervals.forEach { minutes -> FilterChip(options.syncIntervalMinutes==minutes,
-                {onChange(options.copy(syncIntervalMinutes=minutes))},label={Text(strings[R.string.sub_minutes,minutes])},modifier=Modifier.testTag("subscription-sync-interval-$minutes")) }
+                {onChange(options.copy(syncIntervalMinutes=minutes))},label={Text(subscriptionIntervalLabel(strings,minutes))},modifier=Modifier.testTag("subscription-sync-interval-$minutes")) }
         }
     }
+}
+
+internal fun subscriptionIntervalLabel(strings:android.content.res.Resources,minutes:Int):String = when {
+    minutes==1440 -> strings[R.string.sub_day]
+    minutes>=60 && minutes%60==0 -> strings[R.string.sub_hours,minutes/60]
+    else -> strings[R.string.sub_minutes,minutes]
 }

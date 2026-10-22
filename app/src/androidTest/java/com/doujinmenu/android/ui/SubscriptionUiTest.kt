@@ -40,9 +40,15 @@ class SubscriptionUiTest {
         compose.setContent { var state by remember { mutableStateOf(options) }; MaterialTheme { SubscriptionSettings(state,{state=it;options=it},{}) } }
         compose.onNodeWithTag("subscription-hide-locked").assertIsOn().performClick().assertIsOff()
         compose.runOnIdle { assertFalse(options.hideWhenLocked) }
-        val minutes=InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.sub_minutes,180)
-        compose.onNodeWithTag("subscription-check-interval-180").performClick()
-        compose.runOnIdle { assertEquals(180,options.intervalMinutes) }
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        compose.onNodeWithTag("subscription-check-interval-60").assertTextContains(context.getString(R.string.sub_hours,1))
+        compose.onNodeWithTag("subscription-check-interval-1440").assertTextContains(text(R.string.sub_day))
+        compose.onNodeWithTag("subscription-check-interval-5").performClick()
+        compose.runOnIdle { assertEquals(5,options.intervalMinutes) }
+        compose.onNodeWithTag("subscription-check-interval-10").performClick()
+        compose.runOnIdle { assertEquals(10,options.intervalMinutes) }
+        compose.onNodeWithTag("subscription-check-interval-360").performClick()
+        compose.runOnIdle { assertEquals(360,options.intervalMinutes) }
     }
     @Test fun subscriptionEditorUsesLanguagePickerAndTagSuggestions() {
         var saved:SearchSubscription?=null

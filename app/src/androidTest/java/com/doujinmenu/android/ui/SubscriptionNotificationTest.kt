@@ -114,6 +114,13 @@ class SubscriptionNotificationTest {
             val id=work().id
             assertEquals(60*60_000L,work().periodicityInfo!!.repeatIntervalMillis)
             assertEquals(androidx.work.NetworkType.CONNECTED,work().constraints.requiredNetworkType)
+            for(minutes in listOf(5,10)) {
+                options.save(previous.copy(intervalMinutes=minutes))
+                SubscriptionWorker.schedule(context).result.get(10,java.util.concurrent.TimeUnit.SECONDS)
+                assertEquals(minutes,SubscriptionPreferences(context).load().intervalMinutes)
+                assertEquals(id,work().id)
+                assertEquals(15*60_000L,work().periodicityInfo!!.repeatIntervalMillis)
+            }
             options.save(previous.copy(intervalMinutes=180))
             SubscriptionWorker.schedule(context).result.get(10,java.util.concurrent.TimeUnit.SECONDS)
             assertEquals(id,work().id)

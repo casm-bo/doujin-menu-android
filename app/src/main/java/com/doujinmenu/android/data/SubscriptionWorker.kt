@@ -60,7 +60,7 @@ class SubscriptionWorker(context:Context,parameters:WorkerParameters):CoroutineW
                 return manager.cancelUniqueWork(WORK_NAME)
             }
             val minutes=if(options.syncEnabled && profiles.isNotEmpty()) minOf(options.intervalMinutes,options.syncIntervalMinutes) else options.intervalMinutes
-            val request=PeriodicWorkRequestBuilder<SubscriptionWorker>(minutes.toLong(),TimeUnit.MINUTES)
+            val request=PeriodicWorkRequestBuilder<SubscriptionWorker>(minutes.coerceAtLeast(15).toLong(),TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
             return manager.enqueueUniquePeriodicWork(WORK_NAME,ExistingPeriodicWorkPolicy.UPDATE,request)
         }

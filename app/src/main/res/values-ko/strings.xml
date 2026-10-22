@@ -578,4 +578,7 @@
     <string name="search_custom_blocked_tags">사용자 지정 차단 태그</string>
     <string name="search_add_blocked_tags">차단 태그 추가</string>
     <string name="search_custom_tag_error">tag:, female:, male: 형식의 태그를 최대 50개 입력하세요.</string>
+    <string name="sub_hours">%1$d시간</string>
+    <string name="sub_day">하루</string>
+    <string name="sub_short_interval_hint">5·10분 주기는 앱 사용 중에 적용됩니다. 백그라운드에서는 최소 15분 간격이며 Android 절전 정책에 따라 늦어질 수 있습니다.</string>
 </resources>

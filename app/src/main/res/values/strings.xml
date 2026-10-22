@@ -578,4 +578,7 @@
     <string name="search_custom_blocked_tags">Custom blocked tags</string>
     <string name="search_add_blocked_tags">Add blocked tags</string>
     <string name="search_custom_tag_error">Enter tag:, female:, or male: tags (up to 50).</string>
+    <string name="sub_hours">%1$d hr</string>
+    <string name="sub_day">1 day</string>
+    <string name="sub_short_interval_hint">5- and 10-minute checks run while the app is open. Background checks run at least 15 minutes apart and may be delayed by Android.</string>
 </resources>
