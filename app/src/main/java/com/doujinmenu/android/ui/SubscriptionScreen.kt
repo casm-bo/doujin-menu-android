@@ -18,6 +18,15 @@ import com.doujinmenu.android.R
 import com.doujinmenu.android.model.SearchSubscription
 import com.doujinmenu.android.security.SubscriptionOptions
 import com.doujinmenu.android.security.SubscriptionPreferences
+import android.Manifest
+import android.os.Build
+import android.app.NotificationManager
+import android.content.Intent
+import android.provider.Settings
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import java.text.DateFormat
 import java.util.Date
 
@@ -26,6 +35,13 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
     onRefresh: () -> Unit, onRead: (Long?) -> Unit, onEdit: (SearchSubscription?) -> Unit,
     onSave: (SearchSubscription) -> Unit, onResolve: (String,Boolean) -> Unit, onSearch: (SearchSubscription) -> Unit) {
     val strings=androidx.compose.ui.platform.LocalResources.current
+    val context=LocalContext.current
+    val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val save:(SearchSubscription)->Unit = { value ->
+        if(runCatching { value.validate() }.isSuccess && value.enabled && state.subscriptionOptions.notifications && Build.VERSION.SDK_INT>=33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
+            permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        onSave(value)
+    }
     var deleting by remember { mutableStateOf<SearchSubscription?>(null) }
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal=16.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
@@ -62,7 +78,7 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
                     if(value.languages.isNotEmpty()) Text(value.languages.sorted().joinToString(", "),style=MaterialTheme.typography.bodySmall)
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Text(strings[R.string.sub_monitor],Modifier.weight(1f))
-                        Switch(value.enabled,{onSave(value.copy(enabled=it))},enabled=record.conflict==null,modifier=Modifier.testTag("subscription-monitor"))
+                        Switch(value.enabled,{save(value.copy(enabled=it))},enabled=record.conflict==null,modifier=Modifier.testTag("subscription-monitor"))
                     }
                     Text(if(record.checkedAt==0L) strings[R.string.sub_never] else strings[R.string.sub_checked,DateFormat.getDateTimeInstance().format(Date(record.checkedAt))],style=MaterialTheme.typography.bodySmall)
                     record.error?.let { Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall) }
@@ -82,7 +98,7 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
             }
         }
     }
-    state.subscriptionEditor?.let { value -> SubscriptionEditor(value,state.subscriptionError,{onEdit(null)},onSave) }
+    state.subscriptionEditor?.let { value -> SubscriptionEditor(value,state.subscriptionError,{onEdit(null)},save) }
     deleting?.let { value -> AlertDialog(onDismissRequest={deleting=null},title={Text(strings[R.string.ui_delete])},text={Text(value.name)},
         confirmButton={TextButton({onSave(value.copy(deleted=true));deleting=null}) { Text(strings[R.string.ui_delete]) }},
         dismissButton={TextButton({deleting=null}) { Text(strings[R.string.ui_cancel]) }}) }
@@ -117,13 +133,24 @@ private fun SubscriptionEditor(value:SearchSubscription,externalError:String?,on
 @Composable
 internal fun SubscriptionSettings(options:SubscriptionOptions,onChange:(SubscriptionOptions)->Unit,onManage:()->Unit) {
     val strings=androidx.compose.ui.platform.LocalResources.current
+    val context=LocalContext.current
+    var allowed by remember { mutableStateOf(context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) }
+    val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed=context.getSystemService(NotificationManager::class.java).areNotificationsEnabled() }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { allowed=context.getSystemService(NotificationManager::class.java).areNotificationsEnabled() }
     Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
         Text(strings[R.string.sub_interval],style=MaterialTheme.typography.titleMedium)
         @OptIn(ExperimentalLayoutApi::class)
         FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             SubscriptionPreferences.intervals.forEach { minutes -> FilterChip(options.intervalMinutes==minutes,{onChange(options.copy(intervalMinutes=minutes))},label={Text(strings[R.string.sub_minutes,minutes])}) }
         }
-        Row(verticalAlignment=Alignment.CenterVertically) { Text(strings[R.string.sub_system],Modifier.weight(1f)); Switch(options.notifications,{onChange(options.copy(notifications=it))}) }
+        Row(verticalAlignment=Alignment.CenterVertically) { Text(strings[R.string.sub_system],Modifier.weight(1f)); Switch(options.notifications,{
+            onChange(options.copy(notifications=it))
+            if(it && Build.VERSION.SDK_INT>=33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }) }
+        if(options.notifications && !allowed) {
+            Text(strings[R.string.sub_permission],style=MaterialTheme.typography.bodySmall)
+            TextButton({context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,context.packageName))}) { Text(strings[R.string.ui_settings]) }
+        }
         Row(verticalAlignment=Alignment.CenterVertically) { Text(strings[R.string.sub_hide_locked],Modifier.weight(1f)); Switch(options.hideWhenLocked,{onChange(options.copy(hideWhenLocked=it))},modifier=Modifier.testTag("subscription-hide-locked")) }
         Text(strings[if(options.hideWhenLocked) R.string.sub_hide_hint else R.string.sub_expose_hint],style=MaterialTheme.typography.bodySmall)
         OutlinedButton(onManage) { Text(strings[R.string.sub_title]) }

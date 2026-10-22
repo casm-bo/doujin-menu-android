@@ -16,16 +16,16 @@ data class SubscriptionRecord(val value: SearchSubscription, val mutationId: Str
 data class SubscriptionNotice(val galleryId: Long, val title: String, val artist: String, val thumbnail: String?,
     val read: Boolean, val subscriptions: List<String>)
 
-class SubscriptionStore internal constructor(context: Context, databaseName: String? = "subscriptions.db") : SQLiteOpenHelper(context, databaseName, null, 1) {
+class SubscriptionStore internal constructor(context: Context, databaseName: String? = "subscriptions.db") : SQLiteOpenHelper(context, databaseName, null, 2) {
     val changes = kotlinx.coroutines.flow.MutableStateFlow(0L)
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE subscriptions(scope TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,mutation TEXT,conflict TEXT,baseline INTEGER,checked INTEGER NOT NULL DEFAULT 0,error TEXT,PRIMARY KEY(scope,id))")
-        db.execSQL("CREATE TABLE notices(scope TEXT NOT NULL,gallery INTEGER NOT NULL,title TEXT NOT NULL,artist TEXT NOT NULL,thumbnail TEXT,PRIMARY KEY(scope,gallery))")
+        db.execSQL("CREATE TABLE notices(scope TEXT NOT NULL,gallery INTEGER NOT NULL,title TEXT NOT NULL,artist TEXT NOT NULL,thumbnail TEXT,details TEXT,PRIMARY KEY(scope,gallery))")
         db.execSQL("CREATE TABLE matches(scope TEXT NOT NULL,gallery INTEGER NOT NULL,subscription TEXT NOT NULL,PRIMARY KEY(scope,gallery,subscription))")
         db.execSQL("CREATE TABLE reads(scope TEXT NOT NULL,gallery INTEGER NOT NULL,dirty INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(scope,gallery))")
         db.execSQL("CREATE TABLE state(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { if(oldVersion<2) db.execSQL("ALTER TABLE notices ADD COLUMN details TEXT") }
     @Synchronized fun records(scope: String): List<SubscriptionRecord> = readableDatabase.rawQuery(
         "SELECT payload,mutation,conflict,baseline,checked,error FROM subscriptions WHERE scope=? ORDER BY rowid", arrayOf(scope)).use { c -> buildList {
         while (c.moveToNext()) add(SubscriptionRecord(SearchSubscription.fromJson(JSONObject(c.getString(0))), c.getString(1),
@@ -64,7 +64,7 @@ class SubscriptionStore internal constructor(context: Context, databaseName: Str
             writableDatabase.execSQL("INSERT OR IGNORE INTO matches SELECT ?,gallery,? FROM matches WHERE scope='' AND subscription=?",arrayOf(scope,destination?.value?.id ?: record.value.id,record.value.id))
             writableDatabase.delete("subscriptions", "scope='' AND id=?", arrayOf(record.value.id))
         }
-        writableDatabase.execSQL("INSERT OR IGNORE INTO notices SELECT ?,gallery,title,artist,thumbnail FROM notices WHERE scope=''",arrayOf(scope))
+        writableDatabase.execSQL("INSERT OR IGNORE INTO notices SELECT ?,gallery,title,artist,thumbnail,details FROM notices WHERE scope=''",arrayOf(scope))
         writableDatabase.execSQL("INSERT OR IGNORE INTO reads SELECT ?,gallery,1 FROM reads WHERE scope=''",arrayOf(scope))
         for(table in listOf("notices","reads","matches")) writableDatabase.delete(table,"scope=''",null)
     }
@@ -74,7 +74,7 @@ class SubscriptionStore internal constructor(context: Context, databaseName: Str
         val newIds = subscriptionNewIds(ids, current.baseline).toSet()
         require(galleries.map { it.id }.toSet().containsAll(newIds))
         galleries.filter { it.id in newIds }.forEach { gallery ->
-            val values = ContentValues().apply { put("scope", scope); put("gallery", gallery.id); put("title", gallery.title); put("artist", gallery.artists.joinToString(", ")); put("thumbnail", gallery.thumbnailUrl) }
+            val values = ContentValues().apply { put("scope", scope); put("gallery", gallery.id); put("title", gallery.title); put("artist", gallery.artists.joinToString(", ")); put("thumbnail", gallery.thumbnailUrl);put("details",gallery.json().toString()) }
             writableDatabase.insertWithOnConflict("notices", null, values, SQLiteDatabase.CONFLICT_IGNORE)
             writableDatabase.execSQL("INSERT OR IGNORE INTO matches VALUES(?,?,?)", arrayOf<Any>(scope, gallery.id, expected.id))
         }
@@ -98,6 +98,10 @@ class SubscriptionStore internal constructor(context: Context, databaseName: Str
         require(id > 0)
         writableDatabase.execSQL("INSERT OR IGNORE INTO reads VALUES(?,?,?)", arrayOf<Any>(scope,id,if(dirty) 1 else 0))
         changes.value++
+    }
+    @Synchronized fun gallery(scope:String,id:Long):GallerySummary? = readableDatabase.rawQuery("SELECT details,title,artist,thumbnail FROM notices WHERE scope=? AND gallery=?",arrayOf(scope,id.toString())).use { c ->
+        if(!c.moveToFirst()) null else if(!c.isNull(0)) JSONObject(c.getString(0)).gallery()
+        else GallerySummary(id,c.getString(1),listOf(c.getString(2)),emptyList(),null,emptyList(),c.getString(3),0,null)
     }
     @Synchronized fun pendingReads(scope: String): List<Long> = readableDatabase.rawQuery("SELECT gallery FROM reads WHERE scope=? AND dirty=1 LIMIT 200", arrayOf(scope)).use { c -> buildList { while(c.moveToNext()) add(c.getLong(0)) } }
     @Synchronized fun acknowledgeReads(scope: String, ids: List<Long>) = transaction {
@@ -124,11 +128,17 @@ class SubscriptionStore internal constructor(context: Context, databaseName: Str
     @Synchronized fun resolve(scope: String, id: String, keepPhone: Boolean) = transaction {
         val old = records(scope).find { it.value.id == id } ?: return@transaction
         val remote = old.conflict ?: return@transaction
-        if(remote.id != id) writableDatabase.delete("subscriptions", "scope=? AND id=?", arrayOf(scope,id))
-        put(scope, if(keepPhone) old.value.copy(id=remote.id,version=remote.version) else remote, if(keepPhone) UUID.randomUUID().toString() else null)
+        if(remote.id != id) {
+            writableDatabase.execSQL("INSERT OR IGNORE INTO matches SELECT scope,gallery,? FROM matches WHERE scope=? AND subscription=?",arrayOf(remote.id,scope,id))
+            writableDatabase.delete("matches","scope=? AND subscription=?",arrayOf(scope,id))
+            writableDatabase.delete("subscriptions", "scope=? AND id=?", arrayOf(scope,id))
+        }
+        val selected=if(keepPhone) old.value.copy(id=remote.id,version=remote.version) else remote
+        put(scope,selected,if(keepPhone) UUID.randomUUID().toString() else null)
+        if(selected.conditionKey != old.value.conditionKey) writableDatabase.execSQL("UPDATE subscriptions SET baseline=NULL,checked=0 WHERE scope=? AND id=?",arrayOf(scope,selected.id))
     }
     @Synchronized fun state(key: String): String? = readableDatabase.rawQuery("SELECT value FROM state WHERE key=?", arrayOf(key)).use { if(it.moveToFirst()) it.getString(0) else null }
-    @Synchronized fun setState(key: String, value: String) { writableDatabase.execSQL("INSERT OR REPLACE INTO state VALUES(?,?)", arrayOf(key,value)); changes.value++ }
+    @Synchronized fun setState(key: String, value: String) { writableDatabase.execSQL("INSERT OR REPLACE INTO state VALUES(?,?)", arrayOf(key,value)) }
     private fun <T> transaction(block: () -> T): T {
         val db = writableDatabase
         db.beginTransaction()

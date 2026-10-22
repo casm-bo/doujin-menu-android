@@ -561,4 +561,5 @@
     <string name="sub_deleted">삭제됨</string>
     <string name="sub_monitor_on">신작 확인 중</string>
     <string name="sub_monitor_off">신작 확인 일시정지</string>
+    <string name="sub_update_pc">PC 앱을 구독 동기화를 지원하는 버전으로 업데이트하세요.</string>
 </resources>

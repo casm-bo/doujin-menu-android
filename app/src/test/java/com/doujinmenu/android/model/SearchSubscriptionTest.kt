@@ -22,4 +22,10 @@ class SearchSubscriptionTest {
         assertEquals(value,SearchSubscription.fromJson(value.json()))
         assertEquals(value.conditionKey,value.copy(query="-language:english artist:example").conditionKey)
     }
+    @Test fun legacyShortcutsKeepLongConditionsAndInvalidImportedMonitoringIsRejectedBeforeLookup() {
+        val shortcut=SearchSubscription(name="Legacy",query="a".repeat(3000))
+        assertEquals(shortcut,SearchSubscription.fromJson(shortcut.json()))
+        val imported=SearchSubscription.fromJson(SearchSubscription(name="Legacy",query="artist:example title",enabled=true).json())
+        assertThrows(IllegalArgumentException::class.java) { imported.validate() }
+    }
 }

@@ -67,6 +67,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0")

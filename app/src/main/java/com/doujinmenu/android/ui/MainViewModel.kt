@@ -340,6 +340,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val subscriptionScope = profiles.firstOrNull()?.id.orEmpty()
         subscriptionStore.migrateFavorites(getApplication(),subscriptionScope)
         subscriptionStore.adoptLocal(subscriptionScope)
+        com.doujinmenu.android.data.SubscriptionWorker.schedule(getApplication())
         val savedLanguages = browserPreferenceStore.loadPreferredLanguages()
         val loadedWorkspace = browserPreferenceStore.loadBrowserWorkspace()
         val galleryWorkspace = browserPreferenceStore.loadGalleryWorkspace()
@@ -436,15 +437,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closeSubscriptions() { uiState=uiState.copy(showSubscriptions=false,subscriptionEditor=null) }
     fun editSubscription(value: com.doujinmenu.android.model.SearchSubscription?) { uiState=uiState.copy(subscriptionEditor=value,subscriptionError=null) }
     fun subscribeCurrentSearch() {
+        val query=com.doujinmenu.android.network.parseHitomiSearchOrder(normalizeSearchSeparators(uiState.searchQuery)).terms.joinToString(" ")
         openSubscriptions(1)
-        editSubscription(com.doujinmenu.android.model.SearchSubscription(name=uiState.favoriteName.trim().ifBlank { uiState.searchQuery.trim() },
-            query=uiState.searchQuery.trim(),languages=uiState.preferredLanguages,enabled=true))
+        editSubscription(com.doujinmenu.android.model.SearchSubscription(name=uiState.favoriteName.trim().ifBlank { query },
+            query=query,languages=uiState.preferredLanguages,enabled=true))
     }
     fun saveSubscription(value: com.doujinmenu.android.model.SearchSubscription) {
         val scope=uiState.selectedProfileId.orEmpty()
         viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) { subscriptionStore.save(scope,value) }
+                withContext(Dispatchers.IO) { subscriptionStore.save(scope,value);com.doujinmenu.android.data.SubscriptionWorker.schedule(getApplication()) }
                 if(scope == uiState.selectedProfileId.orEmpty()) uiState=uiState.copy(subscriptionEditor=null,favoriteName="",subscriptionError=null)
                 refreshSubscriptions()
             } catch(error: Exception) {
@@ -465,13 +467,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         subscriptionJob=viewModelScope.launch {
             var syncError:String?=null
             try {
-                withContext(Dispatchers.IO) {
-                    subscriptionStore.adoptLocal(scope)
-                    if(profile != null) try { com.doujinmenu.android.data.SubscriptionSync(subscriptionStore,client).sync(profile) }
-                    catch(error: CancellationException) { throw error }
-                    catch(error: Exception) { syncError=error.message }
-                    com.doujinmenu.android.data.SubscriptionChecker(subscriptionStore).check(scope,uiState.subscriptionOptions.intervalMinutes*60_000L,force)
-                }
+                syncError=com.doujinmenu.android.data.SubscriptionRefresh.run(getApplication(),profile,force)
+            } catch(error:CancellationException) { throw error }
+            catch(error:Exception) { syncError=error.message ?: strings[R.string.sub_sync_offline]
             } finally {
                 if(scope == uiState.selectedProfileId.orEmpty()) uiState=uiState.copy(subscriptionsBusy=false,subscriptionError=syncError)
                 reloadSubscriptions()
@@ -480,22 +478,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun setSubscriptionOptions(options: com.doujinmenu.android.security.SubscriptionOptions) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { subscriptionPreferences.save(options) }
+            withContext(Dispatchers.IO) {
+                subscriptionPreferences.save(options)
+                com.doujinmenu.android.data.SubscriptionWorker.schedule(getApplication())
+                com.doujinmenu.android.data.SubscriptionNotifications.refresh(getApplication())
+            }
             uiState=uiState.copy(subscriptionOptions=options)
         }
     }
     fun markSubscriptionRead(id:Long?=null) {
         val scope=uiState.selectedProfileId.orEmpty()
         viewModelScope.launch {
+            var gallery:GallerySummary?=null
             withContext(Dispatchers.IO) {
                 val ids=id?.let { listOf(it) } ?: subscriptionStore.notices(scope).filterNot { it.read }.map { it.galleryId }
                 ids.forEach { subscriptionStore.markRead(scope,it) }
+                gallery=id?.let { subscriptionStore.gallery(scope,it) }
+                com.doujinmenu.android.data.SubscriptionNotifications.refresh(getApplication())
             }
-            if(id != null && scope == uiState.selectedProfileId.orEmpty()) { closeSubscriptions(); selectGallery(id) }
+            if(id != null && scope == uiState.selectedProfileId.orEmpty()) {
+                closeSubscriptions()
+                gallery?.let { uiState=uiState.copy(galleryCache=cacheGalleries(uiState.galleryCache,listOf(it))) }
+                selectGallery(id)
+            }
             refreshSubscriptions()
         }
     }
 
+    fun openSubscriptionNotification(scope:String,galleryId:Long) {
+        if(galleryId==0L) { openSubscriptions();return }
+        if(galleryId<0 || (scope.isNotEmpty() && uiState.profiles.none { it.id==scope })) return
+        if(scope.isNotEmpty()) selectProfile(scope)
+        if(scope!=uiState.selectedProfileId.orEmpty()) return
+        viewModelScope.launch {
+            val exists=withContext(Dispatchers.IO) { subscriptionStore.notices(scope).any { it.galleryId==galleryId } }
+            if(exists && scope==uiState.selectedProfileId.orEmpty()) markSubscriptionRead(galleryId)
+        }
+    }
     fun setHost(value: String) = update { copy(host = value) }
 
     private fun coverUri(value: GalleryPresentation?): String? = value?.coverHash?.let { hash ->
@@ -814,6 +833,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState=uiState.copy(subscriptionsBusy=false)
         uiState = uiState.copy(subscriptions=emptyList(),subscriptionNotices=emptyList(),searchFavorites=emptyList(),subscriptionEditor=null)
         viewModelScope.launch { reloadSubscriptions() }
+        viewModelScope.launch { withContext(Dispatchers.IO) {
+            com.doujinmenu.android.data.SubscriptionWorker.schedule(getApplication())
+            com.doujinmenu.android.data.SubscriptionNotifications.refresh(getApplication())
+        } }
         libraryProfileGeneration++
         librarySuggestionIndex = null
         importantLibraryRefreshJob?.cancel()
@@ -1151,7 +1174,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun ensureGalleryLoaded(galleryId: Long) {
         val cached = uiState.galleryCache[galleryId] ?: uiState.galleries.firstOrNull { it.id == galleryId }
-        if (cached != null) { recordOnlineHistory(cached); return }
+        if (cached != null && cached.pageCount > 0) { recordOnlineHistory(cached); return }
         viewModelScope.launch {
             runCatching { hitomiClient.getGallery(galleryId) }.onSuccess { gallery ->
                 recordOnlineHistory(gallery)
@@ -1196,6 +1219,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     requestReconnectLibraryRefresh()
                 }
                 if (status != null) {
+                    refreshSubscriptions()
                     when {
                         !hasDesktopSyncGenerationBaseline ||
                             status.syncGeneration < lastDesktopSyncGeneration -> {
@@ -3318,6 +3342,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onAppForegrounded() {
         viewModelScope.launch { reloadSubscriptions() }
+        refreshSubscriptions()
         startConnectionMonitoring()
         if (!hasEnteredForeground) {
             hasEnteredForeground = true

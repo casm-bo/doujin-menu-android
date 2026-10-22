@@ -20,8 +20,8 @@ data class SearchSubscription(
     }
     val conditionKey get() = queries.map { it.split(Regex("\\s+")).filter(String::isNotBlank).distinct().sorted().joinToString(" ") }.sorted().joinToString("\n")
     fun validate() {
-        require(name.isNotBlank() && name.length <= 200) { "이름은 1~200자로 입력하세요." }
-        require(query.isNotBlank() && query.length <= 2000) { "검색조건은 1~2000자로 입력하세요." }
+        require(name.isNotBlank() && (!enabled || name.length <= 200)) { "이름은 1~200자로 입력하세요." }
+        require(query.isNotBlank() && (!enabled || query.length <= 2000)) { "검색조건은 1~2000자로 입력하세요." }
         require(languages.size <= 20 && languages.all { it.matches(Regex("[a-z0-9_-]{1,50}")) }) { "언어 설정이 올바르지 않습니다." }
         if (enabled && !deleted) queries.forEach { validateSubscriptionQuery(it) }
     }
@@ -33,7 +33,7 @@ data class SearchSubscription(
             id = value.getString("id"), name = value.getString("name"), query = value.getString("query"),
             languages = value.optJSONArray("languages")?.let { array -> (0 until array.length()).map { array.getString(it) }.toSet() }.orEmpty(),
             enabled = value.getBoolean("enabled"), deleted = value.optBoolean("deleted"), version = value.optLong("version"),
-        ).also { require(it.id.matches(Regex("[a-zA-Z0-9-]{1,80}"))); require(it.version >= 0); it.validate() }
+        ).also { require(it.id.matches(Regex("[a-zA-Z0-9-]{1,80}"))); require(it.version >= 0); it.copy(enabled=false).validate() }
     }
 }
 

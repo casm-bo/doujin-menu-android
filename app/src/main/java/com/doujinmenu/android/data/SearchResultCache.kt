@@ -156,14 +156,14 @@ class SearchResultCache(
 }
 
 private fun JSONArray.strings(): List<String> = List(length()) { getString(it) }
-private fun GallerySummary.json(): JSONObject = JSONObject().put("id", id).put("title", title)
+internal fun GallerySummary.json(): JSONObject = JSONObject().put("id", id).put("title", title)
     .put("artists", JSONArray(artists)).put("series", JSONArray(series)).put("galleryType", galleryType)
     .put("groups", JSONArray(groups)).put("characters", JSONArray(characters))
     .put("tags", JSONArray(tags.map { JSONObject().put("type", it.type).put("name", it.name).put("negative", it.isNegative) }))
     .put("thumbnailUrl", thumbnailUrl).put("pageCount", pageCount).put("language", language)
     .put("publishedDate", publishedDate).put("loadError", loadError)
 private fun JSONObject.optionalString(key: String): String? = if (isNull(key)) null else getString(key)
-private fun JSONObject.gallery(): GallerySummary = GallerySummary(
+internal fun JSONObject.gallery(): GallerySummary = GallerySummary(
     id = getLong("id"), title = getString("title"), artists = getJSONArray("artists").strings(),
     series = getJSONArray("series").strings(), galleryType = optionalString("galleryType"),
     tags = getJSONArray("tags").let { tags -> List(tags.length()) {

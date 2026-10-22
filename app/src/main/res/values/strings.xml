@@ -561,4 +561,5 @@
     <string name="sub_deleted">Deleted</string>
     <string name="sub_monitor_on">Checking enabled</string>
     <string name="sub_monitor_off">Checking paused</string>
+    <string name="sub_update_pc">Update the PC app to a version that supports subscription sync.</string>
 </resources>

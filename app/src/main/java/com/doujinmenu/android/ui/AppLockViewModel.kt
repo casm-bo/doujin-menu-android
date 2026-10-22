@@ -28,8 +28,9 @@ class AppLockViewModel @JvmOverloads constructor(application: Application, priva
     var biometricInProgress by mutableStateOf(false); private set
     var generation by mutableStateOf(0L); private set
     private var authorizedUntil = 0L
+    init { com.doujinmenu.android.data.SubscriptionNotifications.session(application,!locked) }
 
-    fun onBackground() { biometricSession.background(); generation = biometricSession.generation; biometricInProgress = false; authorizedUntil = 0; if (enabled) locked = true }
+    fun onBackground() { com.doujinmenu.android.data.SubscriptionNotifications.session(getApplication(),false); biometricSession.background(); generation = biometricSession.generation; biometricInProgress = false; authorizedUntil = 0; if (enabled) locked = true }
     fun clearError() { error = null }
     fun verify(secret: String, settings: Boolean = false, completed: (Boolean) -> Unit = {}) {
         if (busy || secret.length > 128) return
@@ -46,7 +47,7 @@ class AppLockViewModel @JvmOverloads constructor(application: Application, priva
             if (epoch != generation) return@launch
             val accepted = success.getOrDefault(false)
             error = if (accepted) null else success.exceptionOrNull()?.message ?: strings[R.string.msg_incorrect_credential]
-            if (accepted) { if (settings) authorizedUntil = SystemClock.elapsedRealtime() + 60_000 else { biometricSession.cancel(); biometricInProgress = false; locked = false } }
+            if (accepted) { if (settings) authorizedUntil = SystemClock.elapsedRealtime() + 60_000 else { biometricSession.cancel(); biometricInProgress = false; locked = false; com.doujinmenu.android.data.SubscriptionNotifications.session(getApplication(),true) } }
             completed(accepted)
         }
     }
@@ -75,7 +76,7 @@ class AppLockViewModel @JvmOverloads constructor(application: Application, priva
             val reset = runCatching { withContext(Dispatchers.IO) { store.resetAttempts() } }
             busy = false
             if (request.generation != generation) return@launch
-            if (reset.isSuccess) { locked = false; error = null }
+            if (reset.isSuccess) { locked = false; error = null; com.doujinmenu.android.data.SubscriptionNotifications.session(getApplication(),true) }
             else error = strings[R.string.msg_could_not_save_lock_settings]
         }
     }
@@ -95,6 +96,7 @@ class AppLockViewModel @JvmOverloads constructor(application: Application, priva
             result.onSuccess { value ->
                 credential = value; enabled = value != null; method = value?.method ?: LockMethod.PIN
                 biometric = value?.biometric == true; locked = enabled && epoch != generation
+                com.doujinmenu.android.data.SubscriptionNotifications.session(getApplication(),!locked)
                 authorizedUntil = 0; error = null
                 completed()
             }.onFailure { error = it.message ?: strings[R.string.msg_could_not_save_lock_settings] }

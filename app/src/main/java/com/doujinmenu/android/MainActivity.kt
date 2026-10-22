@@ -1,6 +1,10 @@
 package com.doujinmenu.android
 
 import android.os.Bundle
+import android.content.Intent
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.viewModels
 import android.view.WindowManager
@@ -25,6 +29,18 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.doujinmenu.android.ui.theme.DoujinMenuTheme
 
 class MainActivity : AppCompatActivity() {
+    private var subscriptionTarget by mutableStateOf<Pair<String,Long>?>(null)
+    private fun readSubscriptionTarget(intent:Intent?) {
+        // Only our immutable PendingIntent may enter through the private alias.
+        if(intent?.component?.className != com.doujinmenu.android.data.SubscriptionNotifications.ENTRY_ACTIVITY) return
+        if(intent?.hasExtra("subscription_gallery")==true) {
+            val id=intent.getLongExtra("subscription_gallery",-1)
+            val scope=intent.getStringExtra("subscription_scope").orEmpty()
+            if(id>=0 && scope.length<=200) subscriptionTarget=scope to id
+            intent.removeExtra("subscription_gallery");intent.removeExtra("subscription_scope")
+        }
+    }
+    override fun onNewIntent(intent:Intent) { super.onNewIntent(intent);setIntent(intent);readSubscriptionTarget(intent) }
     private var biometricPrompt: androidx.biometric.BiometricPrompt? = null
     private fun attachBiometric(request: com.doujinmenu.android.security.BiometricRequest): androidx.biometric.BiometricPrompt =
         androidx.biometric.BiometricPrompt(this, androidx.core.content.ContextCompat.getMainExecutor(this), object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
@@ -55,9 +71,17 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        subscriptionTarget=savedInstanceState?.takeIf { it.containsKey("subscription_gallery") }?.let { it.getString("subscription_scope").orEmpty() to it.getLong("subscription_gallery") }
+        readSubscriptionTarget(intent)
         appLock.activeBiometricRequest?.let(::attachBiometric)
         setContent {
             val viewModel: MainViewModel = viewModel()
+            LaunchedEffect(appLock.locked,viewModel.uiState.isStarting,subscriptionTarget) {
+                if(!appLock.locked && !viewModel.uiState.isStarting) subscriptionTarget?.let { target ->
+                    subscriptionTarget=null
+                    viewModel.openSubscriptionNotification(target.first,target.second)
+                }
+            }
             // Reading the whole UI state here reran window/theme work on every search/scroll update.
             val themeMode by remember(viewModel) { derivedStateOf { viewModel.uiState.themeMode } }
             val fontSize by remember(viewModel) { derivedStateOf { viewModel.uiState.fontSizeSp } }
@@ -84,5 +108,9 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+    override fun onSaveInstanceState(outState:Bundle) {
+        subscriptionTarget?.let { outState.putString("subscription_scope",it.first);outState.putLong("subscription_gallery",it.second) }
+        super.onSaveInstanceState(outState)
     }
 }

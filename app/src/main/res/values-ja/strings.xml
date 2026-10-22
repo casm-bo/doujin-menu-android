@@ -561,4 +561,5 @@
     <string name="sub_deleted">削除済み</string>
     <string name="sub_monitor_on">新作確認中</string>
     <string name="sub_monitor_off">新作確認を一時停止</string>
+    <string name="sub_update_pc">PCアプリを購読同期に対応したバージョンに更新してください。</string>
 </resources>

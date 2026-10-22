@@ -561,4 +561,5 @@
     <string name="sub_deleted">已删除</string>
     <string name="sub_monitor_on">新作检查已启用</string>
     <string name="sub_monitor_off">新作检查已暂停</string>
+    <string name="sub_update_pc">请将电脑应用更新为支持订阅同步的版本。</string>
 </resources>
