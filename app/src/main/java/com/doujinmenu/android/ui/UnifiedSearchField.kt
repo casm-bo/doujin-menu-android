@@ -42,6 +42,7 @@ internal fun UnifiedSearchField(
     query: String, onQueryChange: (String) -> Unit, placeholder: String, onFocus: () -> Unit, onSubmit: () -> Unit,
     history: List<SearchQueryEntry> = emptyList(), suggestions: List<FilterSuggestion> = emptyList(), loading: Boolean = false,
     onRecent: (SearchQueryEntry) -> Unit = {}, onClearHistory: () -> Unit = {}, onSuggestion: (FilterSuggestion) -> Unit = {},
+    outlined: Boolean = false,
 ) {
     val state = LocalInlineSearch.current ?: remember { InlineSearchState() }
     val strings = androidx.compose.ui.platform.LocalResources.current
@@ -79,7 +80,10 @@ internal fun UnifiedSearchField(
             }
             val colors = MaterialTheme.colorScheme
             val textSize = with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.fontSize.toPx() }
-            Surface(Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(percent = 50), color = colors.surfaceContainerHigh) {
+            Surface(Modifier.weight(1f).height(56.dp),
+                shape = if(outlined) MaterialTheme.shapes.small else RoundedCornerShape(percent = 50),
+                border = if(outlined) androidx.compose.foundation.BorderStroke(if(state.expanded) 2.dp else 1.dp,if(state.expanded) colors.primary else colors.outline) else null,
+                color = if(outlined) colors.surface else colors.surfaceContainerHigh) {
                 Box(Modifier.fillMaxSize()) {
                 if (state.expanded || inputCreated) {
                     // Keep platform IME/range selection and continuous insertion-handle edge scrolling.

@@ -78,7 +78,9 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text(value.name,style=MaterialTheme.typography.titleMedium)
                     if(value.deleted) Text(strings[R.string.sub_deleted],color=MaterialTheme.colorScheme.error)
-                    Text(value.query,style=MaterialTheme.typography.bodySmall)
+                    OutlinedCard(Modifier.fillMaxWidth(),border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outline)) {
+                        Text(value.query,Modifier.padding(8.dp),style=MaterialTheme.typography.bodySmall)
+                    }
                     if(value.languages.isNotEmpty()) Text(value.languages.sorted().joinToString(", "),style=MaterialTheme.typography.bodySmall)
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Text(strings[R.string.sub_monitor],Modifier.weight(1f))
@@ -133,7 +135,7 @@ private fun SubscriptionEditor(value:SearchSubscription,state:MainUiState,onDism
             CompositionLocalProvider(LocalInlineSearch provides expansion) {
                 UnifiedSearchField(query,{query=it;onQueryChange(it)},strings[R.string.sub_tags_placeholder],{}, {},
                     suggestions=state.subscriptionSuggestions,loading=state.isLoadingSubscriptionSuggestions,
-                    onSuggestion={ val next=com.doujinmenu.android.model.applySearchSuggestion(query,it.token);query=next;onQueryChange(next) })
+                    onSuggestion={ val next=com.doujinmenu.android.model.applySearchSuggestion(query,it.token);query=next;onQueryChange(next) },outlined=true)
             }
             OutlinedButton({showLanguages=!showLanguages}) { ActionIcon(ActionSymbol.LANGUAGE);Spacer(Modifier.width(8.dp));Text(strings[R.string.ui_language]+" (${languages.size})") }
             if(showLanguages) SearchLanguageList(state,languages.toSet(),
