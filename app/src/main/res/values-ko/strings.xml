@@ -2,7 +2,7 @@
     <string name="ui_confirm_add_to_series">선택한 %1$s개 갤러리를 %2$s에 추가할까요?</string>
     <string name="ui_history_navigation">최근 기록</string>
     <string name="ui_continue_short">계속 읽기</string>
-    <string name="app_name">Doujin Menu</string>
+    <string name="app_name">동인집</string>
     <string name="ui_app_lock">"앱 잠금"</string>
     <string name="ui_unlock_with">"%1$s으로 잠금을 해제하세요."</string>
     <string name="ui_checking">"확인 중…"</string>

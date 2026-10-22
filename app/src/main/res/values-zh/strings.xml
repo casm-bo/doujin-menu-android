@@ -2,7 +2,7 @@
     <string name="ui_confirm_add_to_series">将选中的%1$s个画廊添加到%2$s？</string>
     <string name="ui_history_navigation">最近记录</string>
     <string name="ui_continue_short">继续阅读</string>
-    <string name="app_name">Doujin Menu</string>
+    <string name="app_name">DoujinZip</string>
     <string name="ui_app_lock">"应用锁"</string>
     <string name="ui_unlock_with">"请使用%1$s解锁。"</string>
     <string name="ui_checking">"正在验证…"</string>

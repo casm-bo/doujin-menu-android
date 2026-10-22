@@ -1,4 +1,4 @@
-# Doujin Menu Android 1.0.0
+# DoujinZip Android 1.0.0
 
 ## 검색과 검색 구독
 

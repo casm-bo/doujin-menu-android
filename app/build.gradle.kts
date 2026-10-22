@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.doujinmenu.android"
+    namespace = "com.doujinzip.android"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.doujinmenu.android"
+        applicationId = "com.doujinzip.android"
         minSdk = 26
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

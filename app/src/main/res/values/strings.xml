@@ -2,7 +2,7 @@
     <string name="ui_confirm_add_to_series">Add %1$s selected galleries to %2$s?</string>
     <string name="ui_history_navigation">History</string>
     <string name="ui_continue_short">Continue</string>
-    <string name="app_name">Doujin Menu</string>
+    <string name="app_name">DoujinZip</string>
     <string name="ui_app_lock">"App lock"</string>
     <string name="ui_unlock_with">"Unlock with %1$s."</string>
     <string name="ui_checking">"Checking…"</string>

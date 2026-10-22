@@ -2,7 +2,7 @@
     <string name="ui_confirm_add_to_series">選択した%1$s件を%2$sに追加しますか？</string>
     <string name="ui_history_navigation">履歴</string>
     <string name="ui_continue_short">続きを読む</string>
-    <string name="app_name">Doujin Menu</string>
+    <string name="app_name">DoujinZip</string>
     <string name="ui_app_lock">"アプリロック"</string>
     <string name="ui_unlock_with">"%1$sでロックを解除してください。"</string>
     <string name="ui_checking">"確認中…"</string>
