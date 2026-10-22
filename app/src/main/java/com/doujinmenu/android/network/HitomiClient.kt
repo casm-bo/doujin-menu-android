@@ -19,6 +19,20 @@ import org.json.JSONObject
 class HitomiClient {
     private val searches = linkedMapOf<String, Pair<Long, List<Long>>>()
 
+    suspend fun subscriptionIds(query: String): List<Long> = withContext(Dispatchers.IO) {
+        com.doujinmenu.android.model.validateSubscriptionQuery(query)
+        val terms = query.split(Regex("\\s+")).filter(String::isNotBlank).distinct()
+        var result: MutableSet<Long>? = null
+        for (term in terms.filterNot { it.startsWith('-') }) {
+            coroutineContext.ensureActive()
+            val ids = termIds(term)
+            if (result == null) result = ids.toMutableSet() else result.retainAll(ids.toSet())
+        }
+        val matches = requireNotNull(result)
+        for (term in terms.filter { it.startsWith('-') }) matches.removeAll(termIds(term.drop(1)).toSet())
+        matches.sortedDescending()
+    }
+
     suspend fun search(searchQuery: String, page: Int = 1): SearchResult = withContext(Dispatchers.IO) {
         require(page > 0)
         val query = searchQuery.trim().lowercase(Locale.ROOT)
