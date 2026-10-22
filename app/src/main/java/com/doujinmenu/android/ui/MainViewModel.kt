@@ -30,6 +30,7 @@ import com.doujinmenu.android.model.SearchQueryEntry
 import com.doujinmenu.android.model.recordQuery
 import com.doujinmenu.android.model.combineLanguageSearchResults
 import com.doujinmenu.android.model.queriesWithPreferredLanguages
+import com.doujinmenu.android.model.invalidateSearchResults
 import com.doujinmenu.android.model.isSearchPageInRange
 import com.doujinmenu.android.data.DownloadRequestStore
 import com.doujinmenu.android.data.DownloadTarget
@@ -175,6 +176,7 @@ data class MainUiState(
     val newTabNotice: Int = 0,
     val newTabReturns: Map<String, NewTabReturn> = emptyMap(),
     val searchQuery: String = "",
+    val searchTagFilters: Set<com.doujinmenu.android.model.SearchTagFilter> = emptySet(),
     val favoriteName: String = "",
     val searchFavorites: List<SearchFavorite> = emptyList(),
     val searchQueryHistory: List<SearchQueryEntry> = emptyList(),
@@ -366,6 +368,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             libraryQueryDraft = (galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query.orEmpty(),
             libraryQueryHistory = browserPreferenceStore.loadSearchQueryHistory("library_query_history"),
             searchQuery = activeSearch?.query.orEmpty(),
+            searchTagFilters = browserPreferenceStore.loadSearchTagFilters(),
             submittedSearchQuery = activeSearch?.submittedQuery.orEmpty(),
             submittedSearchQueries = activeSearch?.submittedQueries.orEmpty(),
             currentPage = activeSearch?.currentPage ?: 0,
@@ -653,6 +656,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setSearchQuery(value: String) {
         update { copy(searchQuery = value) }
         refreshFilterSuggestions(value)
+    }
+
+    fun toggleSearchTagFilter(value: com.doujinmenu.android.model.SearchTagFilter) {
+        val filters = uiState.searchTagFilters.let { if (value in it) it - value else it + value }
+        browserPreferenceStore.saveSearchTagFilters(filters)
+        val workspace = uiState.browserWorkspace.updateActiveSearch {
+            it.copy(query = uiState.searchQuery, preferredLanguages = uiState.preferredLanguages)
+        }.invalidateSearchResults()
+        uiState = uiState.copy(searchTagFilters = filters)
+        applyBrowserWorkspace(workspace)
+        startBrowserSearch(reset = true)
     }
 
     fun selectFilterSuggestion(suggestion: FilterSuggestion) {
@@ -1260,7 +1274,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!isSearchPageInRange(page, uiState.searchResultWindow?.index?.maxPage)) return
         val search = activeSearchPage() ?: return
         val queries = search.submittedQueries.ifEmpty {
-            queriesWithPreferredLanguages(search.submittedQuery.ifBlank { search.query }, search.preferredLanguages)
+            filteredSearchQueries(search.submittedQuery.ifBlank { search.query }, search.preferredLanguages)
         }
         if (queries.isEmpty()) return
         browserSearchJob?.cancel()
@@ -2798,11 +2812,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val sessionId = search.resultSessionId ?: java.util.UUID.randomUUID().toString()
         val revision = uiState.browserNavigationRevision
         val queries = search.submittedQueries.ifEmpty {
-            queriesWithPreferredLanguages(search.submittedQuery.ifBlank { search.query }, search.preferredLanguages)
+            filteredSearchQueries(search.submittedQuery.ifBlank { search.query }, search.preferredLanguages)
         }
         val workspace = uiState.browserWorkspace.updateActiveSearch { it.copy(resultSessionId = sessionId) }
         uiState = uiState.copy(browserWorkspace = workspace, searchResultWindow = null, galleries = emptyList(),
-            isRestoringSearch = true, isLoadingPage = true)
+            isRestoringSearch = true, isLoadingPage = true, submittedSearchQueries = queries)
         visibleSearchResults = (search.scrollIndex - 2).coerceAtLeast(0).let { it..it }
         browserPreferenceStore.saveBrowserWorkspace(workspace)
         browserSearchJob = viewModelScope.launch {
@@ -2865,6 +2879,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val results = queries.distinct().map { query -> async { hitomiClient.search(query, page) } }.awaitAll()
         combineLanguageSearchResults(results)
     }
+
+    private fun filteredSearchQueries(query: String, languages: Set<String>): List<String> =
+        queriesWithPreferredLanguages(query, languages).map { com.doujinmenu.android.model.applySearchTagFilters(it, uiState.searchTagFilters) }
 
     private fun openSearchTab(query: String, preferredLanguages: Set<String>) {
         browserSearchJob?.cancel()
@@ -2990,12 +3007,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         val searchQueries = if (reset && preserveResults) {
-            uiState.submittedSearchQueries.ifEmpty { queriesWithPreferredLanguages(query, uiState.preferredLanguages) }
+            uiState.submittedSearchQueries.ifEmpty { filteredSearchQueries(query, uiState.preferredLanguages) }
         } else if (reset) {
-            queriesWithPreferredLanguages(query, uiState.preferredLanguages)
+            filteredSearchQueries(query, uiState.preferredLanguages)
         } else {
             uiState.submittedSearchQueries.ifEmpty {
-                queriesWithPreferredLanguages(query, uiState.preferredLanguages)
+                filteredSearchQueries(query, uiState.preferredLanguages)
             }
         }
         if (searchQueries.isEmpty()) {

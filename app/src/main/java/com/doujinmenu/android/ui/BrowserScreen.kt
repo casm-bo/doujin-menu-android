@@ -109,6 +109,7 @@ import coil3.size.Precision
 import com.doujinmenu.android.model.GallerySummary
 import com.doujinmenu.android.model.LibraryBook
 import com.doujinmenu.android.model.SearchFavorite
+import androidx.compose.material3.Switch
 import com.doujinmenu.android.model.SearchQueryEntry
 import com.doujinmenu.android.model.resolveScrollIndex
 import com.doujinmenu.android.model.isSearchPageInRange
@@ -155,6 +156,7 @@ fun BrowserScreen(
     onUnhideGallery: (Long) -> Unit = {},
     onOpenSubscriptions: () -> Unit = {},
     onSubscribeCurrent: () -> Unit = {},
+    onToggleTagFilter: (com.doujinmenu.android.model.SearchTagFilter) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -323,9 +325,9 @@ fun BrowserScreen(
                     ?: mapOf("korean" to strings[R.string.ui_], "japanese" to "日本語", "english" to "English", "chinese" to "中文")[code]
                     ?: code.replace('_', ' ') } ?: strings[R.string.ui_language])
             }
-            OutlinedButton(onClick = { togglePanel("favorites") }, contentPadding = PaddingValues(horizontal = 10.dp),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "favorites") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
-                ActionIcon(ActionSymbol.BELL); Spacer(Modifier.width(4.dp)); Text(strings[R.string.sub_title])
+            OutlinedButton(onClick = { togglePanel("tag-filters") }, contentPadding = PaddingValues(horizontal = 10.dp),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (state.searchTagFilters.isNotEmpty() || editing && expandedPanel == "tag-filters") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
+                ActionIcon(ActionSymbol.FILTER); Spacer(Modifier.width(4.dp)); Text(strings[R.string.search_tag_filters])
             }
             Spacer(Modifier.weight(1f))
             SearchSortMenu(state.searchQuery, enabled = !state.isLoadingPage) { oldest ->
@@ -343,6 +345,20 @@ fun BrowserScreen(
                     RecentSearchHistory(state.searchQueryHistory, { entry ->
                         focusManager.clearFocus(); editing = false; expandedPanel = null; onRecentSearch(entry)
                     }, onClearSearchHistory)
+                }
+                if (expandedPanel == "tag-filters") {
+                    Text(strings[R.string.search_tag_filter_hint], style = MaterialTheme.typography.bodySmall)
+                    com.doujinmenu.android.model.SearchTagFilter.entries.forEach { filter ->
+                        Row(Modifier.fillMaxWidth().toggleable(filter in state.searchTagFilters, role = Role.Switch,
+                            onValueChange = { onToggleTagFilter(filter) }), verticalAlignment = Alignment.CenterVertically) {
+                            Text(strings[when(filter) {
+                                com.doujinmenu.android.model.SearchTagFilter.BL -> R.string.search_block_bl
+                                com.doujinmenu.android.model.SearchTagFilter.GORE -> R.string.search_block_gore
+                                com.doujinmenu.android.model.SearchTagFilter.LOLI -> R.string.search_block_loli
+                            }], Modifier.weight(1f))
+                            Switch(filter in state.searchTagFilters, null)
+                        }
+                    }
                 }
                 if (expandedPanel == null && (state.filterSuggestions.isNotEmpty() || state.isLoadingFilterSuggestions)) {
                     state.filterSuggestions.forEach { suggestion ->

@@ -562,4 +562,9 @@
     <string name="sub_monitor_on">Checking enabled</string>
     <string name="sub_monitor_off">Checking paused</string>
     <string name="sub_update_pc">Update the PC app to a version that supports subscription sync.</string>
+    <string name="search_tag_filters">Tag filters</string>
+    <string name="search_tag_filter_hint">Blocked tags always take priority, including tags typed in the search bar.</string>
+    <string name="search_block_bl">Block BL</string>
+    <string name="search_block_gore">Block gore</string>
+    <string name="search_block_loli">Block lolicon</string>
 </resources>

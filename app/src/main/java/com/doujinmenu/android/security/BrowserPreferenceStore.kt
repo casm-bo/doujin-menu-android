@@ -18,6 +18,11 @@ import org.json.JSONObject
 class BrowserPreferenceStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
+    fun loadSearchTagFilters(): Set<com.doujinmenu.android.model.SearchTagFilter> =
+        com.doujinmenu.android.model.SearchTagFilter.entries.filter { it.name in preferences.getStringSet("search_tag_filters", emptySet()).orEmpty() }.toSet()
+    fun saveSearchTagFilters(value: Set<com.doujinmenu.android.model.SearchTagFilter>) =
+        preferences.edit().putStringSet("search_tag_filters", value.map { it.name }.toSet()).apply()
+
     fun loadDownloadDestination(): com.doujinmenu.android.model.DownloadDestination = runCatching {
         com.doujinmenu.android.model.DownloadDestination.valueOf(preferences.getString("download_destination", null).orEmpty())
     }.getOrDefault(com.doujinmenu.android.model.DownloadDestination.ASK)

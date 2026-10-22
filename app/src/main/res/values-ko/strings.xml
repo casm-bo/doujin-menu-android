@@ -562,4 +562,9 @@
     <string name="sub_monitor_on">신작 확인 중</string>
     <string name="sub_monitor_off">신작 확인 일시정지</string>
     <string name="sub_update_pc">PC 앱을 구독 동기화를 지원하는 버전으로 업데이트하세요.</string>
+    <string name="search_tag_filters">태그 필터</string>
+    <string name="search_tag_filter_hint">차단 필터는 검색창에 직접 입력한 태그보다 우선 적용됩니다.</string>
+    <string name="search_block_bl">BL 차단</string>
+    <string name="search_block_gore">고어 차단</string>
+    <string name="search_block_loli">로리 차단</string>
 </resources>

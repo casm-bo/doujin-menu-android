@@ -562,4 +562,9 @@
     <string name="sub_monitor_on">新作检查已启用</string>
     <string name="sub_monitor_off">新作检查已暂停</string>
     <string name="sub_update_pc">请将电脑应用更新为支持订阅同步的版本。</string>
+    <string name="search_tag_filters">标签过滤</string>
+    <string name="search_tag_filter_hint">屏蔽标签优先于搜索栏中直接输入的标签。</string>
+    <string name="search_block_bl">屏蔽BL</string>
+    <string name="search_block_gore">屏蔽血腥</string>
+    <string name="search_block_loli">屏蔽萝莉</string>
 </resources>

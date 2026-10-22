@@ -853,6 +853,7 @@ private fun MainTabContent(
                 onSaveFavorite = viewModel::saveSearchFavorite,
                 onOpenSubscriptions = { viewModel.openSubscriptions() },
                 onSubscribeCurrent = viewModel::subscribeCurrentSearch,
+                onToggleTagFilter = viewModel::toggleSearchTagFilter,
                 onRemoveFavorite = viewModel::removeSearchFavorite,
                 onFavoriteSearch = viewModel::searchFavorite,
                 onRecentSearch = viewModel::repeatSearch,

@@ -39,7 +39,10 @@ class HitomiClient {
         val order = parseHitomiSearchOrder(query)
         val terms = order.terms
         val directId = terms.firstNotNullOfOrNull { it.removePrefix("id:").toLongOrNull()?.takeIf { id -> id > 0 } }
-        if (directId != null) return@withContext SearchResult(if (page == 1) listOf(directId) else emptyList(), false, 1)
+        if (directId != null) {
+            val excluded = terms.filter { it.startsWith('-') }.any { directId in termIds(it.drop(1)) }
+            return@withContext SearchResult(if (page == 1 && !excluded) listOf(directId) else emptyList(), false, if (excluded) 0 else 1)
+        }
         if (terms.isEmpty() || (terms.size == 1 && ':' in terms[0] && !terms[0].startsWith('-'))) {
             val path = if (terms.isEmpty()) "/n/index-all.nozomi" else hitomiNozomiPath(terms[0])
             var count = 0

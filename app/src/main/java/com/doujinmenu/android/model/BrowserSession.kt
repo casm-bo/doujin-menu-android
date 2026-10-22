@@ -78,6 +78,12 @@ private fun BrowserWorkspace.mapPages(transform: (BrowserPage) -> BrowserPage): 
     return copy(tabs = tabs.map { it.update() }, groups = groups.map { group -> group.copy(archivedTabs = group.archivedTabs.map { it.update() }) })
 }
 
+internal fun BrowserWorkspace.invalidateSearchResults(): BrowserWorkspace = mapPages { page ->
+    if (page is BrowserPage.Search) page.copy(submittedQueries = emptyList(), resultIds = emptyList(), results = emptyList(),
+        resultSessionId = null, currentPage = if (page.currentPage > 0) 1 else 0, hasNextPage = false,
+        scrollAnchorKey = null, scrollIndex = 0, scrollOffset = 0, scrollPage = 1) else page
+}
+
 fun BrowserWorkspace.updateReaderPosition(pageKey: String, position: ReaderPosition): BrowserWorkspace = mapPages { page ->
     when {
         page.key != pageKey -> page
