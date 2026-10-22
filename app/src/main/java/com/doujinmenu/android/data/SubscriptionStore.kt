@@ -55,10 +55,17 @@ class SubscriptionStore internal constructor(context: Context, databaseName: Str
     @Synchronized fun adoptLocal(scope: String) = transaction {
         if (scope.isEmpty()) return@transaction
         records("").forEach { record ->
-            if (records(scope).none { it.value.conditionKey == record.value.conditionKey }) save(scope, record.value.copy(version = 0))
+            val destination = records(scope).find { it.value.conditionKey == record.value.conditionKey }
+            if (destination == null) {
+                save(scope, record.value.copy(version = 0))
+                writableDatabase.execSQL("UPDATE subscriptions SET baseline=?,checked=? WHERE scope=? AND id=?", arrayOf<Any?>(record.baseline,record.checkedAt,scope,record.value.id))
+            }
+            writableDatabase.execSQL("INSERT OR IGNORE INTO matches SELECT ?,gallery,? FROM matches WHERE scope='' AND subscription=?",arrayOf(scope,destination?.value?.id ?: record.value.id,record.value.id))
             writableDatabase.delete("subscriptions", "scope='' AND id=?", arrayOf(record.value.id))
         }
-        // Local notices keep their original scope; they must not be attributed to another PC.
+        writableDatabase.execSQL("INSERT OR IGNORE INTO notices SELECT ?,gallery,title,artist,thumbnail FROM notices WHERE scope=''",arrayOf(scope))
+        writableDatabase.execSQL("INSERT OR IGNORE INTO reads SELECT ?,gallery,1 FROM reads WHERE scope=''",arrayOf(scope))
+        for(table in listOf("notices","reads","matches")) writableDatabase.delete(table,"scope=''",null)
     }
     @Synchronized fun checked(scope: String, expected: SearchSubscription, ids: List<Long>, galleries: List<GallerySummary>, now: Long): Boolean = transaction {
         val current = records(scope).find { it.value.id == expected.id } ?: return@transaction false
@@ -97,6 +104,7 @@ class SubscriptionStore internal constructor(context: Context, databaseName: Str
         val old = records(scope).find { it.value.id == value.id }
         when {
             mutationId != null && old?.mutationId == mutationId -> put(scope,value,null)
+            mutationId != null && old != null && value.version >= old.value.version -> put(scope,old.value.copy(version=value.version),old.mutationId,old.conflict)
             old == null -> put(scope,value,null)
             value.version <= maxOf(old.value.version, old.conflict?.version ?: 0) -> Unit
             old.mutationId != null -> put(scope,old.value,old.mutationId,value)

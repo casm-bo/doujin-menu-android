@@ -543,6 +543,18 @@ class CompanionClient {
         ).requireSuccess()
     }
 
+    suspend fun subscriptionChanges(profile: DesktopProfile, cursor: Long): JSONObject = withContext(Dispatchers.IO) {
+        request("${profile.baseUrl}/v1/subscriptions?cursor=$cursor",token=profile.token).requireSuccess()
+    }
+    suspend fun saveSubscription(profile: DesktopProfile, mutationId: String, value: com.doujinmenu.android.model.SearchSubscription): JSONObject = withContext(Dispatchers.IO) {
+        request("${profile.baseUrl}/v1/subscriptions",method="POST",token=profile.token,
+            body=JSONObject().put("mutationId",mutationId).put("value",value.json())).requireSuccess()
+    }
+    suspend fun readSubscriptionNotices(profile: DesktopProfile, ids: List<Long>): Unit = withContext(Dispatchers.IO) {
+        request("${profile.baseUrl}/v1/subscriptions/read",method="POST",token=profile.token,body=JSONObject().put("ids",JSONArray(ids))).requireSuccess()
+        Unit
+    }
+
     private fun request(
         url: String,
         method: String = "GET",

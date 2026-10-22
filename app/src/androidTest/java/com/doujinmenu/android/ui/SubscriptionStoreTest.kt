@@ -63,4 +63,22 @@ class SubscriptionStoreTest {
             }
         } finally { context.deleteDatabase(name) }
     }
+    @Test fun acknowledgementKeepsNewerPhoneEditsAndLocalAdoptionKeepsNotices() {
+        SubscriptionStore(context,null).use { store ->
+            val value=SearchSubscription(id="example",name="Before",query="tag:example",enabled=true)
+            store.save("",value)
+            store.checked("",value,listOf(1),emptyList(),1)
+            store.checked("",value,listOf(2,1),listOf(gallery(2)),2)
+            store.adoptLocal("pc")
+            assertTrue(store.records("").isEmpty())
+            assertEquals(2L,store.notices("pc").single().galleryId)
+            val mutation=store.records("pc").single().mutationId!!
+            store.save("pc",value.copy(name="After"))
+            store.receive("pc",value.copy(version=1),mutation)
+            assertEquals("After",store.records("pc").single().value.name)
+            assertEquals(1L,store.records("pc").single().value.version)
+            assertNull(store.records("pc").single().conflict)
+            assertNotNull(store.records("pc").single().mutationId)
+        }
+    }
 }
