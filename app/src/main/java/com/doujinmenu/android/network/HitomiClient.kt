@@ -120,10 +120,13 @@ class HitomiClient {
 
     suspend fun getGalleryPages(id: Long): List<String> = withContext(Dispatchers.IO) {
         val raw = rawGallery(id)
-        val context = parseHitomiImageContext(readResource("/gg.js").toString(Charsets.UTF_8))
+        val context = getImageContext()
         val files = raw.getJSONArray("files")
         List(files.length()) { index -> context.imageUrl(files.getJSONObject(index).getString("hash")) }
     }
+
+    internal suspend fun getImageContext(): HitomiImageContext =
+        parseHitomiImageContext(readResource("/gg.js").toString(Charsets.UTF_8))
 
     private suspend fun readResource(path: String, range: LongRange? = null, missingIsEmpty: Boolean = false, onRangeCount: ((Int) -> Unit)? = null): ByteArray =
         withContext(Dispatchers.IO) {
@@ -203,12 +206,20 @@ internal fun compareHitomiKeys(a: ByteArray, b: ByteArray): Int {
 }
 
 internal data class HitomiImageContext(val cases: Set<Int>, val defaultValue: Int, val prefix: String) {
-    fun imageUrl(hash: String): String {
+    private fun shard(hash: String): Int {
         require(hash.matches(Regex("[a-fA-F0-9]{64}"))) { "이미지 해시가 올바르지 않습니다." }
         val code = (hash.takeLast(1) + hash.takeLast(3).take(2)).toInt(16)
-        val suffix = if ((code in cases) == (defaultValue == 0)) "2" else "1"
+        return if ((code in cases) == (defaultValue == 0)) 1 else 0
+    }
+
+    fun imageUrl(hash: String): String {
+        val suffix = shard(hash) + 1
+        val code = (hash.takeLast(1) + hash.takeLast(3).take(2)).toInt(16)
         return "https://w$suffix.gold-usergeneratedcontent.net/$prefix$code/$hash.webp"
     }
+
+    fun thumbnailUrl(hash: String, directory: String): String =
+        "https://${if (shard(hash) == 0) "atn" else "btn"}.gold-usergeneratedcontent.net/$directory/${hash.takeLast(1)}/${hash.takeLast(3).take(2)}/$hash.webp"
 }
 
 internal fun parseHitomiImageContext(script: String): HitomiImageContext {
