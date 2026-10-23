@@ -48,7 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          APK="doujin-menu-android-${GITHUB_REF_NAME}.apk"
+          APK="doujinzip-android-${GITHUB_REF_NAME}.apk"
           mv app/build/outputs/apk/release/app-release.apk "$APK"
           gh release create "$GITHUB_REF_NAME" "$APK" \
             --verify-tag \

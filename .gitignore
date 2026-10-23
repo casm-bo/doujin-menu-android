@@ -10,3 +10,14 @@
 .externalNativeBuild/
 .cxx/
 local.properties
+
+# Keep investigation artifacts and local secrets outside version control.
+/docs/
+/reports/
+/artifacts/
+*.log
+*.trace
+*.perfetto-trace
+*.hprof
+.env
+.env.*

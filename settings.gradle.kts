@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "doujin-menu-android"
+rootProject.name = "doujinzip-android"
 include(":app")

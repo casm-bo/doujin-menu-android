@@ -1,9 +1,9 @@
-# doujin-menu-android
+# 동인집 (DoujinZip) Android
 
 [![GitHub latest release](https://img.shields.io/github/v/release/casm-bo/doujin-menu-android)](https://github.com/casm-bo/doujin-menu-android/releases/latest)
 [![GitHub Downloads](https://img.shields.io/github/downloads/casm-bo/doujin-menu-android/total)](https://github.com/casm-bo/doujin-menu-android/releases/latest)
 
-[doujin-menu 데스크톱 앱](https://github.com/casm-bo/doujin-menu-V2)과 연동하거나 단독으로 사용할 수 있는 Android 앱입니다. Hitomi 검색과 기기 다운로드·로컬 라이브러리는 PC 연결 없이 사용하며, PC 다운로드 큐 및 라이브러리 동기화에는 페어링이 필요합니다.
+[동인집 데스크톱 앱](https://github.com/casm-bo/doujin-menu-V2)과 연동하거나 단독으로 사용할 수 있는 Android 앱입니다. Hitomi 검색과 기기 다운로드·로컬 라이브러리는 PC 연결 없이 사용하며, PC 다운로드 큐 및 라이브러리 동기화에는 페어링이 필요합니다.
 
 ## 주요 기능
 
@@ -48,6 +48,10 @@
 
 ## 개발 환경
 
+앱 이름은 동인집(DoujinZip), 프로젝트 이름은 `doujinzip-android`, 패키지는 `com.doujinzip.android`입니다.
+기존 패키지의 앱과 별도로 설치되므로 설정·폴더 권한·데스크톱 페어링은 다시 지정해야 합니다. 기존 앱의 데이터와 작품 파일은 삭제하지 않습니다.
+GitHub 저장소와 업데이트 주소는 저장소 이름을 실제로 변경하기 전까지 기존 주소를 사용합니다.
+
 - Android Studio Quail 2 이상 권장
 - JDK 17
 - Android SDK 37
@@ -59,7 +63,6 @@
 
 Android Studio에서 저장소 루트를 열고 SDK 37을 설치한 뒤 Gradle Sync를 실행합니다.
 
-디버그 빌드는 `com.doujinmenu.android.debug` 패키지와 `Doujin Menu Debug` 이름을 사용해 릴리스 앱과 함께 설치할 수 있습니다. 두 앱의 설정·캐시는 별도이며, 연결 설정과 폴더 권한도 각각 지정해야 합니다.
 
 
 ## PC 없이 사용하기
