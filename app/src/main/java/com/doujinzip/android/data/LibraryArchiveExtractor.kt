@@ -21,7 +21,7 @@ class LibraryArchiveExtractor(private val context: Context) {
         book.pages.forEachIndexed { index, page -> page.archiveEntry?.let { wanted.putIfAbsent(it, index) } }
         val outputDirectory = File(context.cacheDir, "library-pages/${archiveFingerprint(archiveUri, modifiedAt, size)}")
             .apply(File::mkdirs)
-        fun pageFile(name: String, index: Int) = File(outputDirectory, "%06d.%s".format(index, name.substringAfterLast('.', "jpg").take(5)))
+        fun pageFile(name: String, index: Int) = archiveCacheFile(outputDirectory, "%06d".format(index), name)
         val files = mutableMapOf<String, String>()
         if (reusable && wanted.all { (name, index) -> pageFile(name, index).let { it.isFile && it.length() > 0 } }) {
             return@withContext book.copy(pages = book.pages.map { page -> page.copy(uri = page.archiveEntry?.let { pageFile(it, wanted.getValue(it)).toURI().toString() } ?: page.uri) })
