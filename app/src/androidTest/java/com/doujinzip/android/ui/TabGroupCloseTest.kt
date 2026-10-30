@@ -11,6 +11,21 @@ import org.junit.Rule
 import org.junit.Test
 
 class TabGroupCloseTest {
+    @Test fun reopeningLargeGroupShowsSelectedTabInsteadOfFirstRow() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val cache = BrowserTabPreviewCache(context)
+        val tabs = (0..79).map { BrowserTab(id = "fixture-tab$it", history = listOf(BrowserPage.Search(query = "fixture$it"))) }
+        val workspace = BrowserWorkspace(tabs, tabs[70].id).createGroup(tabs.mapTo(mutableSetOf()) { it.id }, "Large fixture")
+        compose.setContent { DoujinZipTheme {
+            BrowserTabsOverview(workspace, false, cache, onSelect = {}, onCloseTab = {}, onUpdate = {}, onDismiss = {})
+        } }
+        repeat(2) {
+            compose.onNodeWithText("Large fixture · 80").performClick()
+            compose.onAllNodesWithText("fixture70").onFirst().assertIsDisplayed()
+            compose.onNodeWithContentDescription(context.getString(com.doujinzip.android.R.string.ui_back_to_all_tabs)).performClick()
+        }
+    }
+
     @get:Rule val compose = createComposeRule()
 
     @Test fun closingGroupMembersAndArchivingReplacesCardsWithoutCrashing() {
