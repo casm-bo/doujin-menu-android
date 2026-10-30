@@ -47,3 +47,13 @@ fun validateSubscriptionQuery(query: String) {
 
 fun subscriptionNewIds(ids: Collection<Long>, baseline: Long?): List<Long> =
     if (baseline == null) emptyList() else ids.asSequence().filter { it > baseline }.distinct().sortedDescending().toList()
+
+/** Searches only saved subscription names and tag conditions; minus terms exclude matches. */
+fun SearchSubscription.matchesSavedSearch(input: String): Boolean {
+    val terms = input.trim().split(Regex("\\s+")).filter(String::isNotBlank)
+    val tags = query.lowercase()
+    return terms.all { term ->
+        if (term.startsWith("-") && term.length > 1) !tags.contains(term.drop(1), ignoreCase = true)
+        else name.contains(term, ignoreCase = true) || tags.contains(term, ignoreCase = true)
+    }
+}
