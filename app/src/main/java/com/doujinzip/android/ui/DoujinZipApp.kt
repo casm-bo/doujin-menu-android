@@ -268,6 +268,7 @@ fun DoujinZipApp(viewModel: MainViewModel = viewModel()) {
     val previewKey = previewIsGallery?.let {
         BrowserTabPreviewKey(it, previewWorkspace.activeTabId, previewWorkspace.activeTab.currentPage.key)
     }
+    TabSwipeHost {
     BrowserTabPreviewHost(viewModel.tabPreviews, previewKey) {
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
@@ -522,6 +523,8 @@ fun DoujinZipApp(viewModel: MainViewModel = viewModel()) {
 
     }
 
+    }
+
     viewModel.uiState.tabOverviewIsGallery?.let { isGallery ->
         BrowserTabsOverview(
             workspace = if (isGallery) viewModel.uiState.galleryWorkspace else viewModel.uiState.browserWorkspace,
@@ -581,6 +584,7 @@ private fun AppSearchTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = 
     BrowserTabStrip(
         workspace = viewModel.uiState.browserWorkspace,
         onNew = viewModel::newBrowserTab,
+        onSelect = viewModel::selectBrowserTab,
         onShowOverview = { viewModel.showTabOverview(isGallery = false) },
         previews = viewModel.tabPreviews,
         onBack = onBack,
@@ -596,6 +600,7 @@ private fun AppGalleryTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? =
     BrowserTabStrip(
         workspace = viewModel.uiState.galleryWorkspace,
         onNew = viewModel::newGalleryTab,
+        onSelect = viewModel::selectGalleryTab,
         onShowOverview = { viewModel.showTabOverview(isGallery = true) },
         previews = viewModel.tabPreviews,
         onBack = onBack,
