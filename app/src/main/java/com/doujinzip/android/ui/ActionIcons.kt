@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 internal enum class ActionSymbol {
     FILTER, SORT, GRID, LIST, FOLDER, SERIES, SELECT, REFRESH, SYNC, STAR, HEART,
     PAGE, CLEAR, DELETE, LANGUAGE, EDIT, READ, MERGE, SAVE, HIDE, PLAY, PAUSE,
-    SEARCH, DEVICE, PC, BACK, SETTINGS, ADD, BELL, LOCK, APPEARANCE, INFO,
+    SEARCH, DEVICE, PC, BACK, SETTINGS, ADD, BELL, LOCK, APPEARANCE, INFO, BOOK,
 }
 
 /** Small vector icons share the surrounding button's color and accessible label. */
@@ -40,6 +40,8 @@ internal fun ActionIcon(symbol: ActionSymbol, modifier: Modifier = Modifier) {
                 if (fill) drawPath(path, color) else drawPath(path, color, style = outline)
             }
             when (symbol) {
+                ActionSymbol.BOOK -> { path(12f to 5f, 8f to 3f, 2f to 3f, 2f to 19f, 8f to 19f, 12f to 21f, 16f to 19f, 22f to 19f, 22f to 3f, 16f to 3f, close = true); line(12f, 5f, 12f, 21f) }
+
                 ActionSymbol.LOCK -> { box(5f, 10f, 14f, 11f); drawArc(color, 180f, 180f, false, Offset(8f, 2f), Size(8f, 16f), style = outline); line(12f, 14f, 12f, 17f) }
                 ActionSymbol.APPEARANCE -> { drawCircle(color, 9f, Offset(12f, 12f), style = outline); drawArc(color, 90f, 180f, true, Offset(3f, 3f), Size(18f, 18f)) }
                 ActionSymbol.INFO -> { drawCircle(color, 9f, Offset(12f, 12f), style = outline); line(12f, 11f, 12f, 17f); drawCircle(color, 1f, Offset(12f, 7f)) }

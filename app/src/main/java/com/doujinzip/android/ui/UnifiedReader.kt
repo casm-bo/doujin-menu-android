@@ -554,6 +554,7 @@ internal fun ViewerSettingsContent(
     preferences: ViewerPreferences,
     onChange: (ViewerPreferences) -> Unit,
     modifier: Modifier = Modifier,
+    section: Int? = null,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var tapEditorVisible by remember { mutableStateOf(false) }
@@ -561,6 +562,7 @@ internal fun ViewerSettingsContent(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        if (section == null || section == 0) {
         SettingsHeading(strings[R.string.ui_reading_mode])
         ViewerReadingMode.entries.forEach { mode ->
             SettingsRadio(strings[when (mode) {
@@ -598,6 +600,8 @@ internal fun ViewerSettingsContent(
             }
         }
 
+        }
+        if (section == null || section == 1) {
         SettingsHeading(strings[R.string.ui_page_turning])
         ViewerPageTurnMode.entries.forEach { value ->
             SettingsRadio(
@@ -630,6 +634,8 @@ internal fun ViewerSettingsContent(
             ) { Text(strings[R.string.ui_edit_tap_zones]) }
         }
 
+        }
+        if (section == null || section == 2) {
         ReaderSettingSwitch(strings[R.string.ui_show_page_number], preferences.showPageNumber) {
             onChange(preferences.copy(showPageNumber = it))
         }
@@ -638,6 +644,7 @@ internal fun ViewerSettingsContent(
         }
         ReaderSettingSwitch(strings[R.string.ui_keep_screen_on], preferences.keepScreenOn) {
             onChange(preferences.copy(keepScreenOn = it))
+        }
         }
     }
 

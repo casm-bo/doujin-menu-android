@@ -330,9 +330,9 @@
     <string name="ui_while_connected_pc_downloads_use_the_desktop_download_folder">"데스크톱 연결 중에는 PC 다운로드가 데스크톱 경로에 저장됩니다. "</string>
     <string name="ui_desktop_paths_can_only_be_changed_on_pc_mobile_storage_is_conf">"데스크톱 경로는 PC에서만 변경할 수 있으며, 모바일 로컬 경로는 별도로 설정할 수 있습니다."</string>
     <string name="ui_without_a_pc_connection_only_the_mobile_local_download_folder">"데스크톱에 연결되지 않은 상태에서는 모바일 로컬 다운로드 경로만 사용합니다."</string>
-    <string name="ui_desktop_download_folder">"데스크톱 다운로드 경로"</string>
+    <string name="ui_desktop_download_folder">데스크톱 저장 경로</string>
     <string name="ui_not_configured_on_desktop">"데스크톱에서 설정되지 않음"</string>
-    <string name="ui_local_download_folder">"로컬 다운로드 경로"</string>
+    <string name="ui_local_download_folder">로컬 저장 경로</string>
     <string name="ui_choose_download_folder">"다운로드 경로 선택"</string>
     <string name="ui_change_folder">"경로 변경"</string>
     <string name="ui_can_only_be_changed_in_the_desktop_app">"데스크톱 앱에서만 변경할 수 있습니다."</string>
@@ -610,4 +610,6 @@
     <string name="backup_restore_failed">복원에 실패하여 기존 데이터를 유지했습니다.</string>
     <string name="ui_merge_groups">다른 그룹으로 합치기</string>
     <string name="ui_merge_groups_notice">대상 그룹을 선택하세요. 대상의 이름·색상·열림 또는 보관 상태를 유지합니다. 원본 탭을 뒤에 추가하고 원본 그룹을 제거합니다.</string>
+    <string name="server_name_label">서버 이름: %1$s</string>
+    <string name="server_address_label">서버 주소: %1$s</string>
 </resources>

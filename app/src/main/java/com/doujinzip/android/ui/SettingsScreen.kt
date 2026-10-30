@@ -232,7 +232,7 @@ private fun SettingsHomeScreen(
         }
         item {
             SettingsCategoryCard(
-                symbol = ActionSymbol.READ, title = strings[R.string.ui_reader_settings],
+                symbol = ActionSymbol.BOOK, title = strings[R.string.ui_reader_settings],
                 description = strings[R.string.ui_reading_direction_page_numbers_scale_and_gestures],
                 onClick = { onOpenSection(SettingsSection.VIEWER) },
             )
@@ -456,8 +456,10 @@ private fun ViewerSettingsScreen(
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     SettingsDetailLayout(strings[R.string.ui_reader_settings], contentPadding, onBack) {
-        SectionCard(strings[R.string.ui_reader]) {
-            ViewerSettingsContent(preferences = preferences, onChange = onChange)
+        listOf(R.string.ui_reading_mode, R.string.ui_page_turning, R.string.ui_view_58d697).forEachIndexed { index, title ->
+            SectionCard(strings[title]) {
+                ViewerSettingsContent(preferences = preferences, onChange = onChange, section = index)
+            }
         }
     }
 }
@@ -519,7 +521,9 @@ private fun LibrarySettingsScreen(
         SectionCard(strings[R.string.ui_download_folder]) {
             ReadOnlyPathRow(title = strings[R.string.ui_desktop_download_folder],
                 path = state.desktopDownloadPath?.let { readableStoragePath(it) } ?: strings[R.string.ui_not_configured_on_desktop])
+            Spacer(Modifier.height(12.dp))
             HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
             val location = state.downloadLocation
             if (location != null) StorageLocationRow(location, strings[R.string.ui_delete], strings[R.string.ui_local_download_folder], onClearDownloadLocation)
             else {
@@ -681,22 +685,32 @@ private fun ConnectionSettingsScreen(
         } else if (state.profiles.isNotEmpty()) {
             SectionCard(strings[R.string.ui_registered_pcs]) {
                 val profile = state.profiles.single()
-                Text(profile.name, fontWeight = FontWeight.Medium)
-                Text(profile.baseUrl)
+                Text(strings[R.string.server_name_label, profile.name], fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Text(strings[R.string.server_address_label, profile.baseUrl], style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
                 Text(strings[when (state.desktopConnectionState) {
                     DesktopConnectionState.CONNECTED -> R.string.ui_connected
                     DesktopConnectionState.CONNECTING -> R.string.ui_connecting
                     else -> R.string.ui_disconnected
-                }])
-                Text(strings[R.string.connection_single_notice])
+                }], color = when (state.desktopConnectionState) {
+                    DesktopConnectionState.CONNECTED -> androidx.compose.ui.graphics.Color(0xFF218739)
+                    DesktopConnectionState.CONNECTING -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> MaterialTheme.colorScheme.error
+                })
+                Spacer(Modifier.height(16.dp))
                 Text(strings[R.string.connection_last_sync, if (state.lastDesktopSyncAt == 0L) "—" else
-                    java.text.DateFormat.getDateTimeInstance().format(java.util.Date(state.lastDesktopSyncAt))])
+                    java.text.DateFormat.getDateTimeInstance().format(java.util.Date(state.lastDesktopSyncAt))], style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(12.dp))
                 state.librarySyncError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onSyncNow, enabled = enabled) { Text(strings[R.string.sub_sync_now]) }
                     OutlinedButton(onClick = { disconnect = true }, enabled = enabled) { Text(strings[R.string.connection_disconnect]) }
                 }
             }
+        }
+        if (state.profiles.isNotEmpty()) SectionCard(strings[R.string.ui_connection_settings]) {
+            Text(strings[R.string.connection_single_notice], style = MaterialTheme.typography.bodyMedium)
         }
         if (state.isBusy) LoadingRow(strings[R.string.ui_connecting])
     }
