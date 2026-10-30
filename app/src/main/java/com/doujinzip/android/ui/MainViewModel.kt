@@ -2753,7 +2753,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun removeDownload(queueId: Long) = runDownloadAction(queueId) { profile ->
+        val item = uiState.downloadQueue.firstOrNull { it.id == queueId }
         client.removeDownload(profile, queueId)
+        withContext(Dispatchers.IO) { requestStore.update { requests ->
+            requests.filterNot { request -> request.target == DownloadTarget.DESKTOP && request.profileId == profile.id &&
+                !request.isBusy && request.isFinished &&
+                (request.desktopQueueId == queueId || request.desktopQueueId == null && request.galleryId == item?.galleryId) }
+        } }
     }
 
     fun clearCompletedDownloads() {

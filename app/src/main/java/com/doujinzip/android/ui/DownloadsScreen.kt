@@ -87,7 +87,7 @@ fun DownloadsScreen(
     }
 
     val visibleRequests = state.downloadRequests.filterNot { request ->
-        request.status == RequestStatus.SENT && request.profileId == state.selectedProfileId &&
+        request.status in setOf(RequestStatus.SENT, RequestStatus.COMPLETED) && request.profileId == state.selectedProfileId &&
             state.downloadQueue.any { it.galleryId == request.galleryId }
     }
     val hasProfile = state.profiles.any { it.id == state.selectedProfileId }
