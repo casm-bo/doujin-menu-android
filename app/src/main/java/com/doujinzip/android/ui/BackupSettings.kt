@@ -44,53 +44,60 @@ internal fun BackupSettings(onPrepare: suspend (String) -> File, onOpenConnectio
     LaunchedEffect(action, lock.locked) {
         val next = action ?: return@LaunchedEffect
         if (lock.locked) return@LaunchedEffect
-        action = null
-        if (next == "restore") { open.launch(arrayOf("application/zip", "application/octet-stream")); return@LaunchedEffect }
-        busy = true; message = null; error = false
-        try {
-            val file = onPrepare(AppCompatDelegate.getApplicationLocales().toLanguageTags())
-            readyPath = file.absolutePath
-            save.launch("doujin-backup-${java.time.LocalDate.now()}.zip")
-        } catch (failure: Exception) {
-            if (failure is kotlinx.coroutines.CancellationException) throw failure
-            failed()
-        } finally { busy = false }
+        // Consuming the request changes the effect key; the operation needs the screen scope.
+        scope.launch {
+            action = null
+            if (next == "restore") { open.launch(arrayOf("application/zip", "application/octet-stream")); return@launch }
+            busy = true; message = null; error = false
+            try {
+                val file = onPrepare(AppCompatDelegate.getApplicationLocales().toLanguageTags())
+                readyPath = file.absolutePath
+                save.launch("doujin-backup-${java.time.LocalDate.now()}.zip")
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                failed()
+            } finally { busy = false }
+        }
     }
     LaunchedEffect(pendingSave, lock.locked) {
         val selected = pendingSave ?: return@LaunchedEffect
         if (lock.locked) return@LaunchedEffect
-        pendingSave = null; busy = true
-        var file: File? = null
-        try {
-            // The picker may have stayed open while data changed. Sync and snapshot again.
-            file = onPrepare(AppCompatDelegate.getApplicationLocales().toLanguageTags())
-            withContext(Dispatchers.IO) {
-                val uri = android.net.Uri.parse(selected)
-                requireNotNull(context.contentResolver.openOutputStream(uri, "wt")).use { output -> file.inputStream().use { it.copyTo(output) } }
-                val expected = file.inputStream().use(BackupFormat::streamDigest)
-                val actual = requireNotNull(context.contentResolver.openInputStream(uri)).use(BackupFormat::streamDigest)
-                check(expected == actual)
-            }
-            error = false; message = strings[R.string.backup_saved]
-        } catch (failure: Exception) {
-            if (failure is kotlinx.coroutines.CancellationException) throw failure
-            failed()
-        } finally { file?.delete(); busy = false }
+        scope.launch {
+            pendingSave = null; busy = true
+            var file: File? = null
+            try {
+                // The picker may have stayed open while data changed. Sync and snapshot again.
+                file = onPrepare(AppCompatDelegate.getApplicationLocales().toLanguageTags())
+                withContext(Dispatchers.IO) {
+                    val uri = android.net.Uri.parse(selected)
+                    requireNotNull(context.contentResolver.openOutputStream(uri, "wt")).use { output -> file.inputStream().use { it.copyTo(output) } }
+                    val expected = file.inputStream().use(BackupFormat::streamDigest)
+                    val actual = requireNotNull(context.contentResolver.openInputStream(uri)).use(BackupFormat::streamDigest)
+                    check(expected == actual)
+                }
+                error = false; message = strings[R.string.backup_saved]
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                failed()
+            } finally { file?.delete(); busy = false }
+        }
     }
     LaunchedEffect(pendingRead, lock.locked) {
         val selected = pendingRead ?: return@LaunchedEffect
         if (lock.locked) return@LaunchedEffect
-        pendingRead = null; busy = true
-        try {
-            preview = withContext(Dispatchers.IO) {
-                requireNotNull(context.contentResolver.openInputStream(android.net.Uri.parse(selected))).use { input ->
-                    BackupFormat.read(input).also { LocalBackupStore(context).validate(it) }
+        scope.launch {
+            pendingRead = null; busy = true
+            try {
+                preview = withContext(Dispatchers.IO) {
+                    requireNotNull(context.contentResolver.openInputStream(android.net.Uri.parse(selected))).use { input ->
+                        BackupFormat.read(input).also { LocalBackupStore(context).validate(it) }
+                    }
                 }
-            }
-        } catch (failure: Exception) {
-            if (failure is kotlinx.coroutines.CancellationException) throw failure
-            failed()
-        } finally { busy = false }
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                failed()
+            } finally { busy = false }
+        }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(strings[R.string.backup_scope])
