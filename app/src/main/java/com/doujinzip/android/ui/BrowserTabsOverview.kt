@@ -93,6 +93,7 @@ internal fun BrowserTabsOverview(
     val grid = key(openGroupId, groupsOnly) { rememberLazyGridState(initialFirstVisibleItemIndex = selectedIndex.coerceAtLeast(0)) }
     LaunchedEffect(grid, openGroupId) {
         if (selectedIndex < 0) return@LaunchedEffect
+        grid.scrollToItem(selectedIndex)
         val layout = snapshotFlow { grid.layoutInfo }.first { info -> info.visibleItemsInfo.any { it.key == "tab:${workspace.activeTabId}" } }
         val item = layout.visibleItemsInfo.first { it.key == "tab:${workspace.activeTabId}" }
         val center = (layout.viewportStartOffset + layout.viewportEndOffset) / 2

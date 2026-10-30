@@ -11,6 +11,28 @@ import org.junit.Rule
 import org.junit.Test
 
 class TabGroupCloseTest {
+    @Test fun mergeMenuAppendsActiveSourceIntoArchivedDestination() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val cache = BrowserTabPreviewCache(context)
+        val tabs = (1..4).map { BrowserTab(id = "merge-fixture$it", history = listOf(BrowserPage.Search(query = "fixture$it"))) }
+        val grouped = BrowserWorkspace(tabs, tabs.first().id)
+            .createGroup(tabs.take(2).mapTo(mutableSetOf()) { it.id }, "Source")
+            .createGroup(tabs.takeLast(2).mapTo(mutableSetOf()) { it.id }, "Destination")
+        var workspace by mutableStateOf(grouped.archiveGroup(grouped.groups.last().id))
+        compose.setContent { DoujinZipTheme {
+            BrowserTabsOverview(workspace, false, cache, onSelect = {}, onCloseTab = {}, onUpdate = { workspace = it }, onDismiss = {})
+        } }
+        compose.onAllNodesWithContentDescription(context.getString(com.doujinzip.android.R.string.ui_tab_actions)).onFirst().performClick()
+        compose.onNodeWithText(context.getString(com.doujinzip.android.R.string.ui_merge_groups)).performClick()
+        compose.onNodeWithText("Destination").performClick()
+        compose.runOnIdle {
+            assertEquals("Destination", workspace.groups.single().name)
+            assertTrue(workspace.groups.single().isArchived)
+            assertEquals(listOf("merge-fixture3", "merge-fixture4", "merge-fixture1", "merge-fixture2"), workspace.groups.single().archivedTabs.map { it.id })
+            assertEquals(1, workspace.tabs.size)
+        }
+    }
+
     @Test fun reopeningLargeGroupShowsSelectedTabInsteadOfFirstRow() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val cache = BrowserTabPreviewCache(context)
@@ -22,6 +44,7 @@ class TabGroupCloseTest {
         repeat(2) {
             compose.onNodeWithText("Large fixture · 80").performClick()
             compose.onAllNodesWithText("fixture70").onFirst().assertIsDisplayed()
+            compose.onNode(hasScrollToIndexAction()).performScrollToIndex(0)
             compose.onNodeWithContentDescription(context.getString(com.doujinzip.android.R.string.ui_back_to_all_tabs)).performClick()
         }
     }
