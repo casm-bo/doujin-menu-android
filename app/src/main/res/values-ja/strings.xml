@@ -137,7 +137,7 @@
     <string name="ui_later">"後で"</string>
     <string name="ui_sync_library_pending">"ライブラリ同期、%1$s件待機中"</string>
     <string name="ui_could_not_save_folder_access_permission">"フォルダーのアクセス権を保存できませんでした。"</string>
-    <string name="ui_total_pc_active">"全%1$s件 · PCで実行中 %2$s件"</string>
+    <string name="ui_total_pc_active">合計 %1$s · 進行中 %2$s</string>
     <string name="ui_clear_completed_items">完了履歴を一括削除</string>
     <string name="ui_pc_pending">"PC待機 %1$s件"</string>
     <string name="ui_syncing">"同期中…"</string>

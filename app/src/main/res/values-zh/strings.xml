@@ -137,7 +137,7 @@
     <string name="ui_later">"稍后"</string>
     <string name="ui_sync_library_pending">"同步库，待处理%1$s项"</string>
     <string name="ui_could_not_save_folder_access_permission">"无法保存文件夹访问权限。"</string>
-    <string name="ui_total_pc_active">"共%1$s项 · PC正在处理%2$s项"</string>
+    <string name="ui_total_pc_active">全部 %1$s · 进行中 %2$s</string>
     <string name="ui_clear_completed_items">批量清理已完成记录</string>
     <string name="ui_pc_pending">"PC待同步%1$s项"</string>
     <string name="ui_syncing">"同步中…"</string>

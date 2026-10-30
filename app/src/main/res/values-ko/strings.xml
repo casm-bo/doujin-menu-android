@@ -137,7 +137,7 @@
     <string name="ui_later">"나중에"</string>
     <string name="ui_sync_library_pending">"라이브러리 동기화, 대기 %1$s개"</string>
     <string name="ui_could_not_save_folder_access_permission">"폴더 접근 권한을 저장하지 못했습니다."</string>
-    <string name="ui_total_pc_active">"전체 %1$s · PC 진행 중 %2$s"</string>
+    <string name="ui_total_pc_active">전체 %1$s · 진행 중 %2$s</string>
     <string name="ui_clear_completed_items">기록 일괄 정리</string>
     <string name="ui_pc_pending">"PC 대기 %1$s개"</string>
     <string name="ui_syncing">"동기화 중…"</string>

@@ -24,6 +24,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -683,7 +684,13 @@ private fun MainShell(
     val topBar: @Composable () -> Unit = {
         Column {
             if (selected != MainDestination.Browser && selected != MainDestination.Library) {
-                TopAppBar(title = { Text(strings[selected.labelResource]) })
+                TopAppBar(title = { Text(strings[selected.labelResource]) }, actions = {
+                    if (selected == MainDestination.Downloads) TextButton(
+                        onClick = viewModel::syncDownloadRequests,
+                        enabled = viewModel.uiState.selectedProfileId != null && !viewModel.uiState.isDownloadSyncing,
+                    ) { Text(strings[if (viewModel.uiState.isDownloadSyncing) R.string.ui_syncing else R.string.ui_sync_with_pc]) }
+                })
+                if (selected == MainDestination.Downloads) androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
             }
             when (selected) {
                 MainDestination.Browser -> Unit

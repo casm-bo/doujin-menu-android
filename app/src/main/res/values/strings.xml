@@ -137,7 +137,7 @@
     <string name="ui_later">"Later"</string>
     <string name="ui_sync_library_pending">"Sync library, %1$s pending"</string>
     <string name="ui_could_not_save_folder_access_permission">"Could not save folder access permission."</string>
-    <string name="ui_total_pc_active">"Total %1$s · PC active %2$s"</string>
+    <string name="ui_total_pc_active">Total %1$s · In progress %2$s</string>
     <string name="ui_clear_completed_items">Clear completed records</string>
     <string name="ui_pc_pending">"PC pending %1$s"</string>
     <string name="ui_syncing">"Syncing…"</string>

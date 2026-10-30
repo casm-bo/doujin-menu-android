@@ -103,19 +103,15 @@ fun DownloadsScreen(
     Column(
         modifier = Modifier.fillMaxSize().padding(contentPadding).background(MaterialTheme.colorScheme.surface),
     ) {
+        val activeCount = state.downloadQueue.count { it.status == DownloadStatus.PENDING || it.status == DownloadStatus.DOWNLOADING } +
+            visibleRequests.count { it.status == RequestStatus.WAITING || it.isBusy }
+        Text(strings[R.string.ui_total_pc_active, state.downloadQueue.size + visibleRequests.size, activeCount],
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val activeCount = state.downloadQueue.count {
-                it.status == DownloadStatus.PENDING || it.status == DownloadStatus.DOWNLOADING
-            }
-            Text(
-                strings[R.string.ui_total_pc_active, (state.downloadQueue.size + visibleRequests.size), (activeCount)],
-                modifier = Modifier.weight(1f),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             TextButton(
                 onClick = onClearCompleted,
                 enabled = state.downloadQueue.any { it.status == DownloadStatus.COMPLETED } || state.downloadRequests.any { it.status == RequestStatus.COMPLETED },
@@ -127,18 +123,11 @@ fun DownloadsScreen(
         }
 
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(strings[R.string.ui_pc_pending, (state.downloadRequests.count { it.target == DownloadTarget.DESKTOP && !it.isFinished })], Modifier.weight(1f))
-            TextButton(onClick = onSyncRequests, enabled = hasProfile && !state.isDownloadSyncing &&
-                state.downloadRequests.any { it.pendingForDesktop(state.selectedProfileId.orEmpty()) }) {
-                Text(if (state.isDownloadSyncing) strings[R.string.ui_syncing] else strings[R.string.ui_sync_with_pc])
-            }
-        }
-        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(strings[R.string.ui_device_storage, (state.downloadLocation?.let { readableStoragePath(it.uri, it.displayName) } ?: strings[R.string.download_folder_unset])], Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { folderPicker.launch(null) }) { Text(strings[R.string.ui_choose_folder]) }
         }
         Text(strings[R.string.ui_desktop_download_folder] + ": " + (state.desktopDownloadPath?.let { readableStoragePath(it) }
-            ?: strings[R.string.ui_not_configured_on_desktop]), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+            ?: strings[R.string.ui_not_configured_on_desktop]), Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), style = MaterialTheme.typography.bodySmall)
         if (!hasProfile || state.isDownloadConnectionUnavailable) {
             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(strings[R.string.ui_pc_disconnected_pending_requests_are_stored_on_this_device], Modifier.weight(1f))
@@ -295,11 +284,15 @@ private fun DownloadQueueCard(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        strings[item.status.labelResource],
+                        strings[if (item.status == DownloadStatus.COMPLETED) R.string.download_complete else R.string.download_incomplete],
                         modifier = Modifier.weight(1f),
                         color = item.status.statusColor(),
                         style = MaterialTheme.typography.labelLarge,
                     )
+                    if (item.status == DownloadStatus.FAILED) TextButton(onClick = onRetry, enabled = !actionInProgress) { Text(strings[R.string.ui_retry]) }
+                }
+                if (item.status != DownloadStatus.COMPLETED) Text(strings[item.status.labelResource], style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Text(
                         "${item.downloadedFiles}/${item.totalFiles} · ${item.progress}%",
                         style = MaterialTheme.typography.labelMedium,
@@ -324,7 +317,6 @@ private fun DownloadQueueCard(
                     when (item.status) {
                         DownloadStatus.DOWNLOADING -> DownloadActionButton(strings[R.string.ui_pause], actionInProgress, onPause)
                         DownloadStatus.PAUSED -> DownloadActionButton(strings[R.string.ui_resume], actionInProgress, onResume)
-                        DownloadStatus.FAILED -> DownloadActionButton(strings[R.string.ui_retry], actionInProgress, onRetry)
                         else -> Unit
                     }
                     TextButton(
@@ -370,9 +362,9 @@ private fun DownloadActionButton(
 
 @Composable
 private fun DownloadStatus.statusColor() = when (this) {
-    DownloadStatus.COMPLETED -> MaterialTheme.colorScheme.primary
+    DownloadStatus.COMPLETED -> androidx.compose.ui.graphics.Color(0xFF218739)
     DownloadStatus.FAILED -> MaterialTheme.colorScheme.error
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
+    else -> MaterialTheme.colorScheme.error
 }
 
 private val DownloadStatus.labelResource: Int
