@@ -2588,6 +2588,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(onlineReaderProgress = progress, viewedGalleryIds = viewedIds)
     }
 
+    fun refreshHistory() {
+        uiState = uiState.copy(recentHistory = recentHistoryStore.load())
+    }
+
     private fun saveHistory(event: RecentHistoryEntry) {
         if (!uiState.historyRecording) return
         val entries = uiState.recentHistory.recordHistory(event)

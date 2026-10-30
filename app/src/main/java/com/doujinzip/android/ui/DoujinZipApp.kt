@@ -911,6 +911,7 @@ private fun MainTabContent(
             onOpen = viewModel::openHistory, onRemove = viewModel::removeHistory,
             onClear = viewModel::clearHistory, onRecordingChange = viewModel::setHistoryRecording,
             onLoadMetadata = viewModel::loadHistoryMetadata,
+            onRefresh = viewModel::refreshHistory,
         )
         MainDestination.Downloads -> {
             DownloadsScreen(
