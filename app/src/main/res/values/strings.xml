@@ -608,4 +608,6 @@
     <string name="backup_pending">Resolve unsynced changes and conflicts before backup.</string>
     <string name="backup_restored">Local data and settings restored. Select library folders again if needed.</string>
     <string name="backup_restore_failed">Restore failed. Previous data was preserved.</string>
+    <string name="ui_merge_groups">Merge into another group</string>
+    <string name="ui_merge_groups_notice">Choose the destination. Its name, color and open or archived state are kept. Source tabs are appended and the source group is removed.</string>
 </resources>

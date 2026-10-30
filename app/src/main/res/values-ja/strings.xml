@@ -608,4 +608,6 @@
     <string name="backup_pending">バックアップ前に未同期の変更・競合を解決してください。</string>
     <string name="backup_restored">ローカルデータ・設定を復元しました。必要に応じてフォルダーを再選択してください。</string>
     <string name="backup_restore_failed">復元に失敗しました。以前のデータは保持されています。</string>
+    <string name="ui_merge_groups">別のグループに結合</string>
+    <string name="ui_merge_groups_notice">結合先を選択してください。結合先の名前・色・開いている状態または保存状態を維持し、元のタブを末尾に追加して元のグループを削除します。</string>
 </resources>

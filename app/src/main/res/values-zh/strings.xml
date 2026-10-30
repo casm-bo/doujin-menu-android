@@ -608,4 +608,6 @@
     <string name="backup_pending">请先解决未同步更改和冲突。</string>
     <string name="backup_restored">本地数据和设置已恢复。必要时请重新选择资料库文件夹。</string>
     <string name="backup_restore_failed">恢复失败。原有数据已保留。</string>
+    <string name="ui_merge_groups">合并到其他分组</string>
+    <string name="ui_merge_groups_notice">请选择目标分组。保留目标名称、颜色和打开或归档状态。源标签页追加到末尾，源分组移除。</string>
 </resources>

@@ -5,6 +5,8 @@ import com.doujinzip.android.R
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -67,6 +69,7 @@ internal fun BrowserTabsOverview(
     var editingGroup by remember { mutableStateOf<BrowserTabGroup?>(null) }
     var creatingGroup by remember { mutableStateOf(false) }
     var movingTabs by remember { mutableStateOf<Set<String>?>(null) }
+    var mergingGroup by remember { mutableStateOf<String?>(null) }
     var deletingGroup by remember { mutableStateOf<BrowserTabGroup?>(null) }
     var dragWorkspace by remember { mutableStateOf<BrowserWorkspace?>(null) }
     val displayedWorkspace = dragWorkspace ?: workspace
@@ -103,7 +106,7 @@ internal fun BrowserTabsOverview(
                 position.y >= info.offset.y && position.y < info.offset.y + info.size.height
         }
         val current = dragWorkspace ?: latestWorkspace
-        val canGroup = openGroupId == null && !groupsOnly && key.startsWith("tab:")
+        val canGroup = openGroupId == null && ((!groupsOnly && key.startsWith("tab:")) || key.startsWith("group:") && (target?.key as? String)?.startsWith("group:") == true)
         val inCenter = target != null && isTabDropCenter(position.x - target.offset.x, position.y - target.offset.y,
             target.size.width.toFloat(), target.size.height.toFloat())
         if (canGroup && inCenter) hover = target.key as? String
@@ -223,7 +226,7 @@ internal fun BrowserTabsOverview(
                                     val target = mergeTarget?.takeIf { it == hover }
                                     val ordered = latestWorkspace.commitTabDragOrder(dragWorkspace ?: latestWorkspace)
                                     val result = when {
-                                        source != null && target != null -> ordered.mergeTabDrop(source, target)
+                                        source != null && target != null -> ordered.mergeTabDrop(source, target, fallback)
                                         source != null && hover != null -> ordered.moveOverviewItem(source, requireNotNull(hover))
                                         else -> ordered
                                     }
@@ -255,7 +258,7 @@ internal fun BrowserTabsOverview(
                                     is BrowserOverviewItem.Tab -> onCloseTab(item.tab.id)
                                     is BrowserOverviewItem.Group -> onUpdate(workspace.archiveGroup(item.group.id, fallback))
                                 } },
-                                onEditGroup = { editingGroup = it }, onUngroup = { onUpdate(workspace.ungroup(it)) },
+                                onMergeGroup = { mergingGroup = it }, onEditGroup = { editingGroup = it }, onUngroup = { onUpdate(workspace.ungroup(it)) },
                                 onDeleteGroup = { deletingGroup = it }, onMoveTab = { movingTabs = setOf(it) },
                                 onDetachTab = { onUpdate(workspace.assignTabToGroup(it, null)) }, archived = openGroup?.isArchived == true)
                         }
@@ -266,7 +269,7 @@ internal fun BrowserTabsOverview(
                                 .offset { IntOffset((pointer.x - grabOffset.x).toInt(), (pointer.y - grabOffset.y).toInt()) }
                                 .width(with(density) { dragSize.width.toDp() })
                                 .graphicsLayer { scaleX = 1.04f; scaleY = 1.04f; shadowElevation = 16f },
-                            onClick = {}, onDismiss = {}, onEditGroup = {}, onUngroup = {}, onDeleteGroup = {},
+                            onClick = {}, onDismiss = {}, onMergeGroup = {}, onEditGroup = {}, onUngroup = {}, onDeleteGroup = {},
                             onMoveTab = {}, onDetachTab = {}, archived = openGroup?.isArchived == true)
                     }
                     if (items.isEmpty()) Text(if (groupsOnly) strings[R.string.ui_no_archived_groups] else strings[R.string.ui_no_matching_tabs], Modifier.align(Alignment.Center))
@@ -291,6 +294,19 @@ internal fun BrowserTabsOverview(
                 }
             }, confirmButton = { TextButton(onClick = { movingTabs = null }) { Text(strings[R.string.ui_cancel]) } })
         }
+        mergingGroup?.let { sourceId ->
+            AlertDialog(onDismissRequest = { mergingGroup = null }, title = { Text(strings[R.string.ui_merge_groups]) }, text = {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    Text(strings[R.string.ui_merge_groups_notice])
+                    workspace.groups.filterNot { it.id == sourceId }.forEach { target ->
+                        TextButton(onClick = {
+                            onUpdate(workspace.mergeGroups(sourceId, target.id, fallback))
+                            mergingGroup = null; openGroupId = null
+                        }) { Text(target.name) }
+                    }
+                }
+            }, confirmButton = { TextButton(onClick = { mergingGroup = null }) { Text(strings[R.string.ui_cancel]) } })
+        }
         deletingGroup?.let { group ->
             AlertDialog(onDismissRequest = { deletingGroup = null }, title = { Text(strings[R.string.ui_delete_archived_group]) },
                 text = { Text(strings[R.string.ui_delete_saved_tab_history_for_group, (group.name)]) },
@@ -305,7 +321,7 @@ internal fun BrowserTabsOverview(
 private fun OverviewCard(
     item: BrowserOverviewItem, workspace: BrowserWorkspace, previews: BrowserTabPreviewCache, isGallery: Boolean,
     selected: Boolean, merging: Boolean, canSwipe: Boolean, modifier: Modifier,
-    onClick: () -> Unit, onDismiss: () -> Unit, onEditGroup: (BrowserTabGroup) -> Unit,
+    onClick: () -> Unit, onDismiss: () -> Unit, onMergeGroup: (String) -> Unit, onEditGroup: (BrowserTabGroup) -> Unit,
     onUngroup: (String) -> Unit, onDeleteGroup: (BrowserTabGroup) -> Unit,
     onMoveTab: (String) -> Unit, onDetachTab: (String) -> Unit, archived: Boolean,
 ) {
@@ -333,6 +349,7 @@ private fun OverviewCard(
                         IconButton(onClick = { menu = true }, modifier = Modifier.size(40.dp).semantics { contentDescription = strings[R.string.ui_tab_actions] }) { Text("⋮") }
                         DropdownMenu(menu, onDismissRequest = { menu = false }) {
                             if (group != null) {
+                                if (workspace.groups.size > 1) DropdownMenuItem(text = { Text(strings[R.string.ui_merge_groups]) }, onClick = { menu = false; onMergeGroup(group.id) })
                                 DropdownMenuItem(text = { Text(strings[R.string.ui_rename_color]) }, onClick = { menu = false; onEditGroup(group) })
                                 if (group.isArchived) DropdownMenuItem(text = { Text(strings[R.string.ui_delete_group]) }, onClick = { menu = false; onDeleteGroup(group) })
                                 else {
@@ -405,7 +422,8 @@ private fun GroupEditor(group: BrowserTabGroup?, onDismiss: () -> Unit, onSave: 
 internal fun isTabDropCenter(x: Float, y: Float, width: Float, height: Float): Boolean =
     x in width * 0.25f..width * 0.75f && y in height * 0.25f..height * 0.75f
 
-internal fun BrowserWorkspace.mergeTabDrop(sourceKey: String, targetKey: String): BrowserWorkspace {
+internal fun BrowserWorkspace.mergeTabDrop(sourceKey: String, targetKey: String, fallback: BrowserPage = BrowserPage.Search()): BrowserWorkspace {
+    if (sourceKey.startsWith("group:") && targetKey.startsWith("group:")) return mergeGroups(sourceKey.removePrefix("group:"), targetKey.removePrefix("group:"), fallback)
     val tabId = sourceKey.removePrefix("tab:")
     if (!sourceKey.startsWith("tab:") || tabs.none { it.id == tabId }) return this
     return when {
