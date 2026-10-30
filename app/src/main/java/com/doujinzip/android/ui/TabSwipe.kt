@@ -50,7 +50,7 @@ internal class TabSwipeState(private val scope: CoroutineScope) {
         if (!animating) offset = if (hasNeighbor) distance.coerceIn(-width, width) else (distance * .18f).coerceIn(-width * .08f, width * .08f)
     }
     fun cancel() { job?.cancel(); offset = 0f; animating = false }
-    fun settle(target: String?, current: () -> Boolean, capture: suspend () -> Unit, select: (String) -> Unit) {
+    fun settle(target: String?, current: () -> Boolean, select: (String) -> Unit) {
         if (animating) return
         animating = true
         job = scope.launch {
@@ -58,15 +58,12 @@ internal class TabSwipeState(private val scope: CoroutineScope) {
                 if (target == null) {
                     animate(offset, 0f, animationSpec = spring(stiffness = 500f, dampingRatio = .85f)) { value, _ -> offset = value }
                 } else {
-                    capture()
                     if (!current()) return@launch
                     val direction = if (offset < 0) -1 else 1
-                    animate(offset, direction * width, animationSpec = tween(110, easing = FastOutSlowInEasing)) { value, _ -> offset = value }
-                    if (!current()) return@launch
                     select(target)
                     offset = -direction * width
                     // Let navigation and the target screen compose before sliding it into view.
-                    withFrameNanos { }; withFrameNanos { }
+                    withFrameNanos { }
                     animate(offset, 0f, animationSpec = tween(180, easing = FastOutSlowInEasing)) { value, _ -> offset = value }
                 }
             } finally { offset = 0f; animating = false }
