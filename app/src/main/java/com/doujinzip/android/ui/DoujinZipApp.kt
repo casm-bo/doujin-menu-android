@@ -24,6 +24,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -695,13 +696,14 @@ private fun MainShell(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth >= 700.dp) {
             Row(modifier = Modifier.fillMaxSize()) {
-                NavigationRail {
+                NavigationRail(modifier = Modifier.fillMaxHeight()) {
                     MainDestination.entries.forEach { destination ->
                         NavigationRailItem(
+                            modifier = Modifier.weight(1f),
                             selected = destination == selected,
                             onClick = { navigate(destination) },
                             icon = { MainDestinationIcon(destination) },
-                            label = { Text(strings[destination.labelResource]) },
+                            label = { Text(strings[destination.labelResource], maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
                         )
                     }
                 }

@@ -214,7 +214,7 @@ internal fun BrowserTabsOverview(
                     Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Box(Modifier.weight(1f)) {
-                    LazyVerticalGrid(columns = GridCells.Fixed(2), state = grid, contentPadding = PaddingValues(16.dp),
+                    LazyVerticalGrid(columns = GridCells.Fixed(if (androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 3 else 2), state = grid, contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize().pointerInput(selecting, openGroupId, groupsOnly, openGroup?.isArchived) {
                             if (!selecting && openGroup?.isArchived != true) detectDragGesturesAfterLongPress(
@@ -347,7 +347,7 @@ private fun OverviewCard(
     LaunchedEffect(dismiss.currentValue) { if (dismiss.currentValue != SwipeToDismissBoxValue.Settled) latestDismiss() }
     SwipeToDismissBox(state = dismiss, modifier = modifier, enableDismissFromStartToEnd = canSwipe, enableDismissFromEndToStart = canSwipe,
         backgroundContent = { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (group == null) strings[R.string.ui_close] else strings[R.string.ui_archive_group]) } }) {
-        Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().aspectRatio(0.72f), shape = RoundedCornerShape(22.dp),
+        Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().aspectRatio(if (androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 1.9f else 0.72f), shape = RoundedCornerShape(22.dp),
             color = if (selected || active || merging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
             border = if (active || selected || merging) BorderStroke(if (merging) 4.dp else 2.dp, color) else null) {
             Column(Modifier.padding(6.dp)) {
