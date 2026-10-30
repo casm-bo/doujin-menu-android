@@ -414,7 +414,7 @@ private fun ChangelogScreen(contentPadding: PaddingValues, onBack: () -> Unit) {
         appChangelog.forEach { changelog ->
             SectionCard("v${changelog.version}") {
                 changelog.changes.forEach { change ->
-                    Text("• $change")
+                    Text("• $change", modifier = Modifier.padding(vertical = 4.dp))
                 }
             }
         }
