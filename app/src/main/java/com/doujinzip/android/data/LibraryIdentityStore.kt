@@ -68,16 +68,30 @@ class LibraryIdentityStore(context: Context, databaseName: String = DATABASE_NAM
         sourceUri: String,
         parsedInfo: ParsedInfoTxt,
         modifiedAt: Long,
+        relativePath: String? = null,
     ): StoredLibraryIdentity {
         val database = writableDatabase
         database.beginTransaction()
         try {
             val existing = findBySourceKey(database, sourceKey)
+            val portable = relativePath?.let { path ->
+                database.query(TABLE_IDENTITIES, arrayOf(COLUMN_SOURCE_KEY, COLUMN_SYNC_ID),
+                    "$COLUMN_SOURCE_KEY LIKE 'backup:%' AND $COLUMN_SOURCE_URI = ?",
+                    arrayOf("${sourceKey.substringBefore(':')}:$path"), null, null, null).use { cursor ->
+                    val candidates = buildList { while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1)) }
+                    // Ambiguous paths must not attach another gallery's progress.
+                    candidates.takeIf { it.map { candidate -> candidate.second }.distinct().size == 1 }?.firstOrNull()?.first
+                }?.let { findBySourceKey(database, it) }?.takeIf { candidate ->
+                    (parsedInfo.uuid == null || parsedInfo.uuid.normalizedSyncId() == candidate.syncId) &&
+                        (parsedInfo.metadata.hitomiId == null || candidate.info.metadata.hitomiId == null || parsedInfo.metadata.hitomiId == candidate.info.metadata.hitomiId)
+                }
+            }
             val sameGallery = parsedInfo.metadata.hitomiId
                 ?.let { findFirstByHitomiId(database, it) }
-            val cachedInfo = existing?.info ?: sameGallery?.info ?: ParsedInfoTxt()
+            val cachedInfo = existing?.info ?: sameGallery?.info ?: portable?.info ?: ParsedInfoTxt()
             val mergedInfo = mergeParsedInfo(parsedInfo, cachedInfo)
-            val syncId = existing?.syncId
+            // shortcut: ID-less galleries rely on relative paths; add fingerprints for renamed/replaced files.
+            val syncId = portable?.syncId ?: existing?.syncId
                 ?: parsedInfo.uuid?.normalizedSyncId()
                 ?: sameGallery?.syncId
                 ?: UUID.randomUUID().toString()

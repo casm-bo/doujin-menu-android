@@ -4,6 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GalleryBordersTest {
+    @Test fun defaultsAreThreeDpAndExplicitWidthsRemainUnchanged() {
+        val defaults = GalleryBorders()
+        listOf(defaults.normal, defaults.series, defaults.favorite).forEach { assertEquals(3f, it.widthDp) }
+        assertEquals(1f, GalleryBorderStyle(widthDp = 1f).widthDp)
+        assertEquals(0f, GalleryBorderStyle(widthDp = 0f).widthDp)
+    }
     @Test fun favoriteOverridesSeriesAndFallsBackAfterRemoval() {
         val borders = GalleryBorders()
         assertEquals(borders.favorite, borders.styleFor(series = true, favorite = true))

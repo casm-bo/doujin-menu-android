@@ -56,6 +56,7 @@ class LibraryScanner(
             val identity = identityStore.resolve(
                 sourceKey = "folder:$folderUri",
                 sourceUri = folderUri,
+                relativePath = documentId.removePrefix(DocumentsContract.getTreeDocumentId(treeUri)).trim('/').ifEmpty { "." },
                 parsedInfo = parsedInfo,
                 modifiedAt = children.maxOfOrNull(DocumentEntry::modifiedAt) ?: 0L,
             )
@@ -102,6 +103,7 @@ class LibraryScanner(
         if (pageEntries.isEmpty()) return null
         val identity = identityStore.resolve(
             sourceKey = "archive:${entry.uri}", sourceUri = source, parsedInfo = info, modifiedAt = entry.modifiedAt,
+            relativePath = DocumentsContract.getDocumentId(entry.uri).removePrefix(DocumentsContract.getTreeDocumentId(Uri.parse(location.uri))).trim('/'),
         )
         info = identity.info
         val sorted = pageEntries.sortedBy(::naturalSortKey)

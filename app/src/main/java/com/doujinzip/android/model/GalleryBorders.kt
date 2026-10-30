@@ -1,6 +1,6 @@
 package com.doujinzip.android.model
 
-data class GalleryBorderStyle(val widthDp: Float = 1f, val colorArgb: Long = 0xFFB0A6BC) {
+data class GalleryBorderStyle(val widthDp: Float = 3f, val colorArgb: Long = 0xFFB0A6BC) {
     init {
         require(widthDp.isFinite() && widthDp in 0f..6f)
         require(colorArgb in 0..0xFFFFFFFFL)

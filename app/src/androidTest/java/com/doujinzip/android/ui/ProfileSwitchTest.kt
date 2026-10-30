@@ -18,7 +18,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ProfileSwitchTest {
-    @Test fun delayedPreviousPcCannotReplaceTheSelectedPcAndRemovalReloadsScope() {
+    @Test fun legacySelectionKeepsOnePcAndLateResponsesCannotReplaceIt() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         check(context.packageName.endsWith(".uitest"))
@@ -80,11 +80,12 @@ class ProfileSwitchTest {
             instrumentation.runOnMainSync {
                 assertEquals("Edited B", model.uiState.libraryBooks.single().title)
                 assertEquals("Edited B", model.uiState.presentations.getValue("hitomi:$galleryId").value.title)
+                assertEquals(listOf(profiles[1]), profileStore.load())
+                assertEquals(listOf(profiles[1]), model.uiState.profiles)
                 model.removeProfile(profiles[1].id)
             }
-            waitFor { model.uiState.libraryBooks.singleOrNull()?.title == "Edited A" }
+            waitFor { model.uiState.selectedProfileId == null && model.uiState.libraryBooks.isEmpty() }
             instrumentation.runOnMainSync {
-                model.removeProfile(profiles[0].id)
                 assertNull(model.uiState.selectedProfileId)
                 assertTrue(model.uiState.libraryBooks.isEmpty())
                 assertFalse("Removed PC metadata must not remain active", "hitomi:$galleryId" in model.uiState.presentations)
