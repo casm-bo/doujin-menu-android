@@ -931,6 +931,7 @@ private fun MainTabContent(
                 onLocalDownload = viewModel::startLocalDownload,
                 onPauseLocal = viewModel::pauseLocalDownload,
                 onSyncRequests = viewModel::syncDownloadRequests,
+                onRetryRequest = viewModel::retryDesktopDownloadRequest,
                 onSetDownloadLocation = viewModel::setDownloadLocation,
             )
         }

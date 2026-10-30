@@ -67,6 +67,7 @@ fun DownloadsScreen(
     onPauseLocal: (String) -> Unit,
     onSetDownloadLocation: (String, String) -> Unit,
     onSyncRequests: () -> Unit,
+    onRetryRequest: (String) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
@@ -117,7 +118,7 @@ fun DownloadsScreen(
             )
             TextButton(
                 onClick = onClearCompleted,
-                enabled = state.downloadQueue.any { it.status == DownloadStatus.COMPLETED },
+                enabled = state.downloadQueue.any { it.status == DownloadStatus.COMPLETED } || state.downloadRequests.any { it.status == RequestStatus.COMPLETED },
             ) { Text(strings[R.string.ui_clear_completed_items]) }
             OutlinedButton(
                 onClick = { onRefresh(false) },
@@ -187,26 +188,34 @@ fun DownloadsScreen(
                 ) {
                     items(visibleRequests, key = { "request:${it.id}" }) { request ->
                         Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text(preferredLocalizedTitle(request.title), fontWeight = FontWeight.SemiBold)
                                 val local = request.target == DownloadTarget.LOCAL
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Text(when (request.status) {
                                     RequestStatus.WAITING -> if (local) strings[R.string.ui_waiting_for_device_download] else strings[R.string.ui_waiting_for_pc_sync]
                                     RequestStatus.SENDING -> strings[R.string.ui_sending_to_pc]
-                                    RequestStatus.SENT -> strings[R.string.ui_sent_to_pc_queue]
+                                    RequestStatus.SENT -> strings[R.string.download_incomplete]
                                     RequestStatus.RUNNING -> strings[R.string.ui_downloading_to_device]
                                     RequestStatus.PAUSING -> strings[R.string.ui_pausing]
                                     RequestStatus.PAUSED -> strings[R.string.ui_device_download_paused]
                                     RequestStatus.FAILED -> strings[R.string.ui_device_download_failed]
-                                    RequestStatus.COMPLETED -> strings[R.string.ui_saved_on_device]
-                                })
+                                    RequestStatus.COMPLETED -> strings[R.string.download_complete]
+                                }, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
+                                    color = if (request.status == RequestStatus.COMPLETED) androidx.compose.ui.graphics.Color(0xFF218739) else MaterialTheme.colorScheme.error)
+                                if (!request.isBusy && request.status != RequestStatus.COMPLETED) TextButton(onClick = { if(local) onLocalDownload(request.id) else onRetryRequest(request.id) }) { Text(strings[R.string.ui_retry]) }
+                                }
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    val desktop = state.profiles.firstOrNull { it.id == request.profileId }
+                                    Text(strings[R.string.ui_target, if(local) strings[R.string.ui_device_d79c45] else desktop?.name ?: strings[R.string.next_sync_pc]], Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                    TextButton(onClick = { onRemoveRequest(request.id) }, enabled = !request.isBusy) {
+                                        Text(if(request.isFinished || request.desktopAttempted) strings[R.string.ui_clear_record] else strings[R.string.ui_cancel_and_delete])
+                                    }
+                                }
                                 if (local) {
                                     Text(strings[R.string.ui_pages_cb9b7a, (request.downloadedFiles), (request.totalFiles)], style = MaterialTheme.typography.bodySmall)
                                     if (request.totalFiles > 0) LinearProgressIndicator(
                                         progress = { request.downloadedFiles.toFloat() / request.totalFiles }, modifier = Modifier.fillMaxWidth())
-                                } else {
-                                    val desktop = state.profiles.firstOrNull { it.id == request.profileId }
-                                    Text(strings[R.string.ui_target, (desktop?.name ?: if (request.profileId == null) strings[R.string.next_sync_pc] else strings[R.string.removed_pc])], style = MaterialTheme.typography.bodySmall)
                                 }
                                 if (request.desktopAttempted && !request.isFinished && !request.isBusy) {
                                     Text(strings[R.string.ui_check_transfer_status_sync_with_pc], style = MaterialTheme.typography.bodySmall)
@@ -221,9 +230,7 @@ fun DownloadsScreen(
                                     if (local && (request.status == RequestStatus.RUNNING || request.status == RequestStatus.WAITING)) {
                                         TextButton(onClick = { onPauseLocal(request.id) }) { Text(strings[R.string.ui_pause]) }
                                     }
-                                    TextButton(onClick = { onRemoveRequest(request.id) }, enabled = !request.isBusy) {
-                                        Text(if (request.isFinished || request.desktopAttempted) strings[R.string.ui_clear_record] else strings[R.string.ui_cancel_and_delete])
-                                    }
+
                                 }
                             }
                         }
@@ -264,7 +271,7 @@ private fun DownloadQueueCard(
     }
     Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             AsyncImage(
@@ -275,7 +282,7 @@ private fun DownloadQueueCard(
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
                     preferredLocalizedTitle(displayTitle),
@@ -312,7 +319,8 @@ private fun DownloadQueueCard(
                 item.errorMessage?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, maxLines = 2)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(strings[R.string.ui_target, strings[R.string.ui_desktop]], Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     when (item.status) {
                         DownloadStatus.DOWNLOADING -> DownloadActionButton(strings[R.string.ui_pause], actionInProgress, onPause)
                         DownloadStatus.PAUSED -> DownloadActionButton(strings[R.string.ui_resume], actionInProgress, onResume)
@@ -324,7 +332,7 @@ private fun DownloadQueueCard(
                         enabled = !actionInProgress && item.status != DownloadStatus.DOWNLOADING,
                     ) {
                         Text(
-                            if (item.status == DownloadStatus.COMPLETED) strings[R.string.ui_completed]
+                            if (item.status == DownloadStatus.COMPLETED) strings[R.string.ui_clear_record]
                             else strings[R.string.ui_cancel_and_delete],
                         )
                     }

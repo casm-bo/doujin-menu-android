@@ -33,6 +33,7 @@ import com.doujinzip.android.model.queriesWithPreferredLanguages
 import com.doujinzip.android.model.invalidateSearchResults
 import com.doujinzip.android.model.isSearchPageInRange
 import com.doujinzip.android.data.DownloadRequestStore
+import com.doujinzip.android.data.confirmDesktopCompletions
 import com.doujinzip.android.data.DownloadTarget
 import com.doujinzip.android.data.RequestStatus
 import com.doujinzip.android.data.addDownloadRequest
@@ -2709,6 +2710,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             try {
                 val downloads = sortDownloadQueueNewest(client.getDownloads(profile))
+                withContext(Dispatchers.IO) { requestStore.update { it.confirmDesktopCompletions(profile.id, downloads) } }
                 val completedIds = downloads.asSequence()
                     .filter { it.status == DownloadStatus.COMPLETED }
                     .mapTo(hashSetOf(), DownloadQueueItem::id)
@@ -2754,8 +2756,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         client.removeDownload(profile, queueId)
     }
 
-    fun clearCompletedDownloads() = runDownloadAction(null) { profile ->
-        client.clearCompletedDownloads(profile)
+    fun clearCompletedDownloads() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { requestStore.update { list -> list.filterNot { it.status == RequestStatus.COMPLETED } } }
+        }
+        if (selectedProfile() != null && uiState.downloadQueue.any { it.status == DownloadStatus.COMPLETED }) runDownloadAction(null) { profile ->
+            client.clearCompletedDownloads(profile)
+        }
     }
 
     private fun runDownloadAction(
@@ -3724,6 +3731,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return acceptedStatesByBookId.keys
     }
 
+    fun retryDesktopDownloadRequest(id: String) {
+        val profile = selectedProfile() ?: return
+        if (uiState.isDownloadSyncing) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { requestStore.change(id) { request ->
+                if (request.target == DownloadTarget.DESKTOP && !request.isBusy && request.status != RequestStatus.COMPLETED && (request.profileId == null || request.profileId == profile.id))
+                    request.copy(status = RequestStatus.WAITING, error = null) else request
+            } }
+            sendPendingDownloadRequests(profile, onlyRequestId = id)
+        }
+    }
+
     fun syncDownloadRequests() {
         val profile = selectedProfile() ?: run {
             uiState = uiState.copy(downloadQueueError = strings[R.string.msg_connect_to_desktop_first])
@@ -3762,7 +3781,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!claimed) continue
                 try {
                     val item = client.requestDownload(profile, request.galleryId, request.id)
-                    withContext(Dispatchers.IO) { requestStore.change(request.id) { it.copy(status = RequestStatus.SENT, error = null) } }
+                    withContext(Dispatchers.IO) { requestStore.change(request.id) { it.copy(status = if (item.status == DownloadStatus.COMPLETED) RequestStatus.COMPLETED else RequestStatus.SENT, desktopQueueId = item.id, error = null) } }
                     if (selectedProfile()?.id == profile.id) uiState = uiState.copy(
                         downloadQueue = sortDownloadQueueNewest((uiState.downloadQueue + item).distinctBy { it.id }),
                     )

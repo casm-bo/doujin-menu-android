@@ -615,4 +615,6 @@
     <string name="saved_subscription_search">Search saved names and tags</string>
     <string name="saved_filter_labels">All|Enabled|Paused|Needs attention</string>
     <string name="saved_sort_labels">Default order|Name|Recently checked|Oldest checked</string>
+    <string name="download_complete">Complete</string>
+    <string name="download_incomplete">Incomplete</string>
 </resources>
