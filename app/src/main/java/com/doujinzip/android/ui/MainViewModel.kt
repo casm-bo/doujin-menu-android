@@ -288,17 +288,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val updatePreferences = application.getSharedPreferences("updates", Application.MODE_PRIVATE)
     private val profileStore = SecureProfileStore(application)
     private val browserPreferenceStore = BrowserPreferenceStore(application)
-    private val workspaceSaves = com.doujinzip.android.security.WorkspaceSaveQueue { gallery, workspace ->
-        if (gallery) browserPreferenceStore.saveGalleryWorkspace(workspace) else browserPreferenceStore.saveBrowserWorkspace(workspace)
-    }
-    private fun saveBrowserWorkspace(workspace: BrowserWorkspace) = workspaceSaves.submit(false, workspace)
-    private fun saveGalleryWorkspace(workspace: BrowserWorkspace) = workspaceSaves.submit(true, workspace)
-    suspend fun flushWorkspaceSaves() = workspaceSaves.flush()
-    override fun onCleared() {
-        kotlinx.coroutines.runBlocking { workspaceSaves.close() }
-        super.onCleared()
-    }
-
     private val appearancePreferenceStore = AppearancePreferenceStore(application)
     private val libraryPreferenceStore = LibraryPreferenceStore(application)
     private val recentHistoryStore = RecentHistoryStore(application)
@@ -937,7 +926,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val tabId = next.tabs.last().id.takeIf { next != workspace }
             if (tabId != null) next = rememberNewTab(next, tabId, true, uiState.browserWorkspace.activeTabId, false, activate = false)
             uiState = uiState.copy(galleryWorkspace = next)
-            saveGalleryWorkspace(next)
+            browserPreferenceStore.saveGalleryWorkspace(next)
             return BackgroundGalleryTab(next, tabId, galleryWorkspace = true)
         }
         val gallery = uiState.galleryCache[galleryId]
@@ -948,7 +937,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (result.workspace != uiState.browserWorkspace) {
             // Do not navigate or cancel the active search when adding a background tab.
             uiState = uiState.copy(browserWorkspace = result.workspace)
-            saveBrowserWorkspace(result.workspace)
+            browserPreferenceStore.saveBrowserWorkspace(result.workspace)
         }
         return result
     }
@@ -1025,8 +1014,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updatePreviewScroll(pageKey: String, position: ReaderPosition) {
         val browser = uiState.browserWorkspace.updatePreviewPosition(pageKey, position)
         val gallery = uiState.galleryWorkspace.updatePreviewPosition(pageKey, position)
-        if (browser != uiState.browserWorkspace) saveBrowserWorkspace(browser)
-        if (gallery != uiState.galleryWorkspace) saveGalleryWorkspace(gallery)
+        if (browser != uiState.browserWorkspace) browserPreferenceStore.saveBrowserWorkspace(browser)
+        if (gallery != uiState.galleryWorkspace) browserPreferenceStore.saveGalleryWorkspace(gallery)
         if (browser != uiState.browserWorkspace || gallery != uiState.galleryWorkspace) {
             uiState = uiState.copy(browserWorkspace = browser, galleryWorkspace = gallery)
         }
@@ -1036,8 +1025,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val position = ReaderPosition(page.coerceAtLeast(0), offset.coerceAtLeast(0))
         val browser = uiState.browserWorkspace.updateReaderPosition(pageKey, position)
         val gallery = uiState.galleryWorkspace.updateReaderPosition(pageKey, position)
-        if (browser != uiState.browserWorkspace) saveBrowserWorkspace(browser)
-        if (gallery != uiState.galleryWorkspace) saveGalleryWorkspace(gallery)
+        if (browser != uiState.browserWorkspace) browserPreferenceStore.saveBrowserWorkspace(browser)
+        if (gallery != uiState.galleryWorkspace) browserPreferenceStore.saveGalleryWorkspace(gallery)
         if (browser != uiState.browserWorkspace || gallery != uiState.galleryWorkspace) {
             uiState = uiState.copy(browserWorkspace = browser, galleryWorkspace = gallery)
         }
@@ -1065,7 +1054,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             applyBrowserWorkspace(workspace, reload = true)
         } else {
             uiState = uiState.copy(browserWorkspace = workspace)
-            saveBrowserWorkspace(workspace)
+            browserPreferenceStore.saveBrowserWorkspace(workspace)
             removeClosedSearchSessions(current, workspace)
         }
     }
@@ -1073,7 +1062,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun moveBrowserTab(tabId: String, offset: Int) {
         val workspace = uiState.browserWorkspace.moveTab(tabId, offset)
         uiState = uiState.copy(browserWorkspace = workspace)
-        saveBrowserWorkspace(workspace)
+        browserPreferenceStore.saveBrowserWorkspace(workspace)
     }
 
     fun canGoBackInBrowserTab(): Boolean = canReturnFromNewTab(false) || uiState.browserWorkspace.activeTab.canGoBack
@@ -1105,14 +1094,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             applyGalleryWorkspace(workspace)
         } else {
             uiState = uiState.copy(galleryWorkspace = workspace)
-            saveGalleryWorkspace(workspace)
+            browserPreferenceStore.saveGalleryWorkspace(workspace)
         }
     }
 
     fun moveGalleryTab(tabId: String, offset: Int) {
         val workspace = uiState.galleryWorkspace.moveTab(tabId, offset)
         uiState = uiState.copy(galleryWorkspace = workspace)
-        saveGalleryWorkspace(workspace)
+        browserPreferenceStore.saveGalleryWorkspace(workspace)
     }
 
     fun updateTabWorkspace(workspace: BrowserWorkspace, isGallery: Boolean) {
@@ -1122,10 +1111,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (isGallery) applyGalleryWorkspace(workspace) else applyBrowserWorkspace(workspace, reload = true)
         } else if (isGallery) {
             uiState = uiState.copy(galleryWorkspace = workspace)
-            saveGalleryWorkspace(workspace)
+            browserPreferenceStore.saveGalleryWorkspace(workspace)
         } else {
             uiState = uiState.copy(browserWorkspace = workspace)
-            saveBrowserWorkspace(workspace)
+            browserPreferenceStore.saveBrowserWorkspace(workspace)
             removeClosedSearchSessions(previous, workspace)
         }
     }
@@ -1169,11 +1158,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             if (isGallery) {
                 uiState = uiState.copy(galleryWorkspace = closed)
-                saveGalleryWorkspace(closed)
+                browserPreferenceStore.saveGalleryWorkspace(closed)
                 applyBrowserWorkspace(uiState.browserWorkspace.selectTab(entry.originTabId), reload = true)
             } else {
                 uiState = uiState.copy(browserWorkspace = closed)
-                saveBrowserWorkspace(closed)
+                browserPreferenceStore.saveBrowserWorkspace(closed)
                 removeClosedSearchSessions(previous, closed)
                 applyGalleryWorkspace(uiState.galleryWorkspace.selectTab(entry.originTabId))
             }
@@ -1185,7 +1174,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val workspace = uiState.browserWorkspace.updateSearchScroll(pageKey, sessionId, anchorKey, index, offset, scrollPage)
         if (workspace != uiState.browserWorkspace) {
             uiState = uiState.copy(browserWorkspace = workspace)
-            saveBrowserWorkspace(workspace)
+            browserPreferenceStore.saveBrowserWorkspace(workspace)
         }
     }
 
@@ -1193,7 +1182,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val workspace = uiState.galleryWorkspace.updateLibraryScroll(pageKey, anchorKey, index, offset)
         if (workspace != uiState.galleryWorkspace) {
             uiState = uiState.copy(galleryWorkspace = workspace)
-            saveGalleryWorkspace(workspace)
+            browserPreferenceStore.saveGalleryWorkspace(workspace)
         }
     }
 
@@ -1933,7 +1922,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val history = if (record) uiState.libraryQueryHistory.recordQuery(SearchQueryEntry(applied)) else uiState.libraryQueryHistory
         val workspace = uiState.galleryWorkspace.updateActiveLibraryHome { it.copy(query = applied, scrollAnchorKey = null, scrollIndex = 0, scrollOffset = 0) }
         if (record) browserPreferenceStore.saveSearchQueryHistory(history, "library_query_history")
-        saveGalleryWorkspace(workspace)
+        browserPreferenceStore.saveGalleryWorkspace(workspace)
         uiState = uiState.copy(libraryQuery = applied, libraryQueryDraft = if (record) applied else uiState.libraryQueryDraft,
             libraryQueryHistory = history, galleryWorkspace = workspace)
     }
@@ -1991,7 +1980,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (workspace != uiState.galleryWorkspace) {
             uiState = uiState.copy(galleryWorkspace = workspace)
-            saveGalleryWorkspace(workspace)
+            browserPreferenceStore.saveGalleryWorkspace(workspace)
         }
     }
 
@@ -2848,7 +2837,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(browserWorkspace = workspace, searchResultWindow = null, galleries = emptyList(),
             isRestoringSearch = true, isLoadingPage = true, submittedSearchQueries = queries)
         visibleSearchResults = (search.scrollIndex - 2).coerceAtLeast(0).let { it..it }
-        saveBrowserWorkspace(workspace)
+        browserPreferenceStore.saveBrowserWorkspace(workspace)
         browserSearchJob = viewModelScope.launch {
             try {
                 val index = searchResultPager.restore(sessionId, queries, search.scrollPage)
@@ -2968,7 +2957,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isLoadingFilterSuggestions = false,
             )
         }
-        saveBrowserWorkspace(workspace)
+        browserPreferenceStore.saveBrowserWorkspace(workspace)
         removeClosedSearchSessions(previous, workspace)
         if (reload && page is BrowserPage.Search && page.currentPage > 0) {
             restoreBrowserSearch()
@@ -3001,7 +2990,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             filterSuggestions = emptyList(),
             isLoadingFilterSuggestions = false,
         )
-        saveGalleryWorkspace(workspace)
+        browserPreferenceStore.saveGalleryWorkspace(workspace)
     }
 
     private fun syncActiveSearch(persist: Boolean = false) {
@@ -3018,7 +3007,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (workspace != uiState.browserWorkspace) {
             uiState = uiState.copy(browserWorkspace = workspace)
         }
-        if (persist) saveBrowserWorkspace(workspace)
+        if (persist) browserPreferenceStore.saveBrowserWorkspace(workspace)
     }
 
     private suspend fun loadPage(
@@ -3396,7 +3385,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onAppBackgrounded() {
         syncActiveSearch(persist = true)
-        saveGalleryWorkspace(uiState.galleryWorkspace)
+        browserPreferenceStore.saveGalleryWorkspace(uiState.galleryWorkspace)
         stopConnectionMonitoring()
         if (pendingRefreshIsReconnect) importantLibraryRefreshJob?.cancel()
         librarySyncDebounceJob?.cancel()
@@ -3826,7 +3815,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return presentationSyncMutex.withLock {
             com.doujinzip.android.data.SubscriptionRefresh.snapshot {
                 withContext(Dispatchers.IO) {
-                    flushWorkspaceSaves()
                     val store = com.doujinzip.android.data.LocalBackupStore(getApplication())
                     val archive = store.capture(syncedIds, profile?.id, locale)
                     val target = java.io.File.createTempFile("local-backup-", ".zip", getApplication<Application>().cacheDir)

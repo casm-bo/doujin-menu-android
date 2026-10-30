@@ -71,35 +71,25 @@ fun BrowserTabStrip(
         var distance = 0f
         var origin = latestWorkspace.activeTab
         var accepted = false
-        var previousId: String? = null
-        var nextId: String? = null
         fun finish(cancelled: Boolean) {
             if (!accepted) return
             accepted = false
             val step = if (cancelled) 0 else tabSwipeStep(distance, tracker.calculateVelocity().x, state.width, minVelocity)
-            val target = when (step) { -1 -> previousId; 1 -> nextId; else -> null }
+            val target = latestWorkspace.adjacentSwipeTab(step)?.id
             state.settle(target,
                 current = { latestWorkspace.activeTabId == origin.id && latestWorkspace.activeTab.currentPage.key == origin.currentPage.key && latestWorkspace.tabs.any { it.id == target } },
-                select = { latestSelect(it) })
+                capture = { previews.captureNow() }, select = { latestSelect(it) })
         }
         try { detectHorizontalDragGestures(
             onDragStart = {
                 accepted = !state.animating
-                if (accepted) {
-                    val snapshot = latestWorkspace
-                    origin = snapshot.activeTab
-                    previousId = snapshot.adjacentSwipeTab(-1)?.id
-                    nextId = snapshot.adjacentSwipeTab(1)?.id
-                    // Capture the departing screen during the drag, never gate selection on disk I/O.
-                    scope.launch { previews.captureNow() }
-                    distance = 0f; tracker.resetTracking(); tracker.addPosition(android.os.SystemClock.uptimeMillis(), Offset.Zero)
-                }
+                if (accepted) { origin = latestWorkspace.activeTab; distance = 0f; tracker.resetTracking(); tracker.addPosition(android.os.SystemClock.uptimeMillis(), Offset.Zero) }
             },
             onHorizontalDrag = { change, amount ->
                 if (accepted) {
                     change.consume(); distance += amount
                     tracker.addPosition(change.uptimeMillis, Offset(distance, 0f))
-                    state.drag(distance, if (distance < 0) nextId != null else previousId != null)
+                    state.drag(distance, latestWorkspace.adjacentSwipeTab(if (distance < 0) 1 else -1) != null)
                 }
             }, onDragEnd = { finish(false) }, onDragCancel = { finish(true) },
         ) } finally { finish(true) }
