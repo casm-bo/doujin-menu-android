@@ -531,6 +531,7 @@ fun DoujinZipApp(viewModel: MainViewModel = viewModel()) {
             workspace = if (isGallery) viewModel.uiState.galleryWorkspace else viewModel.uiState.browserWorkspace,
             isGallery = isGallery,
             previews = viewModel.tabPreviews,
+            preferredLanguages = viewModel.uiState.preferredLanguages,
             onSelect = { id ->
                 snackbarScope.launch {
                     viewModel.tabPreviews.captureNow()

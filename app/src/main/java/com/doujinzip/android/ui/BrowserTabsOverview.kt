@@ -59,6 +59,7 @@ internal fun BrowserTabsOverview(
     onCloseTab: (String) -> Unit,
     onUpdate: (BrowserWorkspace) -> Unit,
     onDismiss: () -> Unit,
+    preferredLanguages: Set<String> = emptySet(),
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var groupsOnly by rememberSaveable { mutableStateOf(false) }
@@ -74,7 +75,7 @@ internal fun BrowserTabsOverview(
     var deletingGroup by remember { mutableStateOf<BrowserTabGroup?>(null) }
     var dragWorkspace by remember { mutableStateOf<BrowserWorkspace?>(null) }
     val displayedWorkspace = dragWorkspace ?: workspace
-    val fallback = if (isGallery) BrowserPage.LibraryHome() else BrowserPage.Search()
+    val fallback = if (isGallery) BrowserPage.LibraryHome() else BrowserPage.Search(preferredLanguages = preferredLanguages)
     val openGroup = displayedWorkspace.groups.firstOrNull { it.id == openGroupId }
     val groupTabs = if (openGroup?.isArchived == true) openGroup.archivedTabs else displayedWorkspace.tabs.filter { it.groupId == openGroupId }
     val baseItems = when {
