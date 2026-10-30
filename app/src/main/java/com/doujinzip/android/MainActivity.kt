@@ -63,10 +63,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val appLock: AppLockViewModel by viewModels()
+    private val mainViewModel: MainViewModel by viewModels()
 
     override fun onStop() {
         if (!isChangingConfigurations) { appLock.onBackground(); biometricPrompt?.cancelAuthentication() }
         super.onStop()
+        // Flush after lifecycle observers persist their final scroll positions.
+        kotlinx.coroutines.runBlocking {
+            runCatching { mainViewModel.flushWorkspaceSaves() }.onFailure {
+                android.util.Log.e("WorkspacePersistence", "Could not persist tab state", it)
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,7 +95,7 @@ class MainActivity : AppCompatActivity() {
         readSubscriptionTarget(intent)
         appLock.activeBiometricRequest?.let(::attachBiometric)
         setContent {
-            val viewModel: MainViewModel = viewModel()
+            val viewModel = mainViewModel
             LaunchedEffect(appLock.locked,viewModel.uiState.isStarting,subscriptionTarget) {
                 if(!appLock.locked && !viewModel.uiState.isStarting) subscriptionTarget?.let { target ->
                     subscriptionTarget=null
