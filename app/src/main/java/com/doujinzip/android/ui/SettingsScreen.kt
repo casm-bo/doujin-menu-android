@@ -71,6 +71,7 @@ private enum class SettingsSection {
     CONNECTION,
     SUPPORT,
     CHANGELOG,
+    BACKUP,
 }
 
 @Composable
@@ -103,6 +104,7 @@ fun SettingsScreen(
     onSubscriptionOptionsChange: (com.doujinzip.android.security.SubscriptionOptions) -> Unit = {},
     onManageSubscriptions: () -> Unit = {},
     onSyncNow: () -> Unit = {},
+    onPrepareBackup: suspend (String) -> java.io.File = { error("Backup unavailable") },
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.HOME.name) }
@@ -128,6 +130,9 @@ fun SettingsScreen(
     }
 
     when (section) {
+        SettingsSection.BACKUP -> SettingsDetailLayout(strings[R.string.backup_title], contentPadding, { openSection(SettingsSection.HOME) }) {
+            SectionCard(strings[R.string.backup_title]) { BackupSettings(onPrepareBackup) { openSection(SettingsSection.CONNECTION) } }
+        }
         SettingsSection.SUBSCRIPTIONS -> SettingsDetailLayout(strings[R.string.sub_settings],contentPadding,{openSection(SettingsSection.HOME)}) {
             SectionCard(strings[R.string.sub_settings]) { SubscriptionSettings(state.subscriptionOptions,onSubscriptionOptionsChange,onManageSubscriptions) }
         }
@@ -213,6 +218,7 @@ private fun SettingsHomeScreen(
             SettingsCategoryCard(title = strings[R.string.ui_app_lock], description = strings[R.string.ui_pin_password_pattern_and_biometrics], onClick = { onOpenSection(SettingsSection.LOCK) })
         }
         item { SettingsCategoryCard(title=strings[R.string.sub_settings],description=strings[R.string.sub_interval],onClick={onOpenSection(SettingsSection.SUBSCRIPTIONS)}) }
+        item { SettingsCategoryCard(title=strings[R.string.backup_title],description=strings[R.string.backup_summary],onClick={onOpenSection(SettingsSection.BACKUP)}) }
         item {
             SettingsCategoryCard(
                 title = strings[R.string.ui_appearance],

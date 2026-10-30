@@ -588,4 +588,24 @@
     <string name="connection_legacy_notice">接続できるPCは1台です。選択した接続以外の認証情報を削除し、ローカルデータは保持します。未送信の変更は先に同期してください。</string>
     <string name="connection_single_notice">Android端末ごとにPCは1台です。PCは複数のAndroid端末と接続できます。</string>
     <string name="connection_last_sync">ライブラリ最終同期成功: %1$s</string>
+    <string name="backup_title">バックアップと復元</string>
+    <string name="backup_summary">ローカルデータ・タブ・グループ・設定</string>
+    <string name="backup_scope">ローカル履歴・タブ・グループ・設定・指定表紙を含みます。認証・アプリロック・フォルダー権限・キャッシュ・作品原本は除外します。登録PCがあれば先に同期が必要です。</string>
+    <string name="backup_plaintext">このZIPは暗号化されず、閲覧・検索履歴を含みます。安全に保管してください。</string>
+    <string name="backup_export">バックアップを書き出す</string>
+    <string name="backup_import">バックアップを読み込む</string>
+    <string name="backup_failed">完了できませんでした。登録PCに接続し、未反映の変更・競合を解決して再試行してください。読み込みの場合はバックアップファイルを確認してください。</string>
+    <string name="backup_saved">バックアップの保存と検証が完了しました。</string>
+    <string name="backup_verify">続行するには本人確認</string>
+    <string name="backup_verify_notice">設定したPIN・パスワード・パターンまたは生体認証で解除してください。ロックは維持され、バックアップには含まれません。</string>
+    <string name="backup_restore_notice">現在の設定・タブ・履歴を置き換え、ローカル作品の編集を取り込みます。PC認証・アプリロックは維持します。作品原本は別途移動し、ライブラリフォルダーを再選択してください。</string>
+    <string name="backup_reconnect">サーバー同期済みデータは除外されています。復元するには元のPCに再接続してください。</string>
+    <string name="backup_restart">アプリの再起動が必要</string>
+    <string name="backup_restart_notice">復元の準備ができました。確認するとアプリを終了します。再度起動して適用してください。</string>
+    <string name="backup_working">バックアップ・復元の処理中</string>
+    <string name="backup_sync_notice">データの確認と、必要に応じて登録PCとの同期を行っています。</string>
+    <string name="backup_wait">現在の同期が完了してから再試行してください。</string>
+    <string name="backup_pending">バックアップ前に未同期の変更・競合を解決してください。</string>
+    <string name="backup_restored">ローカルデータ・設定を復元しました。必要に応じてフォルダーを再選択してください。</string>
+    <string name="backup_restore_failed">復元に失敗しました。以前のデータは保持されています。</string>
 </resources>

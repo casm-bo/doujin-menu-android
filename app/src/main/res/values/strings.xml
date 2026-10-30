@@ -588,4 +588,24 @@
     <string name="connection_legacy_notice">Only one PC can be paired. Keep one connection; other credentials are removed, but their local data is retained. Sync unsent changes before proceeding.</string>
     <string name="connection_single_notice">One PC per Android device. This PC may connect to multiple Android devices.</string>
     <string name="connection_last_sync">Last successful library sync: %1$s</string>
+    <string name="backup_title">Backup and restore</string>
+    <string name="backup_summary">Local data, tabs, groups and settings</string>
+    <string name="backup_scope">Includes local records, tabs, groups, settings and custom covers. Excludes credentials, app lock, folder permissions, caches and original books. Paired PCs must sync successfully first.</string>
+    <string name="backup_plaintext">This ZIP is not encrypted and contains reading/search history. Keep it private.</string>
+    <string name="backup_export">Export backup</string>
+    <string name="backup_import">Import backup</string>
+    <string name="backup_failed">Backup could not finish. If a PC is registered, connect it and resolve pending changes or conflicts, then retry. For import, check that the file is a valid backup.</string>
+    <string name="backup_saved">Backup saved and verified.</string>
+    <string name="backup_verify">Verify before continuing</string>
+    <string name="backup_verify_notice">Unlock using the configured PIN, password, pattern or biometrics. Lock settings stay enabled and are not exported.</string>
+    <string name="backup_restore_notice">Saved settings, tabs and history will replace their current values. Local gallery edits will be imported. Existing PC credentials and app lock stay unchanged. Original books must be moved separately and library folders selected again.</string>
+    <string name="backup_reconnect">Server-synced data was excluded. Reconnect to the original PC to recover it.</string>
+    <string name="backup_restart">Restart required</string>
+    <string name="backup_restart_notice">The restore is ready. Confirm to close the app, then open it again to apply.</string>
+    <string name="backup_working">Preparing backup or restore</string>
+    <string name="backup_sync_notice">Please wait. Checking data and syncing with the registered PC when needed.</string>
+    <string name="backup_wait">Wait for the current sync to finish.</string>
+    <string name="backup_pending">Resolve unsynced changes and conflicts before backup.</string>
+    <string name="backup_restored">Local data and settings restored. Select library folders again if needed.</string>
+    <string name="backup_restore_failed">Restore failed. Previous data was preserved.</string>
 </resources>

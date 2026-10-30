@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit
 
 object SubscriptionRefresh {
     private val mutex=Mutex()
+    internal suspend fun <T> snapshot(block: suspend () -> T): T = mutex.withLock { block() }
     suspend fun run(context:Context,profile:DesktopProfile?,force:Boolean=false,forceSync:Boolean=false):String? = mutex.withLock {
         withContext(Dispatchers.IO) {
             val store=SubscriptionStore.get(context)

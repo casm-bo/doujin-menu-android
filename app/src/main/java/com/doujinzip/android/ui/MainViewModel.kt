@@ -395,6 +395,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             onlineReaderProgress = libraryPreferenceStore.loadOnlineProgress(),
             customSeriesByBookId = libraryPreferenceStore.loadCustomSeries(),
             librarySort = libraryPreferenceStore.loadLibrarySort(),
+            libraryFavoritesOnly = libraryPreferenceStore.loadFavoritesOnly(),
+            libraryReadFilter = libraryPreferenceStore.loadReadFilter(),
+            libraryVisibilityFilter = libraryPreferenceStore.loadVisibilityFilter(),
             librarySyncPendingCount = pendingLibrarySyncCount(),
             viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
@@ -1927,12 +1930,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         browserPreferenceStore.saveSearchQueryHistory(emptyList(), "library_query_history")
         uiState = uiState.copy(libraryQueryHistory = emptyList())
     }
-    fun toggleLibraryFavoritesFilter() = update {
-        copy(libraryFavoritesOnly = !libraryFavoritesOnly)
+    fun toggleLibraryFavoritesFilter() {
+        val value = !uiState.libraryFavoritesOnly
+        libraryPreferenceStore.saveFavoritesOnly(value)
+        update { copy(libraryFavoritesOnly = value) }
     }
-    fun setLibraryReadFilter(value: LibraryReadFilter) = update { copy(libraryReadFilter = value) }
-    fun setLibraryVisibilityFilter(value: LibraryVisibilityFilter) = update {
-        copy(libraryVisibilityFilter = value)
+    fun setLibraryReadFilter(value: LibraryReadFilter) {
+        libraryPreferenceStore.saveReadFilter(value)
+        update { copy(libraryReadFilter = value) }
+    }
+    fun setLibraryVisibilityFilter(value: LibraryVisibilityFilter) {
+        libraryPreferenceStore.saveVisibilityFilter(value)
+        update { copy(libraryVisibilityFilter = value) }
     }
     fun setLibrarySort(value: LibrarySort) {
         libraryPreferenceStore.saveLibrarySort(value)
@@ -3773,6 +3782,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (errors.isEmpty()) uiState = uiState.copy(message = strings[R.string.msg_pending_requests_sent_to_pc_download_queue], isError = false)
         errors
+    }
+
+    suspend fun prepareLocalBackup(locale: String): java.io.File {
+        require(uiState.profiles.size <= 1) { strings[R.string.connection_choose_one] }
+        require(!uiState.isLibrarySyncing) { strings[R.string.backup_wait] }
+        libraryRefreshJob?.join()
+        val profile = selectedProfile()
+        var syncedIds = emptySet<String>()
+        if (profile != null) {
+            uiState = uiState.copy(librarySyncError = null)
+            // A public status response alone does not prove this pairing can access the library.
+            withContext(Dispatchers.IO) { client.getLibraryBooks(profile) }
+            refreshLibrarySilently()
+            libraryRefreshJob?.join()
+            check(uiState.libraryScanError == null) { uiState.libraryScanError.orEmpty() }
+            val uploadErrors = uploadMissingLocalBooks(profile, uiState.libraryBooks, uiState.libraryBooks.mapTo(mutableSetOf()) { it.id })
+            check(uploadErrors.isEmpty()) { uploadErrors.joinToString("\n") }
+            flushPendingLibrarySync()
+            val error = com.doujinzip.android.data.SubscriptionRefresh.run(getApplication(), profile, forceSync = true)
+            check(error == null) { error.orEmpty() }
+            check(uiState.librarySyncError == null && uiState.presentationSyncError == null && pendingLibrarySyncCount() == 0) {
+                uiState.librarySyncError ?: uiState.presentationSyncError ?: strings[R.string.backup_pending]
+            }
+            check(withContext(Dispatchers.IO) { subscriptionStore.records(profile.id).none { it.mutationId != null || it.conflict != null } }) { strings[R.string.backup_pending] }
+            syncedIds = withContext(Dispatchers.IO) { client.getLibraryBooks(profile).filter { it.syncStateVersion > 0 && it.hasSyncedSeriesState }.mapTo(mutableSetOf()) { it.id } }
+            val now = System.currentTimeMillis()
+            browserPreferenceStore.saveLastDesktopSync(now)
+            uiState = uiState.copy(lastDesktopSyncAt = now, desktopConnectionState = DesktopConnectionState.CONNECTED)
+        }
+        librarySyncDebounceJob?.cancel()
+        return presentationSyncMutex.withLock {
+            com.doujinzip.android.data.SubscriptionRefresh.snapshot {
+                withContext(Dispatchers.IO) {
+                    val store = com.doujinzip.android.data.LocalBackupStore(getApplication())
+                    val archive = store.capture(syncedIds, profile?.id, locale)
+                    val target = java.io.File.createTempFile("local-backup-", ".zip", getApplication<Application>().cacheDir)
+                    try {
+                        target.outputStream().use { com.doujinzip.android.data.BackupFormat.write(archive, it) }
+                        target.inputStream().use { store.validate(com.doujinzip.android.data.BackupFormat.read(it)) }
+                        target
+                    } catch (error: Throwable) { target.delete(); throw error }
+                }
+            }
+        }
     }
 
     fun syncLibraryNow() {

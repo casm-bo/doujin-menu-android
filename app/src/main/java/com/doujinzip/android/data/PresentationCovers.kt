@@ -82,12 +82,15 @@ class PresentationCovers(private val context: Context) {
         } finally { temporary?.delete() }
     }
 
-    fun put(hash: String, bytes: ByteArray) {
-        val target = file(hash)
+    internal fun validate(hash: String, bytes: ByteArray) {
         require(bytes.size.toLong() in 1..MAX_BYTES && digest(bytes) == hash) { "Cover content does not match its hash" }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         require(bounds.outWidth in 1..2048 && bounds.outHeight in 1..4096 && bounds.outWidth.toLong() * bounds.outHeight <= 4_194_304)
+    }
+    fun put(hash: String, bytes: ByteArray) {
+        val target = file(hash)
+        validate(hash, bytes)
         check(directory.isDirectory || directory.mkdirs())
         if (target.isFile) return
         val temporary = File.createTempFile("cover-", ".part", directory)

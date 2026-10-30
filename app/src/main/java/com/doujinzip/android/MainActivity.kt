@@ -71,6 +71,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val backupRuntime = getSharedPreferences("backup_runtime", MODE_PRIVATE)
+        if (backupRuntime.contains("locale")) {
+            val tags = backupRuntime.getString("locale", "").orEmpty()
+            check(backupRuntime.edit().remove("locale").commit())
+            androidx.appcompat.app.AppCompatDelegate.setApplicationLocales(androidx.core.os.LocaleListCompat.forLanguageTags(tags))
+        }
+        backupRuntime.getString("result", null)?.let { result ->
+            check(backupRuntime.edit().remove("result").commit())
+            val message = if (result == "success") getString(R.string.backup_restored) +
+                if (backupRuntime.getBoolean("serverDataExcluded", false)) "\n" + getString(R.string.backup_reconnect) else ""
+                else getString(R.string.backup_restore_failed)
+            android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
+        }
         subscriptionTarget=savedInstanceState?.takeIf { it.containsKey("subscription_gallery") }?.let { it.getString("subscription_scope").orEmpty() to it.getLong("subscription_gallery") }
         readSubscriptionTarget(intent)
         appLock.activeBiometricRequest?.let(::attachBiometric)
