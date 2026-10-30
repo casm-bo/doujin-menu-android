@@ -240,7 +240,8 @@ internal fun BrowserTabsOverview(
                             OverviewCard(item, workspace, previews, isGallery,
                                 selected = selecting && selected.containsAll(memberIds), merging = mergeTarget == item.key,
                                 canSwipe = !selecting && dragging == null && openGroup?.isArchived != true && !groupsOnly,
-                                modifier = Modifier.animateItem().graphicsLayer { alpha = if (dragging == item.key) 0f else 1f },
+                                // Swipe anchors must be measured before placement; item lookahead can bypass that.
+                                modifier = Modifier.graphicsLayer { alpha = if (dragging == item.key) 0f else 1f },
                                 onClick = {
                                     if (selecting) selected = if (selected.containsAll(memberIds)) selected - memberIds else selected + memberIds
                                     else when (item) {
@@ -314,7 +315,8 @@ private fun OverviewCard(
     val tabs = when (item) { is BrowserOverviewItem.Tab -> listOf(item.tab); is BrowserOverviewItem.Group -> item.tabs }
     val active = tabs.any { it.id == workspace.activeTabId } && group?.isArchived != true && !archived
     val color = group?.let { groupColors[it.colorIndex.coerceIn(groupColors.indices)] } ?: MaterialTheme.colorScheme.primary
-    val dismiss = rememberSwipeToDismissBoxState(positionalThreshold = { it * 0.35f })
+    // A restored group must not restore its completed dismissal gesture.
+    val dismiss = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled) { it * 0.35f } }
     val latestDismiss by rememberUpdatedState(onDismiss)
     LaunchedEffect(dismiss.currentValue) { if (dismiss.currentValue != SwipeToDismissBoxValue.Settled) latestDismiss() }
     SwipeToDismissBox(state = dismiss, modifier = modifier, enableDismissFromStartToEnd = canSwipe, enableDismissFromEndToStart = canSwipe,
