@@ -212,16 +212,16 @@ private fun SettingsHomeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            SettingsCategoryCard(title = strings[R.string.app_language], description = strings[R.string.language_choices], onClick = { onOpenSection(SettingsSection.LANGUAGE) })
+            SettingsCategoryCard(symbol = ActionSymbol.LANGUAGE, title = strings[R.string.app_language], description = strings[R.string.language_choices], onClick = { onOpenSection(SettingsSection.LANGUAGE) })
         }
         item {
-            SettingsCategoryCard(title = strings[R.string.ui_app_lock], description = strings[R.string.ui_pin_password_pattern_and_biometrics], onClick = { onOpenSection(SettingsSection.LOCK) })
+            SettingsCategoryCard(symbol = ActionSymbol.LOCK, title = strings[R.string.ui_app_lock], description = strings[R.string.ui_pin_password_pattern_and_biometrics], onClick = { onOpenSection(SettingsSection.LOCK) })
         }
-        item { SettingsCategoryCard(title=strings[R.string.sub_settings],description=strings[R.string.sub_interval],onClick={onOpenSection(SettingsSection.SUBSCRIPTIONS)}) }
-        item { SettingsCategoryCard(title=strings[R.string.backup_title],description=strings[R.string.backup_summary],onClick={onOpenSection(SettingsSection.BACKUP)}) }
+        item { SettingsCategoryCard(symbol = ActionSymbol.BELL, title=strings[R.string.sub_settings],description=strings[R.string.sub_interval],onClick={onOpenSection(SettingsSection.SUBSCRIPTIONS)}) }
+        item { SettingsCategoryCard(symbol = ActionSymbol.SAVE, title=strings[R.string.backup_title],description=strings[R.string.backup_summary],onClick={onOpenSection(SettingsSection.BACKUP)}) }
         item {
             SettingsCategoryCard(
-                title = strings[R.string.ui_appearance],
+                symbol = ActionSymbol.APPEARANCE, title = strings[R.string.ui_appearance],
                 description = when (state.themeMode) {
                     AppThemeMode.SYSTEM -> strings[R.string.ui_light_or_dark_theme_based_on_system_settings]
                     AppThemeMode.LIGHT -> strings[R.string.ui_using_light_theme]
@@ -232,14 +232,14 @@ private fun SettingsHomeScreen(
         }
         item {
             SettingsCategoryCard(
-                title = strings[R.string.ui_reader_settings],
+                symbol = ActionSymbol.READ, title = strings[R.string.ui_reader_settings],
                 description = strings[R.string.ui_reading_direction_page_numbers_scale_and_gestures],
                 onClick = { onOpenSection(SettingsSection.VIEWER) },
             )
         }
         item {
             SettingsCategoryCard(
-                title = strings[R.string.ui_library_settings],
+                symbol = ActionSymbol.FOLDER, title = strings[R.string.ui_library_settings],
                 description = strings[R.string.ui_library_folders_download_folder, (state.libraryLocations.size)] +
                     if (state.downloadLocation == null) strings[R.string.ui_not_set] else strings[R.string.ui_configured],
                 onClick = { onOpenSection(SettingsSection.LIBRARY) },
@@ -247,14 +247,14 @@ private fun SettingsHomeScreen(
         }
         item {
             SettingsCategoryCard(
-                title = strings[R.string.ui_connection_settings],
+                symbol = ActionSymbol.PC, title = strings[R.string.ui_connection_settings],
                 description = strings[R.string.ui_optional_pc_sync_registered_pcs, (state.profiles.size)],
                 onClick = { onOpenSection(SettingsSection.CONNECTION) },
             )
         }
         item {
             SettingsCategoryCard(
-                title = strings[R.string.ui_about],
+                symbol = ActionSymbol.INFO, title = strings[R.string.ui_about],
                 description = strings[R.string.ui_version_changelog_diagnostics_and_issues],
                 onClick = { onOpenSection(SettingsSection.SUPPORT) },
             )
@@ -423,6 +423,7 @@ private fun ChangelogScreen(contentPadding: PaddingValues, onBack: () -> Unit) {
 
 @Composable
 private fun SettingsCategoryCard(
+    symbol: ActionSymbol,
     title: String,
     description: String,
     onClick: () -> Unit,
@@ -432,6 +433,7 @@ private fun SettingsCategoryCard(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            ActionIcon(symbol, Modifier.padding(end = 16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
