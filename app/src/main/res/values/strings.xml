@@ -138,7 +138,7 @@
     <string name="ui_sync_library_pending">"Sync library, %1$s pending"</string>
     <string name="ui_could_not_save_folder_access_permission">"Could not save folder access permission."</string>
     <string name="ui_total_pc_active">"Total %1$s · PC active %2$s"</string>
-    <string name="ui_clear_completed_items">"Clear completed items"</string>
+    <string name="ui_clear_completed_items">Clear completed records</string>
     <string name="ui_pc_pending">"PC pending %1$s"</string>
     <string name="ui_syncing">"Syncing…"</string>
     <string name="ui_sync_with_pc">"Sync with PC"</string>
@@ -330,9 +330,9 @@
     <string name="ui_while_connected_pc_downloads_use_the_desktop_download_folder">"While connected, PC downloads use the desktop download folder. "</string>
     <string name="ui_desktop_paths_can_only_be_changed_on_pc_mobile_storage_is_conf">"Desktop paths can only be changed on PC. Mobile storage is configured separately."</string>
     <string name="ui_without_a_pc_connection_only_the_mobile_local_download_folder">"Without a PC connection, only the mobile local download folder is used."</string>
-    <string name="ui_desktop_download_folder">"Desktop download folder"</string>
+    <string name="ui_desktop_download_folder">Desktop storage path</string>
     <string name="ui_not_configured_on_desktop">"Not configured on desktop"</string>
-    <string name="ui_local_download_folder">"Local download folder"</string>
+    <string name="ui_local_download_folder">Local storage path</string>
     <string name="ui_choose_download_folder">"Choose download folder"</string>
     <string name="ui_change_folder">"Change folder"</string>
     <string name="ui_can_only_be_changed_in_the_desktop_app">"Can only be changed in the desktop app."</string>
@@ -617,4 +617,5 @@
     <string name="saved_sort_labels">Default order|Name|Recently checked|Oldest checked</string>
     <string name="download_complete">Complete</string>
     <string name="download_incomplete">Incomplete</string>
+    <string name="connection_status_label">Status:</string>
 </resources>

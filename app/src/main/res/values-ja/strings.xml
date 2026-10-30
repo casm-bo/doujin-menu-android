@@ -138,7 +138,7 @@
     <string name="ui_sync_library_pending">"ライブラリ同期、%1$s件待機中"</string>
     <string name="ui_could_not_save_folder_access_permission">"フォルダーのアクセス権を保存できませんでした。"</string>
     <string name="ui_total_pc_active">"全%1$s件 · PCで実行中 %2$s件"</string>
-    <string name="ui_clear_completed_items">"完了項目を整理"</string>
+    <string name="ui_clear_completed_items">完了履歴を一括削除</string>
     <string name="ui_pc_pending">"PC待機 %1$s件"</string>
     <string name="ui_syncing">"同期中…"</string>
     <string name="ui_sync_with_pc">"PCと同期"</string>
@@ -330,9 +330,9 @@
     <string name="ui_while_connected_pc_downloads_use_the_desktop_download_folder">"PC接続中のダウンロードはPC側の保存先に保存されます。"</string>
     <string name="ui_desktop_paths_can_only_be_changed_on_pc_mobile_storage_is_conf">"PCのパスはPCでのみ変更でき、端末の保存先は別に設定できます。"</string>
     <string name="ui_without_a_pc_connection_only_the_mobile_local_download_folder">"PC未接続時は端末のローカル保存先のみ使用します。"</string>
-    <string name="ui_desktop_download_folder">"PCのダウンロード先"</string>
+    <string name="ui_desktop_download_folder">デスクトップ保存先</string>
     <string name="ui_not_configured_on_desktop">"PC側で未設定"</string>
-    <string name="ui_local_download_folder">"ローカルのダウンロード先"</string>
+    <string name="ui_local_download_folder">ローカル保存先</string>
     <string name="ui_choose_download_folder">"ダウンロード先を選択"</string>
     <string name="ui_change_folder">"保存先を変更"</string>
     <string name="ui_can_only_be_changed_in_the_desktop_app">"デスクトップアプリでのみ変更できます。"</string>
@@ -610,4 +610,12 @@
     <string name="backup_restore_failed">復元に失敗しました。以前のデータは保持されています。</string>
     <string name="ui_merge_groups">別のグループに結合</string>
     <string name="ui_merge_groups_notice">結合先を選択してください。結合先の名前・色・開いている状態または保存状態を維持し、元のタブを末尾に追加して元のグループを削除します。</string>
+    <string name="connection_status_label">状態:</string>
+    <string name="download_complete">完了</string>
+    <string name="download_incomplete">未完了</string>
+    <string name="saved_filter_labels">すべて|有効|一時停止|要確認</string>
+    <string name="saved_sort_labels">標準|名前順|確認が新しい順|確認が古い順</string>
+    <string name="saved_subscription_search">登録名・タグを検索（-タグで除外）</string>
+    <string name="server_address_label">サーバーアドレス: %1$s</string>
+    <string name="server_name_label">サーバー名: %1$s</string>
 </resources>

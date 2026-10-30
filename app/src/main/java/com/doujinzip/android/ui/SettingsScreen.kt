@@ -689,7 +689,7 @@ private fun ConnectionSettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 Text(strings[R.string.server_address_label, profile.baseUrl], style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
-                Text(strings[when (state.desktopConnectionState) {
+                Text(strings[R.string.connection_status_label] + " " + strings[when (state.desktopConnectionState) {
                     DesktopConnectionState.CONNECTED -> R.string.ui_connected
                     DesktopConnectionState.CONNECTING -> R.string.ui_connecting
                     else -> R.string.ui_disconnected

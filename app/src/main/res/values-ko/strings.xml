@@ -617,4 +617,5 @@
     <string name="saved_sort_labels">기본 순서|이름순|최근 확인순|오래된 확인순</string>
     <string name="download_complete">완료</string>
     <string name="download_incomplete">미완료</string>
+    <string name="connection_status_label">상태:</string>
 </resources>
