@@ -105,11 +105,13 @@ fun SettingsScreen(
     onManageSubscriptions: () -> Unit = {},
     onSyncNow: () -> Unit = {},
     onPrepareBackup: suspend (String) -> java.io.File = { error("Backup unavailable") },
+    initialSectionName: String = "HOME",
+    onSectionChanged: (String) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
-    var sectionName by rememberSaveable { mutableStateOf(SettingsSection.HOME.name) }
+    var sectionName by rememberSaveable { mutableStateOf(initialSectionName) }
     val section = runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.HOME)
-    val openSection: (SettingsSection) -> Unit = { sectionName = it.name }
+    val openSection: (SettingsSection) -> Unit = { sectionName = it.name; onSectionChanged(it.name) }
 
     BackHandler(enabled = section != SettingsSection.HOME) {
         openSection(SettingsSection.HOME)
@@ -211,14 +213,13 @@ private fun SettingsHomeScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item { Text(strings[R.string.settings_personal_group], style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp)) }
         item {
             SettingsCategoryCard(symbol = ActionSymbol.LANGUAGE, title = strings[R.string.app_language], description = strings[R.string.language_choices], onClick = { onOpenSection(SettingsSection.LANGUAGE) })
         }
         item {
             SettingsCategoryCard(symbol = ActionSymbol.LOCK, title = strings[R.string.ui_app_lock], description = strings[R.string.ui_pin_password_pattern_and_biometrics], onClick = { onOpenSection(SettingsSection.LOCK) })
         }
-        item { SettingsCategoryCard(symbol = ActionSymbol.BELL, title=strings[R.string.sub_settings],description=strings[R.string.sub_interval],onClick={onOpenSection(SettingsSection.SUBSCRIPTIONS)}) }
-        item { SettingsCategoryCard(symbol = ActionSymbol.SAVE, title=strings[R.string.backup_title],description=strings[R.string.backup_summary],onClick={onOpenSection(SettingsSection.BACKUP)}) }
         item {
             SettingsCategoryCard(
                 symbol = ActionSymbol.APPEARANCE, title = strings[R.string.ui_appearance],
@@ -230,6 +231,7 @@ private fun SettingsHomeScreen(
                 onClick = { onOpenSection(SettingsSection.APPEARANCE) },
             )
         }
+        item { Text(strings[R.string.settings_reader_group], style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp)) }
         item {
             SettingsCategoryCard(
                 symbol = ActionSymbol.BOOK, title = strings[R.string.ui_reader_settings],
@@ -237,6 +239,8 @@ private fun SettingsHomeScreen(
                 onClick = { onOpenSection(SettingsSection.VIEWER) },
             )
         }
+        item { SettingsCategoryCard(symbol = ActionSymbol.BELL, title=strings[R.string.sub_settings],description=strings[R.string.sub_interval],onClick={onOpenSection(SettingsSection.SUBSCRIPTIONS)}) }
+        item { Text(strings[R.string.settings_paths_group], style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp)) }
         item {
             SettingsCategoryCard(
                 symbol = ActionSymbol.FOLDER, title = strings[R.string.ui_library_settings],
@@ -252,6 +256,7 @@ private fun SettingsHomeScreen(
                 onClick = { onOpenSection(SettingsSection.CONNECTION) },
             )
         }
+        item { SettingsCategoryCard(symbol = ActionSymbol.SAVE, title=strings[R.string.backup_title],description=strings[R.string.backup_summary],onClick={onOpenSection(SettingsSection.BACKUP)}) }
         item {
             SettingsCategoryCard(
                 symbol = ActionSymbol.INFO, title = strings[R.string.ui_about],
@@ -709,7 +714,7 @@ private fun ConnectionSettingsScreen(
                 }
             }
         }
-        if (state.profiles.isNotEmpty()) SectionCard(strings[R.string.ui_connection_settings]) {
+        if (state.profiles.isNotEmpty()) SectionCard(null) {
             Text(strings[R.string.connection_single_notice], style = MaterialTheme.typography.bodyMedium)
         }
         if (state.isBusy) LoadingRow(strings[R.string.ui_connecting])
@@ -787,11 +792,13 @@ private fun SavedDesktopRows(
 }
 
 @Composable
-private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun SectionCard(title: String?, content: @Composable ColumnScope.() -> Unit) {
     Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(12.dp))
+            if (title != null) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(12.dp))
+            }
             content()
         }
     }

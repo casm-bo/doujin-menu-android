@@ -1416,6 +1416,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(settingsSectionRequest = section, pendingDownloadGallery = null, downloadFolderRequired = false,
             desktopDownloadConnectionPrompt = false)
     }
+    var settingsSectionName: String = "HOME"
+
     fun consumeSettingsSectionRequest() { uiState = uiState.copy(settingsSectionRequest = null) }
     fun cancelDownloadPrompt() {
         downloadAfterFolder = null
