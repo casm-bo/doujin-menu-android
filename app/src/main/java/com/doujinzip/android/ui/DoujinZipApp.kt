@@ -955,6 +955,7 @@ private fun MainTabContent(
                 onSectionRequestHandled = viewModel::consumeSettingsSectionRequest,
                 onSubscriptionOptionsChange = viewModel::setSubscriptionOptions,
                 onManageSubscriptions = {viewModel.openSubscriptions(1)},
+                onSyncNow = viewModel::syncLibraryNow,
             )
         }
         }

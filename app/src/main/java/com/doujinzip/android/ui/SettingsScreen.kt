@@ -102,6 +102,7 @@ fun SettingsScreen(
     onSectionRequestHandled: () -> Unit = {},
     onSubscriptionOptionsChange: (com.doujinzip.android.security.SubscriptionOptions) -> Unit = {},
     onManageSubscriptions: () -> Unit = {},
+    onSyncNow: () -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.HOME.name) }
@@ -177,6 +178,7 @@ fun SettingsScreen(
             onPair = onPair,
             onSelectProfile = onSelectProfile,
             onRemoveProfile = onRemoveProfile,
+            onSyncNow = onSyncNow,
         )
         SettingsSection.SUPPORT -> SupportSettingsScreen(
             state = state,
@@ -583,11 +585,24 @@ private fun ConnectionSettingsScreen(
     onPair: () -> Unit,
     onSelectProfile: (String) -> Unit,
     onRemoveProfile: (String) -> Unit,
+    onSyncNow: () -> Unit,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
-    val enabled = !state.isBusy && !state.isLoadingPage
+    val enabled = !state.isBusy && !state.isLoadingPage && !state.isLibrarySyncing
+    var disconnect by rememberSaveable { mutableStateOf(false) }
+    var keepProfile by rememberSaveable { mutableStateOf<String?>(null) }
+    if (disconnect) androidx.compose.material3.AlertDialog(onDismissRequest = { disconnect = false },
+        title = { Text(strings[R.string.connection_disconnect]) },
+        text = { Text(strings[R.string.connection_disconnect_notice]) },
+        confirmButton = { TextButton(onClick = { state.profiles.singleOrNull()?.let { onRemoveProfile(it.id) }; disconnect = false }) { Text(strings[R.string.connection_disconnect]) } },
+        dismissButton = { TextButton(onClick = { disconnect = false }) { Text(strings[R.string.ui_cancel]) } })
+    keepProfile?.let { id -> androidx.compose.material3.AlertDialog(onDismissRequest = { keepProfile = null },
+        title = { Text(strings[R.string.connection_choose_one]) },
+        text = { Text(strings[R.string.connection_legacy_notice]) },
+        confirmButton = { TextButton(onClick = { onSelectProfile(id); keepProfile = null }) { Text(strings[R.string.ui_confirm]) } },
+        dismissButton = { TextButton(onClick = { keepProfile = null }) { Text(strings[R.string.ui_cancel]) } }) }
     SettingsDetailLayout(strings[R.string.ui_connection_settings], contentPadding, onBack) {
-        SectionCard(strings[R.string.ui_connection_and_sync]) {
+        if (state.profiles.isEmpty()) SectionCard(strings[R.string.ui_connection_and_sync]) {
             Text(
                 strings[R.string.ui_pc_connection_is_optional_and_does_not_affect_standalone_readi],
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -648,16 +663,31 @@ private fun ConnectionSettingsScreen(
             }
         }
 
-        if (state.profiles.isNotEmpty()) {
+        if (state.profiles.size > 1) {
+            SectionCard(strings[R.string.connection_choose_one]) {
+                Text(strings[R.string.connection_legacy_notice])
+                state.profiles.forEach { profile ->
+                    OutlinedButton(onClick = { keepProfile = profile.id }, enabled = enabled) { Text(profile.name) }
+                }
+            }
+        } else if (state.profiles.isNotEmpty()) {
             SectionCard(strings[R.string.ui_registered_pcs]) {
-                SavedDesktopRows(
-                    profiles = state.profiles,
-                    selectedProfileId = state.selectedProfileId,
-                    connectionState = state.desktopConnectionState,
-                    enabled = enabled,
-                    onSelect = onSelectProfile,
-                    onRemove = onRemoveProfile,
-                )
+                val profile = state.profiles.single()
+                Text(profile.name, fontWeight = FontWeight.Medium)
+                Text(profile.baseUrl)
+                Text(strings[when (state.desktopConnectionState) {
+                    DesktopConnectionState.CONNECTED -> R.string.ui_connected
+                    DesktopConnectionState.CONNECTING -> R.string.ui_connecting
+                    else -> R.string.ui_disconnected
+                }])
+                Text(strings[R.string.connection_single_notice])
+                Text(strings[R.string.connection_last_sync, if (state.lastDesktopSyncAt == 0L) "—" else
+                    java.text.DateFormat.getDateTimeInstance().format(java.util.Date(state.lastDesktopSyncAt))])
+                state.librarySyncError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onSyncNow, enabled = enabled) { Text(strings[R.string.sub_sync_now]) }
+                    OutlinedButton(onClick = { disconnect = true }, enabled = enabled) { Text(strings[R.string.connection_disconnect]) }
+                }
             }
         }
         if (state.isBusy) LoadingRow(strings[R.string.ui_connecting])

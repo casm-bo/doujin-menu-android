@@ -170,6 +170,7 @@ data class MainUiState(
     val deviceName: String = "",
     val profiles: List<DesktopProfile> = emptyList(),
     val selectedProfileId: String? = null,
+    val lastDesktopSyncAt: Long = 0L,
     val browserWorkspace: BrowserWorkspace = BrowserWorkspace.initial(),
     val galleryWorkspace: BrowserWorkspace = BrowserWorkspace.initial(BrowserPage.LibraryHome()),
     val tabOverviewIsGallery: Boolean? = null,
@@ -363,6 +364,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             appStyle = appearancePreferenceStore.loadStyle(),
             profiles = profiles,
             selectedProfileId = profiles.firstOrNull()?.id,
+            lastDesktopSyncAt = browserPreferenceStore.loadLastDesktopSync(),
             browserWorkspace = browserWorkspace,
             galleryWorkspace = galleryWorkspace,
             libraryQuery = (galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query.orEmpty(),
@@ -794,6 +796,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun pair() {
         viewModelScope.launch {
             runOperation {
+                require(uiState.profiles.isEmpty()) { strings[R.string.connection_disconnect_first] }
                 val code = uiState.pairingCode
                 require(code.length == PAIRING_CODE_LENGTH) { strings[R.string.msg_enter_the_6_digit_pairing_code] }
                 val profileName = uiState.deviceName.trim()
@@ -811,7 +814,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     baseUrl = baseUrl,
                     token = result.token,
                 )
-                val profiles = uiState.profiles.filterNot { it.id == profile.id } + profile
+                val profiles = listOf(profile)
                 profileStore.save(profiles)
                 uiState = uiState.copy(
                     profiles = profiles,
@@ -829,8 +832,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectProfile(id: String) {
         val profile = uiState.profiles.firstOrNull { it.id == id } ?: return
-        if (uiState.selectedProfileId == id) return
+        if (uiState.selectedProfileId == id && uiState.profiles.size == 1) return
+        profileStore.save(listOf(profile))
         uiState = uiState.copy(
+            profiles = listOf(profile),
             selectedProfileId = id,
             message = strings[R.string.msg_selected, (profile.name)],
             isError = false,
@@ -847,8 +852,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val changed = uiState.selectedProfileId == id
         val profiles = uiState.profiles.filterNot { it.id == id }
         profileStore.save(profiles)
+        browserPreferenceStore.saveLastDesktopSync(0)
         uiState = uiState.copy(
             profiles = profiles,
+            lastDesktopSyncAt = 0L,
             selectedProfileId = if (uiState.selectedProfileId == id) profiles.firstOrNull()?.id
                 else uiState.selectedProfileId,
             downloadQueue = emptyList(),
@@ -3787,6 +3794,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val errors = downloadErrors + failures
                 if (errors.isNotEmpty()) uiState = uiState.copy(librarySyncError = errors.joinToString("\n"),
                     message = strings[R.string.msg_some_items_could_not_sync_check_the_pending_list], isError = true)
+                if (errors.isEmpty() && uiState.librarySyncError == null && uiState.presentationSyncError == null && pendingLibrarySyncCount() == 0) {
+                    val now = System.currentTimeMillis()
+                    browserPreferenceStore.saveLastDesktopSync(now)
+                    uiState = uiState.copy(lastDesktopSyncAt = now)
+                }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 uiState = uiState.copy(librarySyncError = error.message, message = error.message, isError = true)

@@ -581,4 +581,11 @@
     <string name="sub_hours">%1$d小时</string>
     <string name="sub_day">一天</string>
     <string name="ui_pull_next_chapter">在底部向上滑动以打开下一话</string>
+    <string name="connection_disconnect_first">请先断开当前电脑，再配对其他电脑。</string>
+    <string name="connection_disconnect">断开电脑</string>
+    <string name="connection_disconnect_notice">本地数据会保留。断开前请同步待处理更改。重新连接需要再次配对。</string>
+    <string name="connection_choose_one">选择一台电脑</string>
+    <string name="connection_legacy_notice">只能配对一台电脑。保留选定连接，移除其他凭据，但保留本地数据。请先同步未发送的更改。</string>
+    <string name="connection_single_notice">每台安卓设备连接一台电脑。电脑可连接多台安卓设备。</string>
+    <string name="connection_last_sync">上次资料库同步成功：%1$s</string>
 </resources>

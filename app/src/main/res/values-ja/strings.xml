@@ -581,4 +581,11 @@
     <string name="sub_hours">%1$d時間</string>
     <string name="sub_day">1日</string>
     <string name="ui_pull_next_chapter">最後まで読んだら上にスワイプして次の話へ</string>
+    <string name="connection_disconnect_first">別のPCと接続する前に現在の接続を解除してください。</string>
+    <string name="connection_disconnect">PCの接続を解除</string>
+    <string name="connection_disconnect_notice">ローカルデータは保持されます。解除前に未同期の変更を同期してください。再接続には再ペアリングが必要です。</string>
+    <string name="connection_choose_one">使用するPCを1台選択</string>
+    <string name="connection_legacy_notice">接続できるPCは1台です。選択した接続以外の認証情報を削除し、ローカルデータは保持します。未送信の変更は先に同期してください。</string>
+    <string name="connection_single_notice">Android端末ごとにPCは1台です。PCは複数のAndroid端末と接続できます。</string>
+    <string name="connection_last_sync">ライブラリ最終同期成功: %1$s</string>
 </resources>

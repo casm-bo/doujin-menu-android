@@ -43,7 +43,7 @@ class SubscriptionWorker(context:Context,parameters:WorkerParameters):CoroutineW
     override suspend fun doWork():Result = try {
         val profiles=withContext(Dispatchers.IO) { SecureProfileStore(applicationContext).load() }
         if(profiles.isEmpty()) SubscriptionRefresh.run(applicationContext,null)
-        else for(profile in profiles) SubscriptionRefresh.run(applicationContext,profile)
+        else SubscriptionRefresh.run(applicationContext,profiles.first())
         Result.success()
     } catch(error:CancellationException) { throw error }
     catch(_:Exception) { Result.retry() }

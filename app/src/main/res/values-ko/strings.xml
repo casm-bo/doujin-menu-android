@@ -581,4 +581,11 @@
     <string name="sub_hours">%1$d시간</string>
     <string name="sub_day">하루</string>
     <string name="ui_pull_next_chapter">끝에서 위로 밀어 다음화로 이동</string>
+    <string name="connection_disconnect_first">다른 PC를 연결하려면 현재 PC 연결을 먼저 해제하세요.</string>
+    <string name="connection_disconnect">PC 연결 해제</string>
+    <string name="connection_disconnect_notice">로컬 데이터는 유지됩니다. 해제 전에 미동기화 변경을 동기화하세요. 재연결하려면 다시 페어링해야 합니다.</string>
+    <string name="connection_choose_one">사용할 PC 한 대 선택</string>
+    <string name="connection_legacy_notice">PC는 한 대만 연결할 수 있습니다. 선택한 연결만 유지하며 다른 인증 정보는 제거합니다. 로컬 데이터는 유지됩니다. 미반영 변경이 있으면 먼저 동기화하세요.</string>
+    <string name="connection_single_notice">안드로이드 기기는 PC 한 대에 연결됩니다. PC는 여러 안드로이드 기기와 연결할 수 있습니다.</string>
+    <string name="connection_last_sync">마지막 라이브러리 동기화 성공: %1$s</string>
 </resources>
