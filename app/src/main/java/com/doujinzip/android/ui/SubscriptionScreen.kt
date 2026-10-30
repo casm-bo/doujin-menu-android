@@ -77,11 +77,11 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
         if(state.subscriptionsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.subscriptionError?.let { Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall) }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-            if(state.subscriptionTab==1) OutlinedButton({onEdit(SearchSubscription(name="",query=""))}) { ActionIcon(ActionSymbol.ADD); Spacer(Modifier.width(8.dp)); Text(strings[R.string.sub_add]) }
+            if(state.subscriptionTab==1) OutlinedButton({onEdit(SearchSubscription(name="",query=""))},contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) { ActionIcon(ActionSymbol.ADD); Spacer(Modifier.width(8.dp)); Text(strings[R.string.sub_add]) }
             else if(state.subscriptionTab==0) {
                 TextButton({onRead(null)},enabled=state.subscriptionNotices.any { !it.read }) { Text(strings[R.string.sub_all_read]) }
             }
-            OutlinedButton(onRefresh,enabled=!state.subscriptionsBusy) { ActionIcon(ActionSymbol.REFRESH); Spacer(Modifier.width(8.dp)); Text(strings[R.string.sub_check_now]) }
+            OutlinedButton(onRefresh,enabled=!state.subscriptionsBusy,contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) { ActionIcon(ActionSymbol.REFRESH); Spacer(Modifier.width(8.dp)); Text(strings[R.string.sub_check_now]) }
         }
         if(state.subscriptionTab==1) OutlinedTextField(savedQuery, {savedQuery=it}, modifier=Modifier.fillMaxWidth().padding(vertical=8.dp),
             singleLine=true, label={Text(strings[R.string.saved_subscription_search])}, leadingIcon={ActionIcon(ActionSymbol.SEARCH)},
@@ -96,28 +96,28 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
                 }
             }
         } else LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=16.dp)) {
-            item { Text(strings[R.string.sub_hint],Modifier.fillMaxWidth().padding(vertical=8.dp),style=MaterialTheme.typography.bodySmall) }
+            item { Text(strings[R.string.sub_hint],Modifier.fillMaxWidth().padding(vertical=4.dp),style=MaterialTheme.typography.bodySmall) }
             item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
                 Box {
-                    OutlinedButton({filterMenu=true}) {ActionIcon(ActionSymbol.FILTER);Spacer(Modifier.width(8.dp));Text(strings[R.string.saved_filter_labels].split("|")[savedFilter])}
+                    OutlinedButton({filterMenu=true},contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) {ActionIcon(ActionSymbol.FILTER);Spacer(Modifier.width(8.dp));Text(strings[R.string.saved_filter_labels].split("|")[savedFilter])}
                     DropdownMenu(filterMenu,{filterMenu=false}) {strings[R.string.saved_filter_labels].split("|").forEachIndexed { index,label -> DropdownMenuItem(text={Text(label)},onClick={savedFilter=index;filterMenu=false})}}
                 }
                 Box {
-                    OutlinedButton({sortMenu=true}) {ActionIcon(ActionSymbol.SORT);Spacer(Modifier.width(8.dp));Text(strings[R.string.saved_sort_labels].split("|")[savedSort])}
+                    OutlinedButton({sortMenu=true},contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) {ActionIcon(ActionSymbol.SORT);Spacer(Modifier.width(8.dp));Text(strings[R.string.saved_sort_labels].split("|")[savedSort])}
                     DropdownMenu(sortMenu,{sortMenu=false}) {strings[R.string.saved_sort_labels].split("|").forEachIndexed { index,label -> DropdownMenuItem(text={Text(label)},onClick={savedSort=index;sortMenu=false})}}
                 }
             } }
             if(state.subscriptions.none { !it.value.deleted }) item { Text(strings[R.string.sub_no_searches]) }
             items(savedRecords,key={it.value.id}) { record ->
                 val value=record.value
-                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                    Text(value.name,style=MaterialTheme.typography.titleLarge,fontWeight=androidx.compose.ui.text.font.FontWeight.SemiBold,color=MaterialTheme.colorScheme.onSurface)
+                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Text(value.name,style=MaterialTheme.typography.titleMedium,fontWeight=androidx.compose.ui.text.font.FontWeight.SemiBold,color=MaterialTheme.colorScheme.onSurface)
                     if(value.deleted) Text(strings[R.string.sub_deleted],color=MaterialTheme.colorScheme.error)
                     OutlinedCard(Modifier.fillMaxWidth(),border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outline)) {
-                        Text(strings[R.string.sub_tags]+": "+value.query,Modifier.padding(12.dp),style=MaterialTheme.typography.bodyMedium)
+                        Text(value.query,Modifier.fillMaxWidth().padding(10.dp),style=MaterialTheme.typography.bodyMedium)
                     }
-                    if(value.languages.isNotEmpty()) Text(strings[R.string.ui_language]+": "+value.languages.sorted().joinToString(", "),Modifier.padding(horizontal=12.dp),style=MaterialTheme.typography.bodyMedium)
-                    Row(verticalAlignment=Alignment.CenterVertically) {
+                    if(value.languages.isNotEmpty()) Text(value.languages.sorted().joinToString(", "),Modifier.fillMaxWidth(),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                         Text(strings[R.string.sub_monitor],Modifier.weight(1f))
                         Switch(value.enabled,{save(value.copy(enabled=it))},enabled=record.conflict==null,modifier=Modifier.testTag("subscription-monitor"))
                     }
