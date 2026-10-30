@@ -31,11 +31,15 @@ android {
 
     buildTypes {
         getByName("debug") {
+            // User beta installs must disable debugging; enable only for internal investigation
+            // with -PinternalDebug=true, then rebuild without it before handing back the device.
+            isDebuggable = providers.gradleProperty("internalDebug").getOrElse("false").toBoolean()
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
         create("uitest") {
             initWith(getByName("debug"))
+            isDebuggable = true
             applicationIdSuffix = ".uitest"
             versionNameSuffix = "-uitest"
             matchingFallbacks += listOf("debug")
