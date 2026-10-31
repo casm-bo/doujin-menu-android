@@ -76,16 +76,12 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
         }
         if(state.subscriptionsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.subscriptionError?.let { Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall) }
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-            if(state.subscriptionTab==1) OutlinedButton({onEdit(SearchSubscription(name="",query=""))},contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) { ActionIcon(ActionSymbol.ADD); Spacer(Modifier.width(8.dp)); Text(strings[R.string.sub_add]) }
-            else if(state.subscriptionTab==0) {
+        if(state.subscriptionTab==0) {
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
                 TextButton({onRead(null)},enabled=state.subscriptionNotices.any { !it.read }) { Text(strings[R.string.sub_all_read]) }
+                OutlinedButton(onRefresh,enabled=!state.subscriptionsBusy,contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) {ActionIcon(ActionSymbol.REFRESH);Spacer(Modifier.width(8.dp));Text(strings[R.string.sub_check_now])}
             }
-            OutlinedButton(onRefresh,enabled=!state.subscriptionsBusy,contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) { ActionIcon(ActionSymbol.REFRESH); Spacer(Modifier.width(8.dp)); Text(strings[R.string.sub_check_now]) }
         }
-        if(state.subscriptionTab==1) OutlinedTextField(savedQuery, {savedQuery=it}, modifier=Modifier.fillMaxWidth().padding(vertical=8.dp),
-            singleLine=true, label={Text(strings[R.string.saved_subscription_search])}, leadingIcon={ActionIcon(ActionSymbol.SEARCH)},
-            trailingIcon={if(savedQuery.isNotEmpty()) IconButton({savedQuery=""}) {ActionIcon(ActionSymbol.CLEAR)}})
         if(state.subscriptionTab==0) {
             LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=16.dp)) {
                 if(state.subscriptionNotices.isEmpty()) item { Text(strings[R.string.sub_empty]) }
@@ -96,27 +92,46 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
                 }
             }
         } else LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=16.dp)) {
-            item { Text(strings[R.string.sub_hint],Modifier.fillMaxWidth().padding(vertical=4.dp),style=MaterialTheme.typography.bodySmall) }
-            item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
-                Box {
-                    OutlinedButton({filterMenu=true},contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) {ActionIcon(ActionSymbol.FILTER);Spacer(Modifier.width(8.dp));Text(strings[R.string.saved_filter_labels].split("|")[savedFilter])}
-                    DropdownMenu(filterMenu,{filterMenu=false}) {strings[R.string.saved_filter_labels].split("|").forEachIndexed { index,label -> DropdownMenuItem(text={Text(label)},onClick={savedFilter=index;filterMenu=false})}}
+            item {
+                Card(colors=appCardColors(),modifier=Modifier.fillMaxWidth().padding(vertical=8.dp)) {
+                    Column(Modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                            OutlinedButton({onEdit(SearchSubscription(name="",query=""))},contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) { ActionIcon(ActionSymbol.ADD); Spacer(Modifier.width(8.dp)); Text(strings[R.string.sub_add]) }
+                            OutlinedButton(onRefresh,enabled=!state.subscriptionsBusy,contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) { ActionIcon(ActionSymbol.REFRESH); Spacer(Modifier.width(8.dp)); Text(strings[R.string.sub_check_now]) }
+                        }
+                        OutlinedTextField(savedQuery, {savedQuery=it}, modifier=Modifier.fillMaxWidth().padding(vertical=4.dp),
+                        singleLine=true, label={Text(strings[R.string.saved_subscription_search])}, leadingIcon={ActionIcon(ActionSymbol.SEARCH)},
+                        trailingIcon={if(savedQuery.isNotEmpty()) IconButton({savedQuery=""}) {ActionIcon(ActionSymbol.CLEAR)}})
+                        Text(strings[R.string.sub_hint],style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        HorizontalDivider(Modifier.padding(vertical=4.dp))
+                        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                            Box {
+                                OutlinedButton({filterMenu=true},contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) {ActionIcon(ActionSymbol.FILTER);Spacer(Modifier.width(8.dp));Text(strings[R.string.saved_filter_labels].split("|")[savedFilter])}
+                                DropdownMenu(filterMenu,{filterMenu=false}) {strings[R.string.saved_filter_labels].split("|").forEachIndexed { index,label -> DropdownMenuItem(text={Text(label)},onClick={savedFilter=index;filterMenu=false})}}
+                            }
+                            Box {
+                                OutlinedButton({sortMenu=true},contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) {ActionIcon(ActionSymbol.SORT);Spacer(Modifier.width(8.dp));Text(strings[R.string.saved_sort_labels].split("|")[savedSort])}
+                                DropdownMenu(sortMenu,{sortMenu=false}) {strings[R.string.saved_sort_labels].split("|").forEachIndexed { index,label -> DropdownMenuItem(text={Text(label)},onClick={savedSort=index;sortMenu=false})}}
+                            }
+                        }
+                    }
                 }
-                Box {
-                    OutlinedButton({sortMenu=true},contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) {ActionIcon(ActionSymbol.SORT);Spacer(Modifier.width(8.dp));Text(strings[R.string.saved_sort_labels].split("|")[savedSort])}
-                    DropdownMenu(sortMenu,{sortMenu=false}) {strings[R.string.saved_sort_labels].split("|").forEachIndexed { index,label -> DropdownMenuItem(text={Text(label)},onClick={savedSort=index;sortMenu=false})}}
-                }
-            } }
+            }
             if(state.subscriptions.none { !it.value.deleted }) item { Text(strings[R.string.sub_no_searches]) }
             items(savedRecords,key={it.value.id}) { record ->
                 val value=record.value
-                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Card(colors=appCardColors(),modifier=Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(value.name,style=MaterialTheme.typography.titleLarge,fontWeight=androidx.compose.ui.text.font.FontWeight.SemiBold,color=MaterialTheme.colorScheme.onSurface)
                     if(value.deleted) Text(strings[R.string.sub_deleted],color=MaterialTheme.colorScheme.error)
                     OutlinedCard(Modifier.fillMaxWidth(),border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outline)) {
-                        Text(value.query,Modifier.fillMaxWidth().padding(10.dp),style=MaterialTheme.typography.bodyMedium)
+                        Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                            Text(value.query,Modifier.fillMaxWidth(),style=MaterialTheme.typography.bodyMedium)
+                            if(value.languages.isNotEmpty()) {
+                                HorizontalDivider()
+                                Text(value.languages.sorted().joinToString(", "),Modifier.fillMaxWidth(),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
-                    if(value.languages.isNotEmpty()) Text(value.languages.sorted().joinToString(", "),Modifier.fillMaxWidth(),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                         Text(strings[R.string.sub_monitor],Modifier.weight(1f))
                         Switch(value.enabled,{save(value.copy(enabled=it))},enabled=record.conflict==null,modifier=Modifier.testTag("subscription-monitor"))
