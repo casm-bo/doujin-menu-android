@@ -111,6 +111,26 @@ fun BrowserWorkspace.restoreGroup(groupId: String): BrowserWorkspace {
     ).normalizeGroups()
 }
 
+/** The destination owns the resulting name, color and open/archived state. */
+fun BrowserWorkspace.mergeGroups(sourceId: String, targetId: String, fallback: BrowserPage = BrowserPage.Search()): BrowserWorkspace {
+    if (sourceId == targetId) return this
+    val source = groups.firstOrNull { it.id == sourceId } ?: return this
+    val target = groups.firstOrNull { it.id == targetId } ?: return this
+    fun members(group: BrowserTabGroup) = if (group.isArchived) group.archivedTabs else tabs.filter { it.groupId == group.id }
+    val combined = (members(target) + members(source)).distinctBy { it.id }.map { it.copy(groupId = targetId) }
+    val remaining = tabs.filterNot { it.groupId == sourceId || it.groupId == targetId }.toMutableList()
+    if (!target.isArchived) {
+        val position = tabs.takeWhile { it.groupId != targetId }.count { it.groupId != sourceId }
+        remaining.addAll(position.coerceAtMost(remaining.size), combined)
+    }
+    if (remaining.isEmpty()) remaining.add(BrowserTab(history = listOf(fallback)))
+    return copy(tabs = remaining,
+        activeTabId = activeTabId.takeIf { id -> remaining.any { it.id == id } } ?: remaining.first().id,
+        groups = groups.filterNot { it.id == sourceId }.map { if (it.id == targetId) it.copy(archivedTabs = if (target.isArchived) combined else emptyList()) else it },
+        overviewOrder = overviewOrder.filterNot { it == "group:$sourceId" },
+    ).normalizeGroups()
+}
+
 fun BrowserWorkspace.deleteArchivedGroup(groupId: String): BrowserWorkspace = copy(
     groups = groups.filterNot { it.id == groupId && it.isArchived },
 )

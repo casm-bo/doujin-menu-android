@@ -13,6 +13,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -34,6 +38,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecentHistoryScreen(
     state: MainUiState,
@@ -43,7 +48,10 @@ fun RecentHistoryScreen(
     onClear: () -> Unit,
     onRecordingChange: (Boolean) -> Unit,
     onLoadMetadata: suspend (Long) -> Unit,
+    onRefresh: () -> Unit = {},
 ) {
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val strings = androidx.compose.ui.platform.LocalResources.current
     val context = LocalContext.current
     val preferences = remember(context) { com.doujinzip.android.security.AppearancePreferenceStore(context) }
@@ -89,13 +97,20 @@ fun RecentHistoryScreen(
             }
         }
         if (!state.historyRecording) Text(strings[R.string.ui_history_paused_reading_progress_is_still_saved], Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
-        if (entries.isEmpty()) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
-            Text(if (state.recentHistory.isEmpty()) strings[R.string.ui_galleries_you_open_will_appear_here] else strings[R.string.ui_no_matching_history])
-        } else LazyVerticalGrid(columns = GridCells.Fixed(if (grid) 2 else 1), modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(entries, key = { it.key }) { entry ->
-                HistoryCard(entry, state, grid, onLoadMetadata, onOpen = { onOpen(entry, it) }, onRemove = { onRemove(entry.key) }, book = bookIndex.find(entry))
+        PullToRefreshBox(isRefreshing = refreshing, onRefresh = {
+            if (!refreshing) scope.launch {
+                refreshing = true
+                try { onRefresh(); delay(250) } finally { refreshing = false }
             }
-        }
+        }, modifier = Modifier.weight(1f)) {
+            if (entries.isEmpty()) Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+                Text(if (state.recentHistory.isEmpty()) strings[R.string.ui_galleries_you_open_will_appear_here] else strings[R.string.ui_no_matching_history])
+            } else LazyVerticalGrid(columns = GridCells.Fixed(if (grid) 2 else 1), modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(entries, key = { it.key }) { entry ->
+                    HistoryCard(entry, state, grid, onLoadMetadata, onOpen = { onOpen(entry, it) }, onRemove = { onRemove(entry.key) }, book = bookIndex.find(entry))
+                }
+            }
+    }
     }
     if (clearDialog) AlertDialog(
         onDismissRequest = { clearDialog = false }, title = { Text(strings[R.string.ui_clear_entire_recent_history]) },

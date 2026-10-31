@@ -5,6 +5,37 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BrowserTabsOverviewTest {
+    @Test fun mergingGroupsPreservesDestinationStateOrderAndEveryHistory() {
+        for (sourceArchived in listOf(false, true)) for (targetArchived in listOf(false, true)) {
+            val tabs = (1..5).map { BrowserTab(id = "tab$it", history = listOf(BrowserPage.Search(query = "fixture$it"))) }
+            var workspace = BrowserWorkspace(tabs, tabs[0].id)
+                .createGroup(setOf("tab1", "tab2"), "Source", 1)
+                .createGroup(setOf("tab3", "tab4"), "Target", 4)
+            val source = workspace.groups[0].id; val target = workspace.groups[1].id
+            if (sourceArchived) workspace = workspace.archiveGroup(source)
+            if (targetArchived) workspace = workspace.archiveGroup(target)
+            val merged = workspace.mergeGroups(source, target)
+            val group = merged.groups.single()
+            assertEquals("Target", group.name); assertEquals(4, group.colorIndex)
+            assertEquals(targetArchived, group.isArchived)
+            val members = if (group.isArchived) group.archivedTabs else merged.tabs.filter { it.groupId == target }
+            assertEquals(listOf("tab3", "tab4", "tab1", "tab2"), members.map { it.id })
+            assertEquals(tabs.associate { it.id to it.history }, (merged.tabs + group.archivedTabs).associate { it.id to it.history })
+            assertTrue(merged.tabs.any { it.id == merged.activeTabId })
+            assertEquals(merged, merged.mergeGroups(target, target))
+            assertEquals(merged, merged.mergeGroups("missing", target))
+        }
+    }
+    @Test fun mergingIntoArchivedGroupKeepsGalleryFallbackWhenAllOpenTabsMove() {
+        val initial = BrowserWorkspace.initial().openTab(BrowserPage.Search(query = "fixture"))
+        var workspace = initial.createGroup(setOf(initial.tabs[0].id), "Source").createGroup(setOf(initial.tabs[1].id), "Target")
+        val source = workspace.groups[0].id; val target = workspace.groups[1].id
+        workspace = workspace.archiveGroup(target)
+        val merged = workspace.mergeGroups(source, target, BrowserPage.LibraryHome())
+        assertTrue(merged.activeTab.currentPage is BrowserPage.LibraryHome)
+        assertEquals(2, merged.groups.single().archivedTabs.size)
+    }
+
     @Test
     fun committingDragOrderRetainsDataLoadedDuringGesture() {
         val original = BrowserWorkspace.initial(BrowserPage.Search(query = "one"))

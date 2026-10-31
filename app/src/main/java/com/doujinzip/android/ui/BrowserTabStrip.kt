@@ -3,6 +3,14 @@ package com.doujinzip.android.ui
 import com.doujinzip.android.R
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,14 +55,49 @@ fun BrowserTabStrip(
     titleOverride: String? = null,
     titleContent: (@Composable () -> Unit)? = null,
     extraActions: @Composable RowScope.() -> Unit = {},
+    onSelect: (String) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     val search = LocalInlineSearch.current
     val scope = rememberCoroutineScope()
+    val swipe = LocalTabSwipe.current
+    val latestWorkspace by rememberUpdatedState(workspace)
+    val latestSelect by rememberUpdatedState(onSelect)
+    val minVelocity = with(LocalDensity.current) { 900.dp.toPx() }
+    val swipeEnabled = swipe != null && workspace.tabs.size > 1 && search?.expanded != true
+    val gesture = if (!swipeEnabled) Modifier else Modifier.pointerInput(swipe, swipeEnabled) {
+        val state = requireNotNull(swipe)
+        val tracker = VelocityTracker()
+        var distance = 0f
+        var origin = latestWorkspace.activeTab
+        var accepted = false
+        fun finish(cancelled: Boolean) {
+            if (!accepted) return
+            accepted = false
+            val step = if (cancelled) 0 else tabSwipeStep(distance, tracker.calculateVelocity().x, state.width, minVelocity)
+            val target = latestWorkspace.adjacentSwipeTab(step)?.id
+            state.settle(target,
+                current = { latestWorkspace.activeTabId == origin.id && latestWorkspace.activeTab.currentPage.key == origin.currentPage.key && latestWorkspace.tabs.any { it.id == target } },
+                capture = { previews.captureNow() }, select = { latestSelect(it) })
+        }
+        try { detectHorizontalDragGestures(
+            onDragStart = {
+                accepted = !state.animating
+                if (accepted) { origin = latestWorkspace.activeTab; distance = 0f; tracker.resetTracking(); tracker.addPosition(android.os.SystemClock.uptimeMillis(), Offset.Zero) }
+            },
+            onHorizontalDrag = { change, amount ->
+                if (accepted) {
+                    change.consume(); distance += amount
+                    tracker.addPosition(change.uptimeMillis, Offset(distance, 0f))
+                    state.drag(distance, latestWorkspace.adjacentSwipeTab(if (distance < 0) 1 else -1) != null)
+                }
+            }, onDragEnd = { finish(false) }, onDragCancel = { finish(true) },
+        ) } finally { finish(true) }
+    }
     fun captureThen(action: () -> Unit) { scope.launch { previews.captureNow(); action() } }
 
     Surface(modifier = if (titleContent == null) Modifier.statusBarsPadding() else Modifier, color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().testTag("tab-toolbar").then(gesture).padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) IconButton(onClick = { captureThen(onBack) },
                 modifier = Modifier.semantics { contentDescription = strings[R.string.ui_back] }) { Text("‹") }
             Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(28.dp),

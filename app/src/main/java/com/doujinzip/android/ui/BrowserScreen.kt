@@ -311,17 +311,17 @@ fun BrowserScreen(
             }
         })
         if (!searchExpansion.expanded) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = { togglePanel("languages") }, contentPadding = PaddingValues(horizontal = 10.dp),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (editing && expandedPanel == "languages") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = { togglePanel("languages") }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                colors = activeFilterButtonColors(state.preferredLanguages.isNotEmpty() || editing && expandedPanel == "languages")) {
                 ActionIcon(ActionSymbol.LANGUAGE); Spacer(Modifier.width(4.dp))
                 val selected = state.preferredLanguages.singleOrNull()
                 Text(selected?.let { code -> state.availableLanguages.firstOrNull { it.code == code }?.label
                     ?: mapOf("korean" to strings[R.string.ui_], "japanese" to "日本語", "english" to "English", "chinese" to "中文")[code]
                     ?: code.replace('_', ' ') } ?: strings[R.string.ui_language])
             }
-            OutlinedButton(onClick = { togglePanel("tag-filters") }, contentPadding = PaddingValues(horizontal = 10.dp),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (state.searchTagFilters.isNotEmpty() || state.customBlockedTags.isNotEmpty() || editing && expandedPanel == "tag-filters") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)) {
+            OutlinedButton(onClick = { togglePanel("tag-filters") }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                colors = activeFilterButtonColors(state.searchTagFilters.isNotEmpty() || state.customBlockedTags.isNotEmpty() || editing && expandedPanel == "tag-filters")) {
                 ActionIcon(ActionSymbol.FILTER); Spacer(Modifier.width(4.dp)); Text(strings[R.string.search_tag_filters])
             }
             Spacer(Modifier.weight(1f))
@@ -384,7 +384,7 @@ fun BrowserScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize(),
             state = listState,
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
         item(key = "search-controls", span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(0.dp)) }

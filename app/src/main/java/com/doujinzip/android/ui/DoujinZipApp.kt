@@ -24,6 +24,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -268,6 +270,7 @@ fun DoujinZipApp(viewModel: MainViewModel = viewModel()) {
     val previewKey = previewIsGallery?.let {
         BrowserTabPreviewKey(it, previewWorkspace.activeTabId, previewWorkspace.activeTab.currentPage.key)
     }
+    TabSwipeHost {
     BrowserTabPreviewHost(viewModel.tabPreviews, previewKey) {
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
@@ -522,11 +525,14 @@ fun DoujinZipApp(viewModel: MainViewModel = viewModel()) {
 
     }
 
+    }
+
     viewModel.uiState.tabOverviewIsGallery?.let { isGallery ->
         BrowserTabsOverview(
             workspace = if (isGallery) viewModel.uiState.galleryWorkspace else viewModel.uiState.browserWorkspace,
             isGallery = isGallery,
             previews = viewModel.tabPreviews,
+            preferredLanguages = viewModel.uiState.preferredLanguages,
             onSelect = { id ->
                 snackbarScope.launch {
                     viewModel.tabPreviews.captureNow()
@@ -581,6 +587,7 @@ private fun AppSearchTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? = 
     BrowserTabStrip(
         workspace = viewModel.uiState.browserWorkspace,
         onNew = viewModel::newBrowserTab,
+        onSelect = viewModel::selectBrowserTab,
         onShowOverview = { viewModel.showTabOverview(isGallery = false) },
         previews = viewModel.tabPreviews,
         onBack = onBack,
@@ -596,6 +603,7 @@ private fun AppGalleryTabStrip(viewModel: MainViewModel, onBack: (() -> Unit)? =
     BrowserTabStrip(
         workspace = viewModel.uiState.galleryWorkspace,
         onNew = viewModel::newGalleryTab,
+        onSelect = viewModel::selectGalleryTab,
         onShowOverview = { viewModel.showTabOverview(isGallery = true) },
         previews = viewModel.tabPreviews,
         onBack = onBack,
@@ -676,7 +684,13 @@ private fun MainShell(
     val topBar: @Composable () -> Unit = {
         Column {
             if (selected != MainDestination.Browser && selected != MainDestination.Library) {
-                TopAppBar(title = { Text(strings[selected.labelResource]) })
+                TopAppBar(title = { Text(strings[selected.labelResource]) }, actions = {
+                    if (selected == MainDestination.Downloads) TextButton(
+                        onClick = viewModel::syncDownloadRequests,
+                        enabled = viewModel.uiState.selectedProfileId != null && !viewModel.uiState.isDownloadSyncing,
+                    ) { Text(strings[if (viewModel.uiState.isDownloadSyncing) R.string.ui_syncing else R.string.ui_sync_with_pc]) }
+                })
+                if (selected == MainDestination.Downloads) androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
             }
             when (selected) {
                 MainDestination.Browser -> Unit
@@ -690,13 +704,14 @@ private fun MainShell(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth >= 700.dp) {
             Row(modifier = Modifier.fillMaxSize()) {
-                NavigationRail {
+                NavigationRail(modifier = Modifier.fillMaxHeight()) {
                     MainDestination.entries.forEach { destination ->
                         NavigationRailItem(
+                            modifier = Modifier.weight(1f),
                             selected = destination == selected,
                             onClick = { navigate(destination) },
                             icon = { MainDestinationIcon(destination) },
-                            label = { Text(strings[destination.labelResource]) },
+                            label = { Text(strings[destination.labelResource], maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
                         )
                     }
                 }
@@ -906,6 +921,7 @@ private fun MainTabContent(
             onOpen = viewModel::openHistory, onRemove = viewModel::removeHistory,
             onClear = viewModel::clearHistory, onRecordingChange = viewModel::setHistoryRecording,
             onLoadMetadata = viewModel::loadHistoryMetadata,
+            onRefresh = viewModel::refreshHistory,
         )
         MainDestination.Downloads -> {
             DownloadsScreen(
@@ -923,6 +939,7 @@ private fun MainTabContent(
                 onLocalDownload = viewModel::startLocalDownload,
                 onPauseLocal = viewModel::pauseLocalDownload,
                 onSyncRequests = viewModel::syncDownloadRequests,
+                onRetryRequest = viewModel::retryDesktopDownloadRequest,
                 onSetDownloadLocation = viewModel::setDownloadLocation,
             )
         }
@@ -955,6 +972,10 @@ private fun MainTabContent(
                 onSectionRequestHandled = viewModel::consumeSettingsSectionRequest,
                 onSubscriptionOptionsChange = viewModel::setSubscriptionOptions,
                 onManageSubscriptions = {viewModel.openSubscriptions(1)},
+                onSyncNow = viewModel::syncLibraryNow,
+                onPrepareBackup = viewModel::prepareLocalBackup,
+                initialSectionName = viewModel.settingsSectionName,
+                onSectionChanged = { viewModel.settingsSectionName = it },
             )
         }
         }

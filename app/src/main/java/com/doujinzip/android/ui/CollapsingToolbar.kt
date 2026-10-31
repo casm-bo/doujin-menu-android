@@ -22,7 +22,7 @@ internal fun CollapsingToolbar(behavior: TopAppBarScrollBehavior, content: @Comp
         behavior.state.heightOffsetLimit = -placeable.height.toFloat()
         val offset = behavior.state.heightOffset.roundToInt()
         layout(placeable.width, (placeable.height + offset).coerceAtLeast(0)) { placeable.placeRelative(0, offset) }
-    }) { Surface(color = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface) { Column { content() } } }
+    }) { Surface(color = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface) { Column(Modifier.padding(bottom = 8.dp)) { content() } } }
 }
 
 internal fun galleryToolsTwoRows(width: Int, modesWidth: Int, toolsWidth: Int, gap: Int): Boolean =

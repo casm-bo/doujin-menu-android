@@ -632,8 +632,8 @@ fun LibraryScreen(
                 Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     val modes: @Composable () -> Unit = {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            FilterChip(selected = !seriesMode && !state.libraryExcludeSeries, onClick = { changeSeriesMode(false) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, label = { Text(strings[R.string.ui_all]) })
-                            FilterChip(selected = seriesMode || state.libraryExcludeSeries, onClick = {
+                            FilterChip(colors = activeFilterChipColors(), selected = !seriesMode && !state.libraryExcludeSeries, onClick = { changeSeriesMode(false) }, leadingIcon = { ActionIcon(ActionSymbol.GRID) }, label = { Text(strings[R.string.ui_all]) })
+                            FilterChip(colors = activeFilterChipColors(), selected = seriesMode || state.libraryExcludeSeries, onClick = {
                                 if (seriesMode) onExcludeSeriesChange(true) else changeSeriesMode(true)
                             }, leadingIcon = { ActionIcon(if (state.libraryExcludeSeries) ActionSymbol.HIDE else ActionSymbol.SERIES) },
                                 label = { Text(if (state.libraryExcludeSeries) strings[R.string.ui_exclude_series] else if (seriesMode) strings[R.string.ui_series_only] else strings[R.string.ui_series]) })
@@ -992,7 +992,7 @@ private fun LibraryFilterMenu(
     Box {
         OutlinedButton(onClick = { expanded = true; onMenuChange(true) },
             contentPadding = PaddingValues(horizontal = 8.dp),
-            colors = ButtonDefaults.outlinedButtonColors(containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
+            colors = activeFilterButtonColors(active)) {
             ActionIcon(ActionSymbol.FILTER)
             Text(strings[R.string.ui_filter], Modifier.padding(start = 6.dp))
         }

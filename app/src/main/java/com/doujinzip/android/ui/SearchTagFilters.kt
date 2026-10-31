@@ -22,7 +22,7 @@ internal fun SearchTagFilters(presets:Set<SearchTagFilter>,custom:Set<String>,on
     var invalid by rememberSaveable { mutableStateOf(false) }
     Text(strings[R.string.search_tag_filter_hint],style=MaterialTheme.typography.bodySmall)
     SearchTagFilter.entries.forEach { filter ->
-        Row(Modifier.fillMaxWidth().toggleable(filter in presets,role=Role.Switch,onValueChange={onPreset(filter)}),verticalAlignment=Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(vertical=4.dp).heightIn(min=48.dp).toggleable(filter in presets,role=Role.Switch,onValueChange={onPreset(filter)}),verticalAlignment=Alignment.CenterVertically) {
             Text(strings[when(filter) { SearchTagFilter.BL -> R.string.search_block_bl;SearchTagFilter.GORE -> R.string.search_block_gore;SearchTagFilter.LOLI -> R.string.search_block_loli }],Modifier.weight(1f))
             Switch(filter in presets,null)
         }
@@ -34,7 +34,7 @@ internal fun SearchTagFilters(presets:Set<SearchTagFilter>,custom:Set<String>,on
         val tags=runCatching { parseBlockedSearchTags(query).also { parseBlockedSearchTags((custom+it).joinToString(" ")) } }.getOrNull()
         if(tags==null) invalid=true else { onCustom(custom+tags);query="";invalid=false }
     },enabled=query.isNotBlank(),modifier=Modifier.testTag("add-blocked-tags")) { Text(strings[R.string.search_add_blocked_tags]) }
-    FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         custom.sorted().forEach { tag -> InputChip(false,{onCustom(custom-tag)},label={Text(tag)},trailingIcon={Text("×")}) }
     }
 }

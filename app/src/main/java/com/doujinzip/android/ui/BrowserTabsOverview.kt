@@ -5,6 +5,8 @@ import com.doujinzip.android.R
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -43,6 +45,7 @@ import coil3.request.ImageRequest
 import com.doujinzip.android.model.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.first
 
 private val groupColors = listOf(Color(0xFF75CFFA), Color(0xFFF6C85F), Color(0xFF93D6A1),
     Color(0xFFC5A4ED), Color(0xFFF3A6B6), Color(0xFFB4BCC5))
@@ -56,6 +59,7 @@ internal fun BrowserTabsOverview(
     onCloseTab: (String) -> Unit,
     onUpdate: (BrowserWorkspace) -> Unit,
     onDismiss: () -> Unit,
+    preferredLanguages: Set<String> = emptySet(),
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     var groupsOnly by rememberSaveable { mutableStateOf(false) }
@@ -67,10 +71,11 @@ internal fun BrowserTabsOverview(
     var editingGroup by remember { mutableStateOf<BrowserTabGroup?>(null) }
     var creatingGroup by remember { mutableStateOf(false) }
     var movingTabs by remember { mutableStateOf<Set<String>?>(null) }
+    var mergingGroup by remember { mutableStateOf<String?>(null) }
     var deletingGroup by remember { mutableStateOf<BrowserTabGroup?>(null) }
     var dragWorkspace by remember { mutableStateOf<BrowserWorkspace?>(null) }
     val displayedWorkspace = dragWorkspace ?: workspace
-    val fallback = if (isGallery) BrowserPage.LibraryHome() else BrowserPage.Search()
+    val fallback = if (isGallery) BrowserPage.LibraryHome() else BrowserPage.Search(preferredLanguages = preferredLanguages)
     val openGroup = displayedWorkspace.groups.firstOrNull { it.id == openGroupId }
     val groupTabs = if (openGroup?.isArchived == true) openGroup.archivedTabs else displayedWorkspace.tabs.filter { it.groupId == openGroupId }
     val baseItems = when {
@@ -85,7 +90,16 @@ internal fun BrowserTabsOverview(
     } }
     val latestWorkspace by rememberUpdatedState(workspace)
     val latestUpdate by rememberUpdatedState(onUpdate)
-    val grid = rememberLazyGridState()
+    val selectedIndex = if (openGroup != null) items.indexOfFirst { it is BrowserOverviewItem.Tab && it.tab.id == workspace.activeTabId } else -1
+    val grid = key(openGroupId, groupsOnly) { rememberLazyGridState(initialFirstVisibleItemIndex = selectedIndex.coerceAtLeast(0)) }
+    LaunchedEffect(grid, openGroupId) {
+        if (selectedIndex < 0) return@LaunchedEffect
+        grid.scrollToItem(selectedIndex)
+        val layout = snapshotFlow { grid.layoutInfo }.first { info -> info.visibleItemsInfo.any { it.key == "tab:${workspace.activeTabId}" } }
+        val item = layout.visibleItemsInfo.first { it.key == "tab:${workspace.activeTabId}" }
+        val center = (layout.viewportStartOffset + layout.viewportEndOffset) / 2
+        grid.scrollBy((item.offset.y + item.size.height / 2 - center).toFloat())
+    }
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     var dragging by remember { mutableStateOf<String?>(null) }
@@ -103,7 +117,7 @@ internal fun BrowserTabsOverview(
                 position.y >= info.offset.y && position.y < info.offset.y + info.size.height
         }
         val current = dragWorkspace ?: latestWorkspace
-        val canGroup = openGroupId == null && !groupsOnly && key.startsWith("tab:")
+        val canGroup = openGroupId == null && ((!groupsOnly && key.startsWith("tab:")) || key.startsWith("group:") && (target?.key as? String)?.startsWith("group:") == true)
         val inCenter = target != null && isTabDropCenter(position.x - target.offset.x, position.y - target.offset.y,
             target.size.width.toFloat(), target.size.height.toFloat())
         if (canGroup && inCenter) hover = target.key as? String
@@ -201,7 +215,7 @@ internal fun BrowserTabsOverview(
                     Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Box(Modifier.weight(1f)) {
-                    LazyVerticalGrid(columns = GridCells.Fixed(2), state = grid, contentPadding = PaddingValues(16.dp),
+                    LazyVerticalGrid(columns = GridCells.Fixed(if (androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 3 else 2), state = grid, contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize().pointerInput(selecting, openGroupId, groupsOnly, openGroup?.isArchived) {
                             if (!selecting && openGroup?.isArchived != true) detectDragGesturesAfterLongPress(
@@ -223,7 +237,7 @@ internal fun BrowserTabsOverview(
                                     val target = mergeTarget?.takeIf { it == hover }
                                     val ordered = latestWorkspace.commitTabDragOrder(dragWorkspace ?: latestWorkspace)
                                     val result = when {
-                                        source != null && target != null -> ordered.mergeTabDrop(source, target)
+                                        source != null && target != null -> ordered.mergeTabDrop(source, target, fallback)
                                         source != null && hover != null -> ordered.moveOverviewItem(source, requireNotNull(hover))
                                         else -> ordered
                                     }
@@ -240,7 +254,8 @@ internal fun BrowserTabsOverview(
                             OverviewCard(item, workspace, previews, isGallery,
                                 selected = selecting && selected.containsAll(memberIds), merging = mergeTarget == item.key,
                                 canSwipe = !selecting && dragging == null && openGroup?.isArchived != true && !groupsOnly,
-                                modifier = Modifier.animateItem().graphicsLayer { alpha = if (dragging == item.key) 0f else 1f },
+                                // Swipe anchors must be measured before placement; item lookahead can bypass that.
+                                modifier = Modifier.graphicsLayer { alpha = if (dragging == item.key) 0f else 1f },
                                 onClick = {
                                     if (selecting) selected = if (selected.containsAll(memberIds)) selected - memberIds else selected + memberIds
                                     else when (item) {
@@ -254,7 +269,7 @@ internal fun BrowserTabsOverview(
                                     is BrowserOverviewItem.Tab -> onCloseTab(item.tab.id)
                                     is BrowserOverviewItem.Group -> onUpdate(workspace.archiveGroup(item.group.id, fallback))
                                 } },
-                                onEditGroup = { editingGroup = it }, onUngroup = { onUpdate(workspace.ungroup(it)) },
+                                onMergeGroup = { mergingGroup = it }, onEditGroup = { editingGroup = it }, onUngroup = { onUpdate(workspace.ungroup(it)) },
                                 onDeleteGroup = { deletingGroup = it }, onMoveTab = { movingTabs = setOf(it) },
                                 onDetachTab = { onUpdate(workspace.assignTabToGroup(it, null)) }, archived = openGroup?.isArchived == true)
                         }
@@ -265,7 +280,7 @@ internal fun BrowserTabsOverview(
                                 .offset { IntOffset((pointer.x - grabOffset.x).toInt(), (pointer.y - grabOffset.y).toInt()) }
                                 .width(with(density) { dragSize.width.toDp() })
                                 .graphicsLayer { scaleX = 1.04f; scaleY = 1.04f; shadowElevation = 16f },
-                            onClick = {}, onDismiss = {}, onEditGroup = {}, onUngroup = {}, onDeleteGroup = {},
+                            onClick = {}, onDismiss = {}, onMergeGroup = {}, onEditGroup = {}, onUngroup = {}, onDeleteGroup = {},
                             onMoveTab = {}, onDetachTab = {}, archived = openGroup?.isArchived == true)
                     }
                     if (items.isEmpty()) Text(if (groupsOnly) strings[R.string.ui_no_archived_groups] else strings[R.string.ui_no_matching_tabs], Modifier.align(Alignment.Center))
@@ -290,6 +305,19 @@ internal fun BrowserTabsOverview(
                 }
             }, confirmButton = { TextButton(onClick = { movingTabs = null }) { Text(strings[R.string.ui_cancel]) } })
         }
+        mergingGroup?.let { sourceId ->
+            AlertDialog(onDismissRequest = { mergingGroup = null }, title = { Text(strings[R.string.ui_merge_groups]) }, text = {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    Text(strings[R.string.ui_merge_groups_notice])
+                    workspace.groups.filterNot { it.id == sourceId }.forEach { target ->
+                        TextButton(onClick = {
+                            onUpdate(workspace.mergeGroups(sourceId, target.id, fallback))
+                            mergingGroup = null; openGroupId = null
+                        }) { Text(target.name) }
+                    }
+                }
+            }, confirmButton = { TextButton(onClick = { mergingGroup = null }) { Text(strings[R.string.ui_cancel]) } })
+        }
         deletingGroup?.let { group ->
             AlertDialog(onDismissRequest = { deletingGroup = null }, title = { Text(strings[R.string.ui_delete_archived_group]) },
                 text = { Text(strings[R.string.ui_delete_saved_tab_history_for_group, (group.name)]) },
@@ -304,7 +332,7 @@ internal fun BrowserTabsOverview(
 private fun OverviewCard(
     item: BrowserOverviewItem, workspace: BrowserWorkspace, previews: BrowserTabPreviewCache, isGallery: Boolean,
     selected: Boolean, merging: Boolean, canSwipe: Boolean, modifier: Modifier,
-    onClick: () -> Unit, onDismiss: () -> Unit, onEditGroup: (BrowserTabGroup) -> Unit,
+    onClick: () -> Unit, onDismiss: () -> Unit, onMergeGroup: (String) -> Unit, onEditGroup: (BrowserTabGroup) -> Unit,
     onUngroup: (String) -> Unit, onDeleteGroup: (BrowserTabGroup) -> Unit,
     onMoveTab: (String) -> Unit, onDetachTab: (String) -> Unit, archived: Boolean,
 ) {
@@ -314,12 +342,13 @@ private fun OverviewCard(
     val tabs = when (item) { is BrowserOverviewItem.Tab -> listOf(item.tab); is BrowserOverviewItem.Group -> item.tabs }
     val active = tabs.any { it.id == workspace.activeTabId } && group?.isArchived != true && !archived
     val color = group?.let { groupColors[it.colorIndex.coerceIn(groupColors.indices)] } ?: MaterialTheme.colorScheme.primary
-    val dismiss = rememberSwipeToDismissBoxState(positionalThreshold = { it * 0.35f })
+    // A restored group must not restore its completed dismissal gesture.
+    val dismiss = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled) { it * 0.35f } }
     val latestDismiss by rememberUpdatedState(onDismiss)
     LaunchedEffect(dismiss.currentValue) { if (dismiss.currentValue != SwipeToDismissBoxValue.Settled) latestDismiss() }
     SwipeToDismissBox(state = dismiss, modifier = modifier, enableDismissFromStartToEnd = canSwipe, enableDismissFromEndToStart = canSwipe,
         backgroundContent = { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (group == null) strings[R.string.ui_close] else strings[R.string.ui_archive_group]) } }) {
-        Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().aspectRatio(0.72f), shape = RoundedCornerShape(22.dp),
+        Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().aspectRatio(if (androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 1.9f else 0.72f), shape = RoundedCornerShape(22.dp),
             color = if (selected || active || merging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
             border = if (active || selected || merging) BorderStroke(if (merging) 4.dp else 2.dp, color) else null) {
             Column(Modifier.padding(6.dp)) {
@@ -331,6 +360,7 @@ private fun OverviewCard(
                         IconButton(onClick = { menu = true }, modifier = Modifier.size(40.dp).semantics { contentDescription = strings[R.string.ui_tab_actions] }) { Text("⋮") }
                         DropdownMenu(menu, onDismissRequest = { menu = false }) {
                             if (group != null) {
+                                if (workspace.groups.size > 1) DropdownMenuItem(text = { Text(strings[R.string.ui_merge_groups]) }, onClick = { menu = false; onMergeGroup(group.id) })
                                 DropdownMenuItem(text = { Text(strings[R.string.ui_rename_color]) }, onClick = { menu = false; onEditGroup(group) })
                                 if (group.isArchived) DropdownMenuItem(text = { Text(strings[R.string.ui_delete_group]) }, onClick = { menu = false; onDeleteGroup(group) })
                                 else {
@@ -403,7 +433,8 @@ private fun GroupEditor(group: BrowserTabGroup?, onDismiss: () -> Unit, onSave: 
 internal fun isTabDropCenter(x: Float, y: Float, width: Float, height: Float): Boolean =
     x in width * 0.25f..width * 0.75f && y in height * 0.25f..height * 0.75f
 
-internal fun BrowserWorkspace.mergeTabDrop(sourceKey: String, targetKey: String): BrowserWorkspace {
+internal fun BrowserWorkspace.mergeTabDrop(sourceKey: String, targetKey: String, fallback: BrowserPage = BrowserPage.Search()): BrowserWorkspace {
+    if (sourceKey.startsWith("group:") && targetKey.startsWith("group:")) return mergeGroups(sourceKey.removePrefix("group:"), targetKey.removePrefix("group:"), fallback)
     val tabId = sourceKey.removePrefix("tab:")
     if (!sourceKey.startsWith("tab:") || tabs.none { it.id == tabId }) return this
     return when {

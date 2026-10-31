@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
 import coil3.compose.AsyncImage
 import com.doujinzip.android.R
+import com.doujinzip.android.model.matchesSavedSearch
 import com.doujinzip.android.model.SearchSubscription
 import com.doujinzip.android.security.SubscriptionOptions
 import com.doujinzip.android.security.SubscriptionPreferences
@@ -44,6 +45,23 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
             permission.launch(Manifest.permission.POST_NOTIFICATIONS)
         onSave(value)
     }
+    var savedQuery by rememberSaveable { mutableStateOf("") }
+    var savedFilter by rememberSaveable { mutableStateOf(0) }
+    var savedSort by rememberSaveable { mutableStateOf(0) }
+    var filterMenu by remember { mutableStateOf(false) }
+    var sortMenu by remember { mutableStateOf(false) }
+    val savedRecords = remember(state.subscriptions, savedQuery, savedFilter, savedSort) {
+        val filtered = state.subscriptions.filter { record ->
+            (!record.value.deleted || record.conflict != null) && record.value.matchesSavedSearch(savedQuery) &&
+                when (savedFilter) { 1 -> record.value.enabled; 2 -> !record.value.enabled; 3 -> record.error != null || record.conflict != null; else -> true }
+        }
+        when (savedSort) {
+            1 -> filtered.sortedBy { it.value.name.lowercase() }
+            2 -> filtered.sortedByDescending { it.checkedAt }
+            3 -> filtered.sortedBy { it.checkedAt }
+            else -> filtered
+        }
+    }
     var deleting by remember { mutableStateOf<SearchSubscription?>(null) }
     var syncOptions by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal=16.dp)) {
@@ -58,10 +76,10 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
         }
         if(state.subscriptionsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.subscriptionError?.let { Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall) }
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-            TextButton(onRefresh,enabled=!state.subscriptionsBusy) { Text(strings[R.string.sub_check_now]) }
-            if(state.subscriptionTab==0) {
+        if(state.subscriptionTab==0) {
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
                 TextButton({onRead(null)},enabled=state.subscriptionNotices.any { !it.read }) { Text(strings[R.string.sub_all_read]) }
+                OutlinedButton(onRefresh,enabled=!state.subscriptionsBusy,contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) {ActionIcon(ActionSymbol.REFRESH);Spacer(Modifier.width(8.dp));Text(strings[R.string.sub_check_now])}
             }
         }
         if(state.subscriptionTab==0) {
@@ -74,29 +92,58 @@ internal fun SubscriptionScreen(state: MainUiState, onClose: () -> Unit, onTab: 
                 }
             }
         } else LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=16.dp)) {
-            item { Text(strings[R.string.sub_hint],style=MaterialTheme.typography.bodySmall) }
-            item { Button({onEdit(SearchSubscription(name="",query=""))}) { Text(strings[R.string.sub_add]) } }
+            item {
+                Card(colors=appCardColors(),modifier=Modifier.fillMaxWidth().padding(vertical=8.dp)) {
+                    Column(Modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                            OutlinedButton({onEdit(SearchSubscription(name="",query=""))},contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) { ActionIcon(ActionSymbol.ADD); Spacer(Modifier.width(8.dp)); Text(strings[R.string.sub_add]) }
+                            OutlinedButton(onRefresh,enabled=!state.subscriptionsBusy,contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) { ActionIcon(ActionSymbol.REFRESH); Spacer(Modifier.width(8.dp)); Text(strings[R.string.sub_check_now]) }
+                        }
+                        OutlinedTextField(savedQuery, {savedQuery=it}, modifier=Modifier.fillMaxWidth().padding(vertical=4.dp),
+                        singleLine=true, label={Text(strings[R.string.saved_subscription_search])}, leadingIcon={ActionIcon(ActionSymbol.SEARCH)},
+                        trailingIcon={if(savedQuery.isNotEmpty()) IconButton({savedQuery=""}) {ActionIcon(ActionSymbol.CLEAR)}})
+                        Text(strings[R.string.sub_hint],style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        HorizontalDivider(Modifier.padding(vertical=4.dp))
+                        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                            Box {
+                                OutlinedButton({filterMenu=true},contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) {ActionIcon(ActionSymbol.FILTER);Spacer(Modifier.width(8.dp));Text(strings[R.string.saved_filter_labels].split("|")[savedFilter])}
+                                DropdownMenu(filterMenu,{filterMenu=false}) {strings[R.string.saved_filter_labels].split("|").forEachIndexed { index,label -> DropdownMenuItem(text={Text(label)},onClick={savedFilter=index;filterMenu=false})}}
+                            }
+                            Box {
+                                OutlinedButton({sortMenu=true},contentPadding=PaddingValues(horizontal=10.dp,vertical=2.dp),modifier=Modifier.heightIn(min=32.dp)) {ActionIcon(ActionSymbol.SORT);Spacer(Modifier.width(8.dp));Text(strings[R.string.saved_sort_labels].split("|")[savedSort])}
+                                DropdownMenu(sortMenu,{sortMenu=false}) {strings[R.string.saved_sort_labels].split("|").forEachIndexed { index,label -> DropdownMenuItem(text={Text(label)},onClick={savedSort=index;sortMenu=false})}}
+                            }
+                        }
+                    }
+                }
+            }
             if(state.subscriptions.none { !it.value.deleted }) item { Text(strings[R.string.sub_no_searches]) }
-            items(state.subscriptions.filter { !it.value.deleted || it.conflict != null },key={it.value.id}) { record ->
+            items(savedRecords,key={it.value.id}) { record ->
                 val value=record.value
-                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                    Text(value.name,style=MaterialTheme.typography.titleMedium)
+                Card(colors=appCardColors(),modifier=Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Text(value.name,style=MaterialTheme.typography.titleLarge,fontWeight=androidx.compose.ui.text.font.FontWeight.SemiBold,color=MaterialTheme.colorScheme.onSurface)
                     if(value.deleted) Text(strings[R.string.sub_deleted],color=MaterialTheme.colorScheme.error)
                     OutlinedCard(Modifier.fillMaxWidth(),border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outline)) {
-                        Text(value.query,Modifier.padding(8.dp),style=MaterialTheme.typography.bodySmall)
+                        Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                            Text(value.query,Modifier.fillMaxWidth(),style=MaterialTheme.typography.bodyMedium)
+                            if(value.languages.isNotEmpty()) {
+                                HorizontalDivider()
+                                Text(value.languages.sorted().joinToString(", "),Modifier.fillMaxWidth(),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
-                    if(value.languages.isNotEmpty()) Text(value.languages.sorted().joinToString(", "),style=MaterialTheme.typography.bodySmall)
-                    Row(verticalAlignment=Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                         Text(strings[R.string.sub_monitor],Modifier.weight(1f))
                         Switch(value.enabled,{save(value.copy(enabled=it))},enabled=record.conflict==null,modifier=Modifier.testTag("subscription-monitor"))
                     }
                     Text(if(record.checkedAt==0L) strings[R.string.sub_never] else strings[R.string.sub_checked,DateFormat.getDateTimeInstance().format(Date(record.checkedAt))],style=MaterialTheme.typography.bodySmall)
                     record.error?.let { Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall) }
                     if(record.mutationId != null) Text(strings[R.string.sub_pending],style=MaterialTheme.typography.bodySmall)
-                    Row {
-                        TextButton({onSearch(value)}) { Text(strings[R.string.ui_search]) }
-                        TextButton({onEdit(value)},enabled=record.conflict==null) { Text(strings[R.string.sub_edit]) }
-                        TextButton({deleting=value},enabled=record.conflict==null) { Text(strings[R.string.ui_delete]) }
+                    HorizontalDivider()
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        TextButton({onSearch(value)},modifier=Modifier.weight(1f)) { Text(strings[R.string.ui_search]) }
+                        TextButton({onEdit(value)},enabled=record.conflict==null,modifier=Modifier.weight(1f)) { Text(strings[R.string.sub_edit]) }
+                        TextButton({deleting=value},enabled=record.conflict==null,modifier=Modifier.weight(1f)) { Text(strings[R.string.ui_delete]) }
                     }
                     record.conflict?.let { remote ->
                         Text(strings[R.string.sub_conflict],color=MaterialTheme.colorScheme.error)

@@ -27,6 +27,7 @@ data class DownloadRequest(
     val totalFiles: Int = 0,
     val outputUri: String? = null,
     val locationUri: String? = null,
+    val desktopQueueId: Long? = null,
 ) {
     val isBusy: Boolean get() = status in setOf(RequestStatus.RUNNING, RequestStatus.PAUSING, RequestStatus.SENDING)
     val isFinished: Boolean get() = status == RequestStatus.COMPLETED || status == RequestStatus.SENT
@@ -91,7 +92,7 @@ internal fun encodeDownloadRequests(requests: List<DownloadRequest>): String = J
         .put("target", item.target.name).put("status", item.status.name).put("profileId", item.profileId)
         .put("desktopAttempted", item.desktopAttempted)
         .put("error", item.error).put("downloadedFiles", item.downloadedFiles).put("totalFiles", item.totalFiles)
-        .put("outputUri", item.outputUri).put("locationUri", item.locationUri)) }
+        .put("outputUri", item.outputUri).put("locationUri", item.locationUri).put("desktopQueueId", item.desktopQueueId)) }
 }.toString()
 
 internal fun decodeDownloadRequests(raw: String): List<DownloadRequest> {
@@ -106,6 +107,7 @@ internal fun decodeDownloadRequests(raw: String): List<DownloadRequest> {
             profileId = optional("profileId"), desktopAttempted = item.optBoolean("desktopAttempted"),
             error = optional("error"), downloadedFiles = item.optInt("downloadedFiles"),
             totalFiles = item.optInt("totalFiles"), outputUri = optional("outputUri"), locationUri = optional("locationUri"),
+            desktopQueueId = item.optLong("desktopQueueId").takeIf { it > 0 },
         ).also { require(it.galleryId > 0 && it.id.isNotBlank() && it.downloadedFiles >= 0 && it.totalFiles >= 0) }
     }
     require(result.distinctBy { it.id }.size == result.size)
@@ -115,3 +117,10 @@ internal fun decodeDownloadRequests(raw: String): List<DownloadRequest> {
 internal fun addDownloadRequest(requests: List<DownloadRequest>, request: DownloadRequest): List<DownloadRequest> =
     if (requests.any { it.galleryId == request.galleryId && !it.isFinished }) requests
     else listOf(request) + requests
+
+internal fun List<DownloadRequest>.confirmDesktopCompletions(profileId: String, queue: List<com.doujinzip.android.model.DownloadQueueItem>): List<DownloadRequest> = map { request ->
+    val completed = queue.any { item -> item.status == com.doujinzip.android.model.DownloadStatus.COMPLETED &&
+        if (request.desktopQueueId != null) item.id == request.desktopQueueId else item.galleryId == request.galleryId }
+    if (request.target == DownloadTarget.DESKTOP && request.profileId == profileId && request.status == RequestStatus.SENT && completed)
+        request.copy(status = RequestStatus.COMPLETED, error = null) else request
+}

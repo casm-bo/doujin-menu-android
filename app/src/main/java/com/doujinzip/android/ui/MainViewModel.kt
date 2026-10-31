@@ -33,6 +33,7 @@ import com.doujinzip.android.model.queriesWithPreferredLanguages
 import com.doujinzip.android.model.invalidateSearchResults
 import com.doujinzip.android.model.isSearchPageInRange
 import com.doujinzip.android.data.DownloadRequestStore
+import com.doujinzip.android.data.confirmDesktopCompletions
 import com.doujinzip.android.data.DownloadTarget
 import com.doujinzip.android.data.RequestStatus
 import com.doujinzip.android.data.addDownloadRequest
@@ -170,6 +171,7 @@ data class MainUiState(
     val deviceName: String = "",
     val profiles: List<DesktopProfile> = emptyList(),
     val selectedProfileId: String? = null,
+    val lastDesktopSyncAt: Long = 0L,
     val browserWorkspace: BrowserWorkspace = BrowserWorkspace.initial(),
     val galleryWorkspace: BrowserWorkspace = BrowserWorkspace.initial(BrowserPage.LibraryHome()),
     val tabOverviewIsGallery: Boolean? = null,
@@ -363,6 +365,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             appStyle = appearancePreferenceStore.loadStyle(),
             profiles = profiles,
             selectedProfileId = profiles.firstOrNull()?.id,
+            lastDesktopSyncAt = browserPreferenceStore.loadLastDesktopSync(),
             browserWorkspace = browserWorkspace,
             galleryWorkspace = galleryWorkspace,
             libraryQuery = (galleryWorkspace.activeTab.currentPage as? BrowserPage.LibraryHome)?.query.orEmpty(),
@@ -393,6 +396,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             onlineReaderProgress = libraryPreferenceStore.loadOnlineProgress(),
             customSeriesByBookId = libraryPreferenceStore.loadCustomSeries(),
             librarySort = libraryPreferenceStore.loadLibrarySort(),
+            libraryFavoritesOnly = libraryPreferenceStore.loadFavoritesOnly(),
+            libraryReadFilter = libraryPreferenceStore.loadReadFilter(),
+            libraryVisibilityFilter = libraryPreferenceStore.loadVisibilityFilter(),
             librarySyncPendingCount = pendingLibrarySyncCount(),
             viewerPreferences = libraryPreferenceStore.loadViewerPreferences(),
             downloadLocation = browserPreferenceStore.loadDownloadLocation(),
@@ -794,6 +800,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun pair() {
         viewModelScope.launch {
             runOperation {
+                require(uiState.profiles.isEmpty()) { strings[R.string.connection_disconnect_first] }
                 val code = uiState.pairingCode
                 require(code.length == PAIRING_CODE_LENGTH) { strings[R.string.msg_enter_the_6_digit_pairing_code] }
                 val profileName = uiState.deviceName.trim()
@@ -811,7 +818,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     baseUrl = baseUrl,
                     token = result.token,
                 )
-                val profiles = uiState.profiles.filterNot { it.id == profile.id } + profile
+                val profiles = listOf(profile)
                 profileStore.save(profiles)
                 uiState = uiState.copy(
                     profiles = profiles,
@@ -829,8 +836,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectProfile(id: String) {
         val profile = uiState.profiles.firstOrNull { it.id == id } ?: return
-        if (uiState.selectedProfileId == id) return
+        if (uiState.selectedProfileId == id && uiState.profiles.size == 1) return
+        profileStore.save(listOf(profile))
         uiState = uiState.copy(
+            profiles = listOf(profile),
             selectedProfileId = id,
             message = strings[R.string.msg_selected, (profile.name)],
             isError = false,
@@ -847,8 +856,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val changed = uiState.selectedProfileId == id
         val profiles = uiState.profiles.filterNot { it.id == id }
         profileStore.save(profiles)
+        browserPreferenceStore.saveLastDesktopSync(0)
         uiState = uiState.copy(
             profiles = profiles,
+            lastDesktopSyncAt = 0L,
             selectedProfileId = if (uiState.selectedProfileId == id) profiles.firstOrNull()?.id
                 else uiState.selectedProfileId,
             downloadQueue = emptyList(),
@@ -1405,6 +1416,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(settingsSectionRequest = section, pendingDownloadGallery = null, downloadFolderRequired = false,
             desktopDownloadConnectionPrompt = false)
     }
+    var settingsSectionName: String = "HOME"
+
     fun consumeSettingsSectionRequest() { uiState = uiState.copy(settingsSectionRequest = null) }
     fun cancelDownloadPrompt() {
         downloadAfterFolder = null
@@ -1920,12 +1933,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         browserPreferenceStore.saveSearchQueryHistory(emptyList(), "library_query_history")
         uiState = uiState.copy(libraryQueryHistory = emptyList())
     }
-    fun toggleLibraryFavoritesFilter() = update {
-        copy(libraryFavoritesOnly = !libraryFavoritesOnly)
+    fun toggleLibraryFavoritesFilter() {
+        val value = !uiState.libraryFavoritesOnly
+        libraryPreferenceStore.saveFavoritesOnly(value)
+        update { copy(libraryFavoritesOnly = value) }
     }
-    fun setLibraryReadFilter(value: LibraryReadFilter) = update { copy(libraryReadFilter = value) }
-    fun setLibraryVisibilityFilter(value: LibraryVisibilityFilter) = update {
-        copy(libraryVisibilityFilter = value)
+    fun setLibraryReadFilter(value: LibraryReadFilter) {
+        libraryPreferenceStore.saveReadFilter(value)
+        update { copy(libraryReadFilter = value) }
+    }
+    fun setLibraryVisibilityFilter(value: LibraryVisibilityFilter) {
+        libraryPreferenceStore.saveVisibilityFilter(value)
+        update { copy(libraryVisibilityFilter = value) }
     }
     fun setLibrarySort(value: LibrarySort) {
         libraryPreferenceStore.saveLibrarySort(value)
@@ -2572,6 +2591,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uiState = uiState.copy(onlineReaderProgress = progress, viewedGalleryIds = viewedIds)
     }
 
+    fun refreshHistory() {
+        uiState = uiState.copy(recentHistory = recentHistoryStore.load())
+    }
+
     private fun saveHistory(event: RecentHistoryEntry) {
         if (!uiState.historyRecording) return
         val entries = uiState.recentHistory.recordHistory(event)
@@ -2689,6 +2712,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             try {
                 val downloads = sortDownloadQueueNewest(client.getDownloads(profile))
+                withContext(Dispatchers.IO) { requestStore.update { it.confirmDesktopCompletions(profile.id, downloads) } }
                 val completedIds = downloads.asSequence()
                     .filter { it.status == DownloadStatus.COMPLETED }
                     .mapTo(hashSetOf(), DownloadQueueItem::id)
@@ -2731,11 +2755,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun removeDownload(queueId: Long) = runDownloadAction(queueId) { profile ->
+        val item = uiState.downloadQueue.firstOrNull { it.id == queueId }
         client.removeDownload(profile, queueId)
+        withContext(Dispatchers.IO) { requestStore.update { requests ->
+            requests.filterNot { request -> request.target == DownloadTarget.DESKTOP && request.profileId == profile.id &&
+                !request.isBusy && request.isFinished &&
+                (request.desktopQueueId == queueId || request.desktopQueueId == null && request.galleryId == item?.galleryId) }
+        } }
     }
 
-    fun clearCompletedDownloads() = runDownloadAction(null) { profile ->
-        client.clearCompletedDownloads(profile)
+    fun clearCompletedDownloads() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { requestStore.update { list -> list.filterNot { it.status == RequestStatus.COMPLETED } } }
+        }
+        if (selectedProfile() != null && uiState.downloadQueue.any { it.status == DownloadStatus.COMPLETED }) runDownloadAction(null) { profile ->
+            client.clearCompletedDownloads(profile)
+        }
     }
 
     private fun runDownloadAction(
@@ -3704,6 +3739,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return acceptedStatesByBookId.keys
     }
 
+    fun retryDesktopDownloadRequest(id: String) {
+        val profile = selectedProfile() ?: return
+        if (uiState.isDownloadSyncing) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { requestStore.change(id) { request ->
+                if (request.target == DownloadTarget.DESKTOP && !request.isBusy && request.status != RequestStatus.COMPLETED && (request.profileId == null || request.profileId == profile.id))
+                    request.copy(status = RequestStatus.WAITING, error = null) else request
+            } }
+            sendPendingDownloadRequests(profile, onlyRequestId = id)
+        }
+    }
+
     fun syncDownloadRequests() {
         val profile = selectedProfile() ?: run {
             uiState = uiState.copy(downloadQueueError = strings[R.string.msg_connect_to_desktop_first])
@@ -3742,7 +3789,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!claimed) continue
                 try {
                     val item = client.requestDownload(profile, request.galleryId, request.id)
-                    withContext(Dispatchers.IO) { requestStore.change(request.id) { it.copy(status = RequestStatus.SENT, error = null) } }
+                    withContext(Dispatchers.IO) { requestStore.change(request.id) { it.copy(status = if (item.status == DownloadStatus.COMPLETED) RequestStatus.COMPLETED else RequestStatus.SENT, desktopQueueId = item.id, error = null) } }
                     if (selectedProfile()?.id == profile.id) uiState = uiState.copy(
                         downloadQueue = sortDownloadQueueNewest((uiState.downloadQueue + item).distinctBy { it.id }),
                     )
@@ -3768,6 +3815,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         errors
     }
 
+    suspend fun prepareLocalBackup(locale: String): java.io.File {
+        require(uiState.profiles.size <= 1) { strings[R.string.connection_choose_one] }
+        require(!uiState.isLibrarySyncing) { strings[R.string.backup_wait] }
+        libraryRefreshJob?.join()
+        val profile = selectedProfile()
+        var syncedIds = emptySet<String>()
+        if (profile != null) {
+            uiState = uiState.copy(librarySyncError = null)
+            // A public status response alone does not prove this pairing can access the library.
+            withContext(Dispatchers.IO) { client.getLibraryBooks(profile) }
+            refreshLibrarySilently()
+            libraryRefreshJob?.join()
+            check(uiState.libraryScanError == null) { uiState.libraryScanError.orEmpty() }
+            val uploadErrors = uploadMissingLocalBooks(profile, uiState.libraryBooks, uiState.libraryBooks.mapTo(mutableSetOf()) { it.id })
+            check(uploadErrors.isEmpty()) { uploadErrors.joinToString("\n") }
+            flushPendingLibrarySync()
+            val error = com.doujinzip.android.data.SubscriptionRefresh.run(getApplication(), profile, forceSync = true)
+            check(error == null) { error.orEmpty() }
+            check(uiState.librarySyncError == null && uiState.presentationSyncError == null && pendingLibrarySyncCount() == 0) {
+                uiState.librarySyncError ?: uiState.presentationSyncError ?: strings[R.string.backup_pending]
+            }
+            check(withContext(Dispatchers.IO) { subscriptionStore.records(profile.id).none { it.mutationId != null || it.conflict != null } }) { strings[R.string.backup_pending] }
+            syncedIds = withContext(Dispatchers.IO) { client.getLibraryBooks(profile).filter { it.syncStateVersion > 0 && it.hasSyncedSeriesState }.mapTo(mutableSetOf()) { it.id } }
+            val now = System.currentTimeMillis()
+            browserPreferenceStore.saveLastDesktopSync(now)
+            uiState = uiState.copy(lastDesktopSyncAt = now, desktopConnectionState = DesktopConnectionState.CONNECTED)
+        }
+        librarySyncDebounceJob?.cancel()
+        return presentationSyncMutex.withLock {
+            com.doujinzip.android.data.SubscriptionRefresh.snapshot {
+                withContext(Dispatchers.IO) {
+                    val store = com.doujinzip.android.data.LocalBackupStore(getApplication())
+                    val archive = store.capture(syncedIds, profile?.id, locale)
+                    val target = java.io.File.createTempFile("local-backup-", ".zip", getApplication<Application>().cacheDir)
+                    try {
+                        target.outputStream().use { com.doujinzip.android.data.BackupFormat.write(archive, it) }
+                        target.inputStream().use { store.validate(com.doujinzip.android.data.BackupFormat.read(it)) }
+                        target
+                    } catch (error: Throwable) { target.delete(); throw error }
+                }
+            }
+        }
+    }
+
     fun syncLibraryNow() {
         val profile = selectedProfile()
         if (profile == null || uiState.isLibrarySyncing) {
@@ -3787,6 +3878,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val errors = downloadErrors + failures
                 if (errors.isNotEmpty()) uiState = uiState.copy(librarySyncError = errors.joinToString("\n"),
                     message = strings[R.string.msg_some_items_could_not_sync_check_the_pending_list], isError = true)
+                if (errors.isEmpty() && uiState.librarySyncError == null && uiState.presentationSyncError == null && pendingLibrarySyncCount() == 0) {
+                    val now = System.currentTimeMillis()
+                    browserPreferenceStore.saveLastDesktopSync(now)
+                    uiState = uiState.copy(lastDesktopSyncAt = now)
+                }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 uiState = uiState.copy(librarySyncError = error.message, message = error.message, isError = true)

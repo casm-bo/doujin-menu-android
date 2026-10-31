@@ -73,14 +73,14 @@ internal fun UnifiedSearchField(
     Column(Modifier.fillMaxWidth().animateContentSize(tween(180)).clipToBounds()
         .onGloballyPositioned { state.editorBounds = it.boundsInRoot() }
         .testTag(if (state.expanded) "search-editor" else "search-collapsed")) {
-        Row(Modifier.fillMaxWidth().height(56.dp).onGloballyPositioned { state.inputBounds = it.boundsInRoot() },
+        Row(Modifier.fillMaxWidth().height(52.dp).onGloballyPositioned { state.inputBounds = it.boundsInRoot() },
             verticalAlignment = Alignment.CenterVertically) {
             if (state.expanded) Box(Modifier.width(48.dp)) {
                 IconButton(onClick = { close() }, modifier = Modifier.semantics { contentDescription = strings[R.string.ui_return] }) { ActionIcon(ActionSymbol.BACK) }
             }
             val colors = MaterialTheme.colorScheme
             val textSize = with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.fontSize.toPx() }
-            Surface(Modifier.weight(1f).height(56.dp),
+            Surface(Modifier.weight(1f).height(52.dp),
                 shape = if(outlined) MaterialTheme.shapes.small else RoundedCornerShape(percent = 50),
                 border = if(outlined) androidx.compose.foundation.BorderStroke(if(state.expanded) 2.dp else 1.dp,if(state.expanded) colors.primary else colors.outline) else null,
                 color = if(outlined) colors.surface else colors.surfaceContainerHigh) {
@@ -104,7 +104,7 @@ internal fun UnifiedSearchField(
                         }
                         input = this
                         inputCreated = true
-                    } }, modifier = Modifier.fillMaxWidth().height(56.dp), update = { view ->
+                    } }, modifier = Modifier.fillMaxWidth().height(52.dp), update = { view ->
                         view.visibility = if (state.expanded) View.VISIBLE else View.INVISIBLE
                         view.importantForAccessibility = if (state.expanded) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                         view.hint = placeholder
@@ -117,7 +117,7 @@ internal fun UnifiedSearchField(
                 }
                 if (!state.expanded) {
                     Text(query.ifBlank { placeholder }, Modifier.fillMaxWidth().clickable { onFocus(); state.expanded = true }
-                        .padding(horizontal = 12.dp, vertical = 16.dp).semantics { contentDescription = placeholder },
+                        .padding(horizontal = 12.dp, vertical = 12.dp).semantics { contentDescription = placeholder },
                         maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                 }
                 }

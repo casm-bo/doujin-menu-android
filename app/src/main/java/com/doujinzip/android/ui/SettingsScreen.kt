@@ -71,6 +71,7 @@ private enum class SettingsSection {
     CONNECTION,
     SUPPORT,
     CHANGELOG,
+    BACKUP,
 }
 
 @Composable
@@ -102,11 +103,15 @@ fun SettingsScreen(
     onSectionRequestHandled: () -> Unit = {},
     onSubscriptionOptionsChange: (com.doujinzip.android.security.SubscriptionOptions) -> Unit = {},
     onManageSubscriptions: () -> Unit = {},
+    onSyncNow: () -> Unit = {},
+    onPrepareBackup: suspend (String) -> java.io.File = { error("Backup unavailable") },
+    initialSectionName: String = "HOME",
+    onSectionChanged: (String) -> Unit = {},
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
-    var sectionName by rememberSaveable { mutableStateOf(SettingsSection.HOME.name) }
+    var sectionName by rememberSaveable { mutableStateOf(initialSectionName) }
     val section = runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.HOME)
-    val openSection: (SettingsSection) -> Unit = { sectionName = it.name }
+    val openSection: (SettingsSection) -> Unit = { sectionName = it.name; onSectionChanged(it.name) }
 
     BackHandler(enabled = section != SettingsSection.HOME) {
         openSection(SettingsSection.HOME)
@@ -127,6 +132,9 @@ fun SettingsScreen(
     }
 
     when (section) {
+        SettingsSection.BACKUP -> SettingsDetailLayout(strings[R.string.backup_title], contentPadding, { openSection(SettingsSection.HOME) }) {
+            SectionCard(strings[R.string.backup_title]) { BackupSettings(onPrepareBackup) { openSection(SettingsSection.CONNECTION) } }
+        }
         SettingsSection.SUBSCRIPTIONS -> SettingsDetailLayout(strings[R.string.sub_settings],contentPadding,{openSection(SettingsSection.HOME)}) {
             SectionCard(strings[R.string.sub_settings]) { SubscriptionSettings(state.subscriptionOptions,onSubscriptionOptionsChange,onManageSubscriptions) }
         }
@@ -177,6 +185,7 @@ fun SettingsScreen(
             onPair = onPair,
             onSelectProfile = onSelectProfile,
             onRemoveProfile = onRemoveProfile,
+            onSyncNow = onSyncNow,
         )
         SettingsSection.SUPPORT -> SupportSettingsScreen(
             state = state,
@@ -205,15 +214,14 @@ private fun SettingsHomeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            SettingsCategoryCard(title = strings[R.string.app_language], description = strings[R.string.language_choices], onClick = { onOpenSection(SettingsSection.LANGUAGE) })
+            SettingsCategoryCard(symbol = ActionSymbol.LANGUAGE, title = strings[R.string.app_language], description = strings[R.string.language_choices], onClick = { onOpenSection(SettingsSection.LANGUAGE) })
         }
         item {
-            SettingsCategoryCard(title = strings[R.string.ui_app_lock], description = strings[R.string.ui_pin_password_pattern_and_biometrics], onClick = { onOpenSection(SettingsSection.LOCK) })
+            SettingsCategoryCard(symbol = ActionSymbol.LOCK, title = strings[R.string.ui_app_lock], description = strings[R.string.ui_pin_password_pattern_and_biometrics], onClick = { onOpenSection(SettingsSection.LOCK) })
         }
-        item { SettingsCategoryCard(title=strings[R.string.sub_settings],description=strings[R.string.sub_interval],onClick={onOpenSection(SettingsSection.SUBSCRIPTIONS)}) }
         item {
             SettingsCategoryCard(
-                title = strings[R.string.ui_appearance],
+                symbol = ActionSymbol.APPEARANCE, title = strings[R.string.ui_appearance],
                 description = when (state.themeMode) {
                     AppThemeMode.SYSTEM -> strings[R.string.ui_light_or_dark_theme_based_on_system_settings]
                     AppThemeMode.LIGHT -> strings[R.string.ui_using_light_theme]
@@ -224,14 +232,15 @@ private fun SettingsHomeScreen(
         }
         item {
             SettingsCategoryCard(
-                title = strings[R.string.ui_reader_settings],
+                symbol = ActionSymbol.BOOK, title = strings[R.string.ui_reader_settings],
                 description = strings[R.string.ui_reading_direction_page_numbers_scale_and_gestures],
                 onClick = { onOpenSection(SettingsSection.VIEWER) },
             )
         }
+        item { SettingsCategoryCard(symbol = ActionSymbol.BELL, title=strings[R.string.sub_settings],description=strings[R.string.sub_interval],onClick={onOpenSection(SettingsSection.SUBSCRIPTIONS)}) }
         item {
             SettingsCategoryCard(
-                title = strings[R.string.ui_library_settings],
+                symbol = ActionSymbol.FOLDER, title = strings[R.string.ui_library_settings],
                 description = strings[R.string.ui_library_folders_download_folder, (state.libraryLocations.size)] +
                     if (state.downloadLocation == null) strings[R.string.ui_not_set] else strings[R.string.ui_configured],
                 onClick = { onOpenSection(SettingsSection.LIBRARY) },
@@ -239,14 +248,15 @@ private fun SettingsHomeScreen(
         }
         item {
             SettingsCategoryCard(
-                title = strings[R.string.ui_connection_settings],
+                symbol = ActionSymbol.PC, title = strings[R.string.ui_connection_settings],
                 description = strings[R.string.ui_optional_pc_sync_registered_pcs, (state.profiles.size)],
                 onClick = { onOpenSection(SettingsSection.CONNECTION) },
             )
         }
+        item { SettingsCategoryCard(symbol = ActionSymbol.SAVE, title=strings[R.string.backup_title],description=strings[R.string.backup_summary],onClick={onOpenSection(SettingsSection.BACKUP)}) }
         item {
             SettingsCategoryCard(
-                title = strings[R.string.ui_about],
+                symbol = ActionSymbol.INFO, title = strings[R.string.ui_about],
                 description = strings[R.string.ui_version_changelog_diagnostics_and_issues],
                 onClick = { onOpenSection(SettingsSection.SUPPORT) },
             )
@@ -406,7 +416,7 @@ private fun ChangelogScreen(contentPadding: PaddingValues, onBack: () -> Unit) {
         appChangelog.forEach { changelog ->
             SectionCard("v${changelog.version}") {
                 changelog.changes.forEach { change ->
-                    Text("• $change")
+                    Text("• $change", modifier = Modifier.padding(vertical = 4.dp))
                 }
             }
         }
@@ -415,6 +425,7 @@ private fun ChangelogScreen(contentPadding: PaddingValues, onBack: () -> Unit) {
 
 @Composable
 private fun SettingsCategoryCard(
+    symbol: ActionSymbol,
     title: String,
     description: String,
     onClick: () -> Unit,
@@ -424,6 +435,7 @@ private fun SettingsCategoryCard(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            ActionIcon(symbol, Modifier.padding(end = 16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -446,8 +458,10 @@ private fun ViewerSettingsScreen(
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
     SettingsDetailLayout(strings[R.string.ui_reader_settings], contentPadding, onBack) {
-        SectionCard(strings[R.string.ui_reader]) {
-            ViewerSettingsContent(preferences = preferences, onChange = onChange)
+        listOf(R.string.ui_reading_mode, R.string.ui_page_turning, R.string.ui_view_58d697).forEachIndexed { index, title ->
+            SectionCard(strings[title]) {
+                ViewerSettingsContent(preferences = preferences, onChange = onChange, section = index)
+            }
         }
     }
 }
@@ -509,7 +523,9 @@ private fun LibrarySettingsScreen(
         SectionCard(strings[R.string.ui_download_folder]) {
             ReadOnlyPathRow(title = strings[R.string.ui_desktop_download_folder],
                 path = state.desktopDownloadPath?.let { readableStoragePath(it) } ?: strings[R.string.ui_not_configured_on_desktop])
+            Spacer(Modifier.height(12.dp))
             HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
             val location = state.downloadLocation
             if (location != null) StorageLocationRow(location, strings[R.string.ui_delete], strings[R.string.ui_local_download_folder], onClearDownloadLocation)
             else {
@@ -583,11 +599,24 @@ private fun ConnectionSettingsScreen(
     onPair: () -> Unit,
     onSelectProfile: (String) -> Unit,
     onRemoveProfile: (String) -> Unit,
+    onSyncNow: () -> Unit,
 ) {
     val strings = androidx.compose.ui.platform.LocalResources.current
-    val enabled = !state.isBusy && !state.isLoadingPage
+    val enabled = !state.isBusy && !state.isLoadingPage && !state.isLibrarySyncing
+    var disconnect by rememberSaveable { mutableStateOf(false) }
+    var keepProfile by rememberSaveable { mutableStateOf<String?>(null) }
+    if (disconnect) androidx.compose.material3.AlertDialog(onDismissRequest = { disconnect = false },
+        title = { Text(strings[R.string.connection_disconnect]) },
+        text = { Text(strings[R.string.connection_disconnect_notice]) },
+        confirmButton = { TextButton(onClick = { state.profiles.singleOrNull()?.let { onRemoveProfile(it.id) }; disconnect = false }) { Text(strings[R.string.connection_disconnect]) } },
+        dismissButton = { TextButton(onClick = { disconnect = false }) { Text(strings[R.string.ui_cancel]) } })
+    keepProfile?.let { id -> androidx.compose.material3.AlertDialog(onDismissRequest = { keepProfile = null },
+        title = { Text(strings[R.string.connection_choose_one]) },
+        text = { Text(strings[R.string.connection_legacy_notice]) },
+        confirmButton = { TextButton(onClick = { onSelectProfile(id); keepProfile = null }) { Text(strings[R.string.ui_confirm]) } },
+        dismissButton = { TextButton(onClick = { keepProfile = null }) { Text(strings[R.string.ui_cancel]) } }) }
     SettingsDetailLayout(strings[R.string.ui_connection_settings], contentPadding, onBack) {
-        SectionCard(strings[R.string.ui_connection_and_sync]) {
+        if (state.profiles.isEmpty()) SectionCard(strings[R.string.ui_connection_and_sync]) {
             Text(
                 strings[R.string.ui_pc_connection_is_optional_and_does_not_affect_standalone_readi],
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -648,17 +677,42 @@ private fun ConnectionSettingsScreen(
             }
         }
 
-        if (state.profiles.isNotEmpty()) {
-            SectionCard(strings[R.string.ui_registered_pcs]) {
-                SavedDesktopRows(
-                    profiles = state.profiles,
-                    selectedProfileId = state.selectedProfileId,
-                    connectionState = state.desktopConnectionState,
-                    enabled = enabled,
-                    onSelect = onSelectProfile,
-                    onRemove = onRemoveProfile,
-                )
+        if (state.profiles.size > 1) {
+            SectionCard(strings[R.string.connection_choose_one]) {
+                Text(strings[R.string.connection_legacy_notice])
+                state.profiles.forEach { profile ->
+                    OutlinedButton(onClick = { keepProfile = profile.id }, enabled = enabled) { Text(profile.name) }
+                }
             }
+        } else if (state.profiles.isNotEmpty()) {
+            SectionCard(strings[R.string.ui_registered_pcs]) {
+                val profile = state.profiles.single()
+                Text(strings[R.string.server_name_label, profile.name], fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Text(strings[R.string.server_address_label, profile.baseUrl], style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                Text(strings[R.string.connection_status_label] + " " + strings[when (state.desktopConnectionState) {
+                    DesktopConnectionState.CONNECTED -> R.string.ui_connected
+                    DesktopConnectionState.CONNECTING -> R.string.ui_connecting
+                    else -> R.string.ui_disconnected
+                }], color = when (state.desktopConnectionState) {
+                    DesktopConnectionState.CONNECTED -> androidx.compose.ui.graphics.Color(0xFF218739)
+                    DesktopConnectionState.CONNECTING -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> MaterialTheme.colorScheme.error
+                })
+                Spacer(Modifier.height(16.dp))
+                Text(strings[R.string.connection_last_sync, if (state.lastDesktopSyncAt == 0L) "—" else
+                    java.text.DateFormat.getDateTimeInstance().format(java.util.Date(state.lastDesktopSyncAt))], style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(12.dp))
+                state.librarySyncError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onSyncNow, enabled = enabled) { Text(strings[R.string.sub_sync_now]) }
+                    OutlinedButton(onClick = { disconnect = true }, enabled = enabled) { Text(strings[R.string.connection_disconnect]) }
+                }
+            }
+        }
+        if (state.profiles.isNotEmpty()) SectionCard(null) {
+            Text(strings[R.string.connection_single_notice], style = MaterialTheme.typography.bodyMedium)
         }
         if (state.isBusy) LoadingRow(strings[R.string.ui_connecting])
     }
@@ -735,11 +789,13 @@ private fun SavedDesktopRows(
 }
 
 @Composable
-private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun SectionCard(title: String?, content: @Composable ColumnScope.() -> Unit) {
     Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(12.dp))
+            if (title != null) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(12.dp))
+            }
             content()
         }
     }
