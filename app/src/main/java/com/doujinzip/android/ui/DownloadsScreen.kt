@@ -30,6 +30,10 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -105,29 +109,28 @@ fun DownloadsScreen(
     ) {
         val activeCount = state.downloadQueue.count { it.status == DownloadStatus.PENDING || it.status == DownloadStatus.DOWNLOADING } +
             visibleRequests.count { it.status == RequestStatus.WAITING || it.isBusy }
-        Text(strings[R.string.ui_total_pc_active, state.downloadQueue.size + visibleRequests.size, activeCount],
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(
-                onClick = onClearCompleted,
-                enabled = state.downloadQueue.any { it.status == DownloadStatus.COMPLETED } || state.downloadRequests.any { it.status == RequestStatus.COMPLETED },
-            ) { Text(strings[R.string.ui_clear_completed_items]) }
-            OutlinedButton(
-                onClick = { onRefresh(false) },
-                enabled = hasProfile && !state.isDownloadQueueLoading,
-            ) { Text(strings[R.string.ui_refresh]) }
+        Card(colors = appCardColors(), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(strings[R.string.ui_total_pc_active, state.downloadQueue.size + visibleRequests.size, activeCount],
+                        Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onClearCompleted,
+                        enabled = state.downloadQueue.any { it.status == DownloadStatus.COMPLETED } || state.downloadRequests.any { it.status == RequestStatus.COMPLETED },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) { Text(strings[R.string.ui_clear_completed_items]) }
+                    IconButton(onClick = { onRefresh(false) }, enabled = hasProfile && !state.isDownloadQueueLoading,
+                        modifier = Modifier.semantics { contentDescription = strings[R.string.ui_refresh] }) { ActionIcon(ActionSymbol.REFRESH) }
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(strings[R.string.ui_local_download_folder] + ": " + (state.downloadLocation?.let { readableStoragePath(it.uri, it.displayName) } ?: strings[R.string.download_folder_unset]),
+                        Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { folderPicker.launch(null) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) { Text(strings[R.string.ui_choose_folder]) }
+                }
+                Text(strings[R.string.ui_desktop_download_folder] + ": " + (state.desktopDownloadPath?.let { readableStoragePath(it) }
+                    ?: strings[R.string.ui_not_configured_on_desktop]), Modifier.fillMaxWidth().padding(bottom = 4.dp), style = MaterialTheme.typography.bodySmall)
+            }
         }
-
-        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(strings[R.string.ui_device_storage, (state.downloadLocation?.let { readableStoragePath(it.uri, it.displayName) } ?: strings[R.string.download_folder_unset])], Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { folderPicker.launch(null) }) { Text(strings[R.string.ui_choose_folder]) }
-        }
-        Text(strings[R.string.ui_desktop_download_folder] + ": " + (state.desktopDownloadPath?.let { readableStoragePath(it) }
-            ?: strings[R.string.ui_not_configured_on_desktop]), Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), style = MaterialTheme.typography.bodySmall)
         if (!hasProfile || state.isDownloadConnectionUnavailable) {
             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(strings[R.string.ui_pc_disconnected_pending_requests_are_stored_on_this_device], Modifier.weight(1f))
@@ -158,8 +161,8 @@ fun DownloadsScreen(
                 }
             }
             state.downloadQueue.isEmpty() && state.downloadRequests.isEmpty() -> {
-                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp), contentAlignment = Alignment.TopCenter) {
+                    Column(Modifier.padding(top = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(strings[R.string.ui_the_download_queue_is_empty], style = MaterialTheme.typography.titleMedium)
                         Text(
                             strings[R.string.ui_add_downloads_from_a_gallery_detail_screen],
