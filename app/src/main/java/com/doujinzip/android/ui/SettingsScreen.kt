@@ -213,7 +213,6 @@ private fun SettingsHomeScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Text(strings[R.string.settings_personal_group], style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp)) }
         item {
             SettingsCategoryCard(symbol = ActionSymbol.LANGUAGE, title = strings[R.string.app_language], description = strings[R.string.language_choices], onClick = { onOpenSection(SettingsSection.LANGUAGE) })
         }
@@ -231,7 +230,6 @@ private fun SettingsHomeScreen(
                 onClick = { onOpenSection(SettingsSection.APPEARANCE) },
             )
         }
-        item { Text(strings[R.string.settings_reader_group], style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp)) }
         item {
             SettingsCategoryCard(
                 symbol = ActionSymbol.BOOK, title = strings[R.string.ui_reader_settings],
@@ -240,7 +238,6 @@ private fun SettingsHomeScreen(
             )
         }
         item { SettingsCategoryCard(symbol = ActionSymbol.BELL, title=strings[R.string.sub_settings],description=strings[R.string.sub_interval],onClick={onOpenSection(SettingsSection.SUBSCRIPTIONS)}) }
-        item { Text(strings[R.string.settings_paths_group], style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp)) }
         item {
             SettingsCategoryCard(
                 symbol = ActionSymbol.FOLDER, title = strings[R.string.ui_library_settings],
